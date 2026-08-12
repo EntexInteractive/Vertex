@@ -68,4 +68,15 @@
         <Using Include="Serilog" />
     </ItemGroup>
 
+    <ItemGroup>
+      <_ContentIncludedByDefault Remove="wwwroot\assets\hero-CLDdwZDr.png" />
+      <_ContentIncludedByDefault Remove="wwwroot\assets\index-CIXt1mP8.js" />
+      <_ContentIncludedByDefault Remove="wwwroot\assets\index-D64VDMd1.css" />
+      <_ContentIncludedByDefault Remove="wwwroot\assets\react-CHdo91hT.svg" />
+      <_ContentIncludedByDefault Remove="wwwroot\assets\vite-BF8QNONU.svg" />
+      <_ContentIncludedByDefault Remove="wwwroot\favicon.svg" />
+      <_ContentIncludedByDefault Remove="wwwroot\icons.svg" />
+      <_ContentIncludedByDefault Remove="wwwroot\index.html" />
+    </ItemGroup>
+
 </Project>
