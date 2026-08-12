@@ -1,27 +1,95 @@
-// Copyright 2026 Entex Interactive
-
-using Serilog;
-using Vertex.Server.Services;
+using System.Reflection;
+using Entex.Core.IO;
+using Microsoft.OpenApi;
+using Microsoft.OpenApi.Models;
+using Newtonsoft.Json.Converters;
+using Newtonsoft.Json.Serialization;
 
 namespace Vertex.Server
 {
     public static class Program
     {
-        public static void Main(string[] args)
+        public static async Task Main(string[] args)
         {
             WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
-            builder.Host.UseSerilog((context, services, configuration) => configuration.ReadFrom.Configuration(context.Configuration));
+        
+            DirectoryInfo dashboardDir = FileSystemUtility.AppDirectory;
+            Console.WriteLine($"{dashboardDir.FullName}: {dashboardDir.Exists}");
+            if (dashboardDir.Exists)
+            {
+                builder.Services.AddSpaStaticFiles(config => { config.RootPath = "DashboardApp"; });
+            }
 
             // Add services to the container.
-            builder.Services.AddGrpc();
+            builder.Services.AddEndpointsApiExplorer();
+            builder.Services.AddControllers().AddNewtonsoftJson(options =>
+            {
+                options.SerializerSettings.Converters.Add(new StringEnumConverter { NamingStrategy = new CamelCaseNamingStrategy() });
+            });
+            
+            builder.Services.AddOpenApi();
+            builder.Services.AddSwaggerGen(gen =>
+            {
+                string xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
+                string xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+                gen.IncludeXmlComments(xmlPath);
+
+                gen.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+                {
+                    Name = "Authorization",
+                    Description = "For api bearer access.",
+                    In = ParameterLocation.Header,
+                    Type = SecuritySchemeType.Http,
+                    BearerFormat = "JWT",
+                    Scheme = "Bearer"
+                });
+
+                gen.AddSecurityRequirement(new OpenApiSecurityRequirement
+                {
+                    {
+                        new OpenApiSecurityScheme
+                        {
+                            Reference = new OpenApiReference
+                            {
+                                Type = ReferenceType.SecurityScheme,
+                                Id = "Bearer"
+                            },
+                            //Scheme = "oauth2",
+                            //Name = "Bearer",
+                            //In = ParameterLocation.Header
+                        },
+                        new List<string>()
+                    }
+                });
+            });
 
             WebApplication app = builder.Build();
+            if (dashboardDir.Exists)
+            {
+                app.UseDefaultFiles();
+                app.UseStaticFiles();
+                app.UseWhen(IsSpaRequest, config => config.UseSpaStaticFiles());
+            }
 
             // Configure the HTTP request pipeline.
-            app.MapGrpcService<GreeterService>();
-            app.MapGet("/", () => "Communication with gRPC endpoints must be made through a gRPC client. To learn how to create a client, visit: https://go.microsoft.com/fwlink/?linkid=2086909");
+            if (app.Environment.IsDevelopment())
+            {
+                app.MapOpenApi();
+                //app.UseDeveloperExceptionPage();
+                app.UseSwagger();
+                app.UseSwaggerUI();
+            }
 
-            app.Run();
+            app.UseHttpsRedirection();
+            app.UseAuthorization();
+
+            app.MapControllers();
+            await app.RunAsync();
+        }
+    
+        static bool IsSpaRequest(HttpContext context)
+        {
+            return !context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase);
         }
     }
 }
