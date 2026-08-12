@@ -1,0 +1,26 @@
+version: 2
+updates:
+
+  - package-ecosystem: "nuget"
+    directory: "/Vertex.Agent"
+    schedule:
+      interval: "daily"
+    target-branch: "develop"
+
+  - package-ecosystem: "nuget"
+    directory: "/Vertex.Core"
+    schedule:
+      interval: "daily"
+    target-branch: "develop"
+
+  - package-ecosystem: "npm"
+    directory: "/Vertex.Dashboard"
+    schedule:
+      interval: "daily"
+    target-branch: "develop"
+
+  - package-ecosystem: "nuget"
+    directory: "/Vertex.Server"
+    schedule:
+      interval: "daily"
+    target-branch: "develop"
