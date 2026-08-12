@@ -1,13 +1,15 @@
 using System.Reflection;
 using Entex.Core.IO;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.OpenApi;
 using Microsoft.OpenApi.Models;
 using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Serialization;
+using Vertex.Server.Services;
 
 namespace Vertex.Server
 {
-    public static class Program
+    public static class ServerApp
     {
         public static async Task Main(string[] args)
         {
@@ -20,7 +22,19 @@ namespace Vertex.Server
                 builder.Services.AddSpaStaticFiles(config => { config.RootPath = "DashboardApp"; });
             }
 
+            builder.WebHost.ConfigureKestrel(options =>
+            {
+                options.ListenAnyIP(5001, listenOptions =>
+                {
+                    listenOptions.UseHttps();
+                    listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
+                });
+            });
+
             // Add services to the container.
+            builder.Services.AddGrpc();
+            builder.Services.AddGrpcReflection();
+            
             builder.Services.AddEndpointsApiExplorer();
             builder.Services.AddControllers().AddNewtonsoftJson(options =>
             {
@@ -75,14 +89,16 @@ namespace Vertex.Server
             if (app.Environment.IsDevelopment())
             {
                 app.MapOpenApi();
+                app.MapGrpcReflectionService();
                 //app.UseDeveloperExceptionPage();
                 app.UseSwagger();
                 app.UseSwaggerUI();
             }
 
+            app.MapGrpcService<GreeterService>();
+            
             app.UseHttpsRedirection();
             app.UseAuthorization();
-
             app.MapControllers();
             await app.RunAsync();
         }
