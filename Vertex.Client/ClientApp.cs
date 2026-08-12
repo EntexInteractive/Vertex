@@ -6,7 +6,7 @@ using Vertex.Agent.Services;
 
 namespace Vertex.Agent
 {
-    internal static class Program
+    internal static class ClientApp
     {
         private static async Task Main(string[] args)
         {
