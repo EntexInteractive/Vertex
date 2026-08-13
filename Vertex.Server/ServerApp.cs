@@ -1,5 +1,4 @@
 using System.Reflection;
-using Entex.Core.IO;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.OpenApi;
 using Microsoft.OpenApi.Models;
@@ -14,22 +13,25 @@ namespace Vertex.Server
         public static async Task Main(string[] args)
         {
             WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
-        
-            DirectoryInfo dashboardDir = FileSystemUtility.AppDirectory;
-            Console.WriteLine($"{dashboardDir.FullName}: {dashboardDir.Exists}");
-            if (dashboardDir.Exists)
-            {
-                builder.Services.AddSpaStaticFiles(config => { config.RootPath = "DashboardApp"; });
-            }
-
+            builder.Host.UseSerilog((context, services, configuration) => configuration.ReadFrom.Configuration(context.Configuration));
+            builder.Services.AddSpaStaticFiles(config => { config.RootPath = "wwwroot"; });
+            
+            builder.WebHost.UseUrls();
             builder.WebHost.ConfigureKestrel(options =>
             {
-                options.ListenAnyIP(5001, listenOptions =>
+                options.ListenAnyIP(Convert.ToInt32(Environment.GetEnvironmentVariable("Http_Port") ?? "5000"), listenOptions =>
+                { 
+                    listenOptions.Protocols = HttpProtocols.Http1;
+                });
+
+                options.ListenAnyIP(Convert.ToInt32(Environment.GetEnvironmentVariable("Http2_Port") ?? "5002"), listenOptions =>
                 {
-                    listenOptions.UseHttps();
-                    listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
+                    listenOptions.Protocols = HttpProtocols.Http2; 
                 });
             });
+            
+            // Caching services
+            builder.Services.AddMemoryCache();
 
             // Add services to the container.
             builder.Services.AddGrpc();
@@ -78,12 +80,6 @@ namespace Vertex.Server
             });
 
             WebApplication app = builder.Build();
-            if (dashboardDir.Exists)
-            {
-                app.UseDefaultFiles();
-                app.UseStaticFiles();
-                app.UseWhen(IsSpaRequest, config => config.UseSpaStaticFiles());
-            }
 
             // Configure the HTTP request pipeline.
             if (app.Environment.IsDevelopment())
@@ -95,6 +91,10 @@ namespace Vertex.Server
                 app.UseSwaggerUI();
             }
 
+            app.UseDefaultFiles();
+            app.UseStaticFiles();
+            app.UseWhen(IsSpaRequest, config => config.UseSpaStaticFiles());
+            
             app.MapGrpcService<GreeterService>();
             
             app.UseHttpsRedirection();
