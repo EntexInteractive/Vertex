@@ -2,7 +2,7 @@
 
 using Microsoft.Extensions.Options;
 
-namespace Vertex.Agent.Services
+namespace Vertex.Client.Services
 {
     public class GrpcService
     {

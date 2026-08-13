@@ -1,8 +1,8 @@
 ﻿// Copyright 2026 Entex Interactive
 
-namespace Vertex.Client
+namespace Vertex.Server
 {
-    public class ClientSettings
+    public class Startup
     {
         
     }

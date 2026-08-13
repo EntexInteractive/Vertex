@@ -1,6 +1,4 @@
-# =========================
 # Visual Studio & Windows
-# =========================
 
 # User-specific files
 *.bat
@@ -94,9 +92,7 @@ MigrationBackup/
 ~$*
 *~
 
-# =========================
 # Node.js / JavaScript
-# =========================
 
 # Dependencies
 node_modules/
@@ -153,12 +149,9 @@ lcov-report/
 # Misc
 .node_repl_history
 
-# =========================
-# Electron / React
-# =========================
-
 # React build output
 build/
+Vertex.Server/wwwroot/
 
 # Electron temporary
 pids/
