@@ -5,15 +5,43 @@
         <TargetFramework>net9.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
-        <ApplicationIcon>Vertex_Purple.ico</ApplicationIcon>
+        <ApplicationIcon>vertex-icon.ico</ApplicationIcon>
+        <AssemblyName>VertexAgent</AssemblyName>
+        <AssemblyVersion>0.0.0.0</AssemblyVersion>
+        <Company>Entex Interactive, LLC</Company>
+        <Copyright>Copyright $(Company). All Rights Reserved.</Copyright>
+        <FileVersion>$(AssemblyVersion)</FileVersion>
+        <Version>$(VersionPrefix)$(AssemblyVersion)</Version>
+        <Authors>$(Company)</Authors>
+    </PropertyGroup>
+
+    <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+        <DefineConstants>$(DefineConstants);TRACE</DefineConstants>
+        <TreatWarningsAsErrors>True</TreatWarningsAsErrors>
+        <Optimize>True</Optimize>
+    </PropertyGroup>
+    <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+        <DefineConstants>$(DefineConstants);DEBUG;TRACE</DefineConstants>
+        <TreatWarningsAsErrors>False</TreatWarningsAsErrors>
+        <DebugSymbols>True</DebugSymbols>
+        <DebugType>Full</DebugType>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Analyze|AnyCPU'">
+        <TreatWarningsAsErrors>False</TreatWarningsAsErrors>
+        <RunAnalyzersDuringBuild>True</RunAnalyzersDuringBuild>
+        <EnforceCodeStyleInBuild>True</EnforceCodeStyleInBuild>
+        <GenerateDocumentationFile>True</GenerateDocumentationFile>
     </PropertyGroup>
 
     <ItemGroup>
+        <PackageReference Include="EntexInteractive.Extensions" Version="10.0.3"/>
         <PackageReference Include="Grpc.Net.Client" Version="2.83.0"/>
+        <PackageReference Include="Google.Protobuf" Version="3.33.2"/>
         <PackageReference Include="Grpc.Tools" Version="2.83.0">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
+        <PackageReference Include="Microsoft.Extensions.Caching.Hybrid" Version="10.9.0" />
         <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.11" />
         <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.11" />
         <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.11" />
@@ -25,9 +53,18 @@
         <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
         <PackageReference Include="Serilog" Version="4.4.0"/>
         <PackageReference Include="Serilog.Extensions.Hosting" Version="10.0.0"/>
+        <PackageReference Include="Serilog.Settings.Configuration" Version="10.0.1" />
         <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1"/>
         <PackageReference Include="Serilog.Sinks.Debug" Version="3.0.0"/>
         <PackageReference Include="Serilog.Sinks.File" Version="7.0.0"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Vertex.Net\Vertex.Net.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <Protobuf Include="..\Vertex.Server\Protos\Greeter.proto" Link="Protos\Greeter.proto" GrpcServices="Client"/>
     </ItemGroup>
 
 </Project>

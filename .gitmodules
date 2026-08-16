@@ -1,0 +1,3 @@
+[submodule "Vertex.Net"]
+	path = Vertex.Net
+	url = https://github.com/EntexInteractive/Vertex.Net.git

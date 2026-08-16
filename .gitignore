@@ -1,6 +1,4 @@
-# =========================
 # Visual Studio & Windows
-# =========================
 
 # User-specific files
 *.bat
@@ -94,9 +92,7 @@ MigrationBackup/
 ~$*
 *~
 
-# =========================
 # Node.js / JavaScript
-# =========================
 
 # Dependencies
 node_modules/
@@ -124,6 +120,7 @@ out/
 .svelte-kit/
 **/.vitepress/dist
 **/.vitepress/cache
+**/wwwroot/
 .docusaurus/
 
 # TypeScript
@@ -152,13 +149,6 @@ lcov-report/
 
 # Misc
 .node_repl_history
-
-# =========================
-# Electron / React
-# =========================
-
-# React build output
-build/
 
 # Electron temporary
 pids/
