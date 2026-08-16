@@ -16,17 +16,15 @@ namespace Vertex.Server
             builder.Host.UseSerilog((context, services, configuration) => configuration.ReadFrom.Configuration(context.Configuration));
             builder.Services.AddSpaStaticFiles(config => { config.RootPath = "wwwroot"; });
             
-            builder.WebHost.UseUrls();
             builder.WebHost.ConfigureKestrel(options =>
             {
                 options.ListenAnyIP(Convert.ToInt32(Environment.GetEnvironmentVariable("Http_Port") ?? "5000"), listenOptions =>
-                { 
-                    listenOptions.Protocols = HttpProtocols.Http1;
-                });
-
-                options.ListenAnyIP(Convert.ToInt32(Environment.GetEnvironmentVariable("Http2_Port") ?? "5002"), listenOptions =>
                 {
-                    listenOptions.Protocols = HttpProtocols.Http2; 
+                    // ALPN selects HTTP/1.1 for regular HTTP requests and HTTP/2 for gRPC.
+                    // TLS is required because both protocols cannot be negotiated over one
+                    // clear-text endpoint.
+                    listenOptions.UseHttps();
+                    listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
                 });
             });
             

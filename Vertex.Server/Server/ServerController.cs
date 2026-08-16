@@ -18,7 +18,7 @@ namespace Vertex.Server.Server
         {
             GetPortsResponse response = new GetPortsResponse();
             response.HttpPort = Convert.ToInt32(Environment.GetEnvironmentVariable("Http_Port") ?? "5000");
-            response.GrpcPort = Convert.ToInt32(Environment.GetEnvironmentVariable("Http2_Port") ?? "5002");
+            response.GrpcPort = response.HttpPort;
             return response;
         }
         
