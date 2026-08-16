@@ -59,7 +59,7 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\Vertex.Api\Vertex.Api.csproj" />
+      <ProjectReference Include="..\Vertex.Net\Vertex.Net.csproj" />
     </ItemGroup>
 
     <ItemGroup>
