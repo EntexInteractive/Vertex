@@ -120,6 +120,7 @@ out/
 .svelte-kit/
 **/.vitepress/dist
 **/.vitepress/cache
+**/wwwroot/
 .docusaurus/
 
 # TypeScript
@@ -148,10 +149,6 @@ lcov-report/
 
 # Misc
 .node_repl_history
-
-# React build output
-build/
-Vertex.Server/wwwroot/
 
 # Electron temporary
 pids/
