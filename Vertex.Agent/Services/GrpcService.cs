@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Vertex.Server;
 
-namespace Vertex.Client.Services
+namespace Vertex.Agent.Services
 {
     public sealed class GrpcService : IDisposable
     {
@@ -13,7 +13,7 @@ namespace Vertex.Client.Services
         private readonly GrpcChannel _channel;
         private readonly Greeter.GreeterClient _client;
 
-        public GrpcService(ILogger<GrpcService> logger, IOptions<ClientSettings> settings)
+        public GrpcService(ILogger<GrpcService> logger, IOptions<AgentSettings> settings)
         {
             _logger = logger;
 
@@ -29,10 +29,7 @@ namespace Vertex.Client.Services
 
         public async Task<string> SayHelloAsync(string name, CancellationToken cancellationToken = default)
         {
-            HelloReply reply = await _client.SayHelloAsync(
-                new HelloRequest { Name = name },
-                cancellationToken: cancellationToken);
-
+            HelloReply reply = await _client.SayHelloAsync(new HelloRequest { Name = name }, cancellationToken: cancellationToken);
             return reply.Message;
         }
 

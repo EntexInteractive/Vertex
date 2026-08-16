@@ -1,10 +1,10 @@
 ﻿// Copyright 2026 Entex Interactive
 
-namespace Vertex.Client
+namespace Vertex.Agent
 {
-    public class ClientSettings
+    public class AgentSettings
     {
-        public const string SectionName = "Client";
+        public const string SectionName = "Agent";
 
         public string ServerAddress { get; set; } = "https://localhost:5000";
     }
