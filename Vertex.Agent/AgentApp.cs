@@ -5,11 +5,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Serilog;
-using Vertex.Client.Services;
+using Vertex.Agent.Services;
 
-namespace Vertex.Client
+namespace Vertex.Agent
 {
-    internal static class ClientApp
+    internal static class AgentApp
     {
         private static async Task Main(string[] args)
         {
@@ -21,10 +21,13 @@ namespace Vertex.Client
             }
 
             builder.Logging.ClearProviders();
-            builder.Services.AddSerilog((services, config) => config.ReadFrom.Configuration(builder.Configuration));
+            builder.Services.AddSerilog((services, config) =>
+            {
+                config.ReadFrom.Configuration(builder.Configuration);
+            });
             
             builder.Services.AddMemoryCache();
-            builder.Services.Configure<ClientSettings>(builder.Configuration.GetSection(ClientSettings.SectionName));
+            builder.Services.Configure<AgentSettings>(builder.Configuration.GetSection(AgentSettings.SectionName));
             builder.Services.AddSingleton<GrpcService>();
             
             IHost host = builder.Build();
