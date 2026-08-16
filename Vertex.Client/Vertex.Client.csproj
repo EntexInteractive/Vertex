@@ -6,7 +6,7 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <ApplicationIcon>vertex-icon.ico</ApplicationIcon>
-        <AssemblyName>VertexClient</AssemblyName>
+        <AssemblyName>VertexAgent</AssemblyName>
         <AssemblyVersion>0.0.0.0</AssemblyVersion>
         <Company>Entex Interactive, LLC</Company>
         <Copyright>Copyright $(Company). All Rights Reserved.</Copyright>
@@ -34,7 +34,9 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <PackageReference Include="EntexInteractive.Extensions" Version="10.0.3"/>
         <PackageReference Include="Grpc.Net.Client" Version="2.83.0"/>
+        <PackageReference Include="Google.Protobuf" Version="3.33.2"/>
         <PackageReference Include="Grpc.Tools" Version="2.83.0">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -58,12 +60,11 @@
     </ItemGroup>
 
     <ItemGroup>
-        <Using Include="Serilog" />
+        <ProjectReference Include="..\Vertex.Net\Vertex.Net.csproj"/>
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\Entexinteractive.Extensions\Entexinteractive.Extensions\Entexinteractive.Extensions.csproj" />
-      <ProjectReference Include="..\Vertex.Api\Vertex.Api.csproj" />
+        <Protobuf Include="..\Vertex.Server\Protos\Greeter.proto" Link="Protos\Greeter.proto" GrpcServices="Client"/>
     </ItemGroup>
 
 </Project>
