@@ -1,6 +1,6 @@
 ﻿// Copyright 2026 Entex Interactive
 
-using Vertex.Api.Interfaces;
+using Vertex.Net.Interfaces;
 
 namespace Vertex.Cli.Net
 {
