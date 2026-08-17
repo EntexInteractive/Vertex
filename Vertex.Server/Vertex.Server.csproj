@@ -3,7 +3,6 @@
     <PropertyGroup>
         <Nullable>enable</Nullable>
         <TargetFramework>net9.0</TargetFramework>
-        <GenerateDocumentationFile>True</GenerateDocumentationFile>
         <ImplicitUsings>enable</ImplicitUsings>
         <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
         <ApplicationIcon>vertex-icon.ico</ApplicationIcon>
@@ -24,6 +23,7 @@
     </PropertyGroup>
     <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
         <DefineConstants>$(DefineConstants);DEBUG;TRACE</DefineConstants>
+        <GenerateDocumentationFile>True</GenerateDocumentationFile>
         <TreatWarningsAsErrors>False</TreatWarningsAsErrors>
         <DebugSymbols>True</DebugSymbols>
         <DebugType>Full</DebugType>
