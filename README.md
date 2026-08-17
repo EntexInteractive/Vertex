@@ -11,4 +11,4 @@ You install the Vertex Agent on your computers and connect them to your Vertex a
 
 ## Contact
 
-For questions and ideas, reach out via our [GitHub Issues](https://github.com/EntexInteractive/Parallel/issues).
+For questions and ideas, reach out via our [GitHub Issues](https://github.com/EntexInteractive/Vertex/issues).
