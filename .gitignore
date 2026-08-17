@@ -7,7 +7,6 @@
 *.user
 *.userosscache
 *.sln.docstates
-*.sln
 *.lnk
 *.userprefs
 mono_crash.*
