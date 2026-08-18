@@ -28,6 +28,13 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <PackageReference Include="EntexInteractive.Extensions" Version="10.0.3"/>
+        <PackageReference Include="Google.Protobuf" Version="3.35.1"/>
+        <PackageReference Include="Grpc.Net.Client" Version="2.83.0" PrivateAssets="All"/>
+        <PackageReference Include="Grpc.Tools" Version="2.83.0">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
         <PackageReference Include="Serilog" Version="4.4.0" />
         <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
         <PackageReference Include="System.CommandLine" Version="2.0.11" />
@@ -39,7 +46,13 @@
     </ItemGroup>
 
     <ItemGroup>
+        <ProjectReference Include="..\Vertex.Core\Vertex.Core.csproj"/>
         <ProjectReference Include="..\Vertex.Net\Vertex.Net.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <Protobuf Include="..\Vertex.Server\Protos\Greeter.proto" Link="Protos\Greeter.proto" GrpcServices="Client"/>
+        <Protobuf Include="..\Vertex.Server\Protos\Files.proto" Link="Protos\Files.proto" GrpcServices="Client"/>
     </ItemGroup>
 
 </Project>

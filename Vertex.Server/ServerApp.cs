@@ -15,7 +15,6 @@ namespace Vertex.Server
             WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
             builder.Host.UseSerilog((context, services, configuration) => configuration.ReadFrom.Configuration(context.Configuration));
             builder.Services.AddSpaStaticFiles(config => { config.RootPath = "wwwroot"; });
-            
             builder.WebHost.ConfigureKestrel(options =>
             {
                 options.ListenAnyIP(Convert.ToInt32(Environment.GetEnvironmentVariable("Http_Port") ?? "5000"), listenOptions =>
@@ -94,14 +93,15 @@ namespace Vertex.Server
             app.UseWhen(IsSpaRequest, config => config.UseSpaStaticFiles());
             
             app.MapGrpcService<GreeterService>();
+            app.MapGrpcService<FileService>();
             
             app.UseHttpsRedirection();
             app.UseAuthorization();
             app.MapControllers();
             await app.RunAsync();
         }
-    
-        static bool IsSpaRequest(HttpContext context)
+
+        private static bool IsSpaRequest(HttpContext context)
         {
             return !context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase);
         }
