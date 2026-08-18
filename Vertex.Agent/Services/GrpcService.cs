@@ -17,14 +17,11 @@ namespace Vertex.Agent.Services
         {
             _logger = logger;
 
-            string address = settings.Value.ServerAddress;
-            if (!Uri.TryCreate(address, UriKind.Absolute, out Uri? serverAddress))
-            {
-                throw new InvalidOperationException($"Client:ServerAddress is not a valid absolute URI: '{address}'.");
-            }
-
+            if (!Uri.TryCreate(settings.Value.ServerAddress, UriKind.Absolute, out Uri? serverAddress)) return;
             _channel = GrpcChannel.ForAddress(serverAddress);
             _client = new Greeter.GreeterClient(_channel);
+
+
         }
 
         public async Task<string> SayHelloAsync(string name, CancellationToken cancellationToken = default)

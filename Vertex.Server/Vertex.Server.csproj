@@ -28,11 +28,6 @@
         <DebugSymbols>True</DebugSymbols>
         <DebugType>Full</DebugType>
     </PropertyGroup>
-    <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Analyze|AnyCPU'">
-        <TreatWarningsAsErrors>False</TreatWarningsAsErrors>
-        <RunAnalyzersDuringBuild>True</RunAnalyzersDuringBuild>
-        <EnforceCodeStyleInBuild>True</EnforceCodeStyleInBuild>
-    </PropertyGroup>
 
     <ItemGroup>
         <PackageReference Include="Grpc.AspNetCore" Version="2.83.0" />
@@ -59,14 +54,20 @@
     </ItemGroup>
 
     <ItemGroup>
+        <ProjectReference Include="..\Vertex.Core\Vertex.Core.csproj"/>
       <ProjectReference Include="..\Vertex.Net\Vertex.Net.csproj" />
     </ItemGroup>
 
     <ItemGroup>
-        <Protobuf Include="Protos\Greeter.proto" GrpcServices="Server" />
+        <Using Include="Serilog" />
     </ItemGroup>
 
     <ItemGroup>
-        <Using Include="Serilog" />
+        <Protobuf Include="Protos\Files.proto">
+            <Generator>MSBuild:Compile</Generator>
+        </Protobuf>
+        <Protobuf Include="Protos\Greeter.proto">
+            <Generator>MSBuild:Compile</Generator>
+        </Protobuf>
     </ItemGroup>
 </Project>

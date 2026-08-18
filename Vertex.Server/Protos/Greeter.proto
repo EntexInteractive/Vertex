@@ -1,7 +1,5 @@
 ﻿syntax = "proto3";
-
 option csharp_namespace = "Vertex.Server";
-
 package greet;
 
 // The greeting service definition.
