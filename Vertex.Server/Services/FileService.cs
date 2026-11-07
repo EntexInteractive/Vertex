@@ -14,8 +14,7 @@ namespace Vertex.Server.Services
             _logger = logger;
         }
 
-        public override async Task<UploadFileResponse> Upload(IAsyncStreamReader<UploadFileRequest> requestStream,
-            ServerCallContext context)
+        public override async Task<UploadFileResponse> UploadAsync(IAsyncStreamReader<UploadFileRequest> requestStream, ServerCallContext context)
         {
             string? fileName = null;
             string? contentType = null;

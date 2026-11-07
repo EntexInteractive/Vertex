@@ -16,7 +16,7 @@ namespace Vertex.Cli.Net
 
         private async Task HandleCommandAsync(ParseResult parse)
         {
-            string url = parse.GetValue(_urlOption) ?? "http://localhost:5000";
+            string url = parse.GetValue(_urlOption) ?? "https://localhost:5000";
             ServerInterface serverInterface = new(url);
             string? version = await serverInterface.GetVersionAsync();
             Console.WriteLine(version);
