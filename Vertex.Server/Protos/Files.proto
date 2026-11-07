@@ -3,7 +3,7 @@ option csharp_namespace = "Vertex.Server";
 package files;
 
 service Files {
-  rpc Upload(stream UploadFileRequest) returns (UploadFileResponse);
+  rpc UploadAsync(stream UploadFileRequest) returns (UploadFileResponse);
 }
 
 message UploadFileRequest {

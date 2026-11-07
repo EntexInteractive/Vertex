@@ -32,7 +32,7 @@ namespace Vertex.Cli.IO
             Files.FilesClient client = new Files.FilesClient(channel);
 
             string? file = Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).FirstOrDefault();
-            using AsyncClientStreamingCall<UploadFileRequest, UploadFileResponse> request = client.Upload();
+            using AsyncClientStreamingCall<UploadFileRequest, UploadFileResponse> request = client.UploadAsync();
 
             // Send metadata first.
             FileInfo fileInfo = new FileInfo(file);
