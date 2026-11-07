@@ -7,7 +7,8 @@ namespace Vertex.Server
 {
     public static class ServerSettingsManager
     {
-        private const string ConfigPath = "server.yml";
+        private static readonly string ConfigPath = Environment.GetEnvironmentVariable("VERTEX_SERVER_CONFIG")
+                                                    ?? Path.Combine(AppContext.BaseDirectory, "VertexServer.yml");
 
         private static readonly ISerializer Serializer = new SerializerBuilder()
             .WithNamingConvention(CamelCaseNamingConvention.Instance)
@@ -72,7 +73,6 @@ namespace Vertex.Server
         public string Endpoint { get; set; } = "https://s3.amazonaws.com";
         public string Region { get; set; } = "us-east-1";
         public string Bucket { get; set; } = "vertex-storage";
-        public string Prefix { get; set; } = "files";
         public string AccessKey { get; set; } = string.Empty;
         public string SecretKey { get; set; } = string.Empty;
     }

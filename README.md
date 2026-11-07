@@ -19,7 +19,6 @@ storage:
   endpoint: https://s3.amazonaws.com
   region: us-east-1
   bucket: your-bucket
-  prefix: files
   accessKey: ""
   secretKey: ""
 ```

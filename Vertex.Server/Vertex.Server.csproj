@@ -50,10 +50,6 @@
     </ItemGroup>
 
     <ItemGroup>
-        <Content Include="server.example.yml">
-            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-            <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-        </Content>
       <Content Include="..\.dockerignore">
         <Link>.dockerignore</Link>
       </Content>

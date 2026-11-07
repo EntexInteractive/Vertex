@@ -18,14 +18,14 @@ namespace Vertex.Cli.IO
         protected readonly Option<string> PathOption = new("--path", ["-p"]) { Description = "Path to a file or directory." };
 
         /// <summary>
-        /// Indicates whether directories should be processed recursively.
-        /// </summary>
-        protected readonly Option<bool> RecursiveOption = new("--recursive", ["-R"]) { Description = "Recursively process directories." };
-
-        /// <summary>
         /// Forces the operation to proceed by bypassing applicable safety checks and confirmation safeguards.
         /// </summary>
-        protected readonly Option<bool> ForceOption = new("--force", ["-f"]) { Description = "Force the operation bypassing safeguards." };
+        protected readonly Option<bool> ForceOption = new("--force", ["-f"]) { Description = "Forces the operation bypassing safeguards." };
+
+        /// <summary>
+        /// Specifies the number of operations to execute in parallel for the command.
+        /// </summary>
+        protected readonly Option<int> ParallelOption = new("--parallel") { Description = "The number of parallel executions." };
 
         /// <summary>
         /// Provides a base command for I/O-related CLI operations that require common network
@@ -37,8 +37,8 @@ namespace Vertex.Cli.IO
         {
             this.Add(BranchOption);
             this.Add(PathOption);
-            this.Add(RecursiveOption);
             this.Add(ForceOption);
+            this.Add(ParallelOption);
         }
     }
 }

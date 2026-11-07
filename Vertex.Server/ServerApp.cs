@@ -55,14 +55,22 @@ namespace Vertex.Server
             builder.Services.AddSpaStaticFiles(config => { config.RootPath = "wwwroot"; });
             builder.WebHost.ConfigureKestrel(options =>
             {
-                options.ListenAnyIP(Convert.ToInt32(Environment.GetEnvironmentVariable("Https_Port") ?? "5000"), listenOptions =>
+                int httpPort = Convert.ToInt32(Environment.GetEnvironmentVariable("Http_Port") ?? "5000");
+                if (Environment.GetEnvironmentVariable("VERTEX_GUI") == "1")
                 {
-                    // ALPN selects HTTP/1.1 for regular HTTP requests and HTTP/2 for gRPC.
-                    // TLS is required because both protocols cannot be negotiated over one
-                    // clear-text endpoint.
-                    listenOptions.UseHttps();
-                    listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
-                });
+                    options.ListenLocalhost(httpPort, listenOptions => listenOptions.Protocols = HttpProtocols.Http1AndHttp2);
+                }
+                else
+                {
+                    options.ListenAnyIP(httpPort, listenOptions =>
+                    {
+                        // ALPN selects HTTP/1.1 for regular HTTP requests and HTTP/2 for gRPC.
+                        // TLS is required because both protocols cannot be negotiated over one
+                        // clear-text endpoint.
+                        listenOptions.UseHttps();
+                        listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
+                    });
+                }
             });
             
             // Caching services

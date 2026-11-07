@@ -30,15 +30,14 @@ public sealed class S3FileStorage : IFileStorage
     private const int MaximumParts = 10_000;
     private const long MaximumPartSize = 5L * 1024 * 1024 * 1024;
     private const long MaximumObjectSize = MaximumPartSize * MaximumParts;
+    private const string LegacyObjectPrefix = "files";
     private readonly IAmazonS3 _s3;
     private readonly string _bucket;
-    private readonly string _prefix;
 
     public S3FileStorage(IAmazonS3 s3, ServerSettings settings)
     {
         _s3 = s3;
         _bucket = settings.Storage.Bucket;
-        _prefix = settings.Storage.Prefix.Trim('/');
     }
 
     public async Task WriteAsync(string key, string contentType, long expectedLength, IAsyncEnumerable<ReadOnlyMemory<byte>> chunks, CancellationToken cancellationToken)
@@ -144,19 +143,36 @@ public sealed class S3FileStorage : IFileStorage
 
     public async Task<StoredFile> OpenReadAsync(string key, CancellationToken cancellationToken)
     {
+        string objectKey = GetObjectKey(key);
         try
         {
-            GetObjectResponse response = await _s3.GetObjectAsync(_bucket, GetObjectKey(key), cancellationToken);
+            GetObjectResponse response = await _s3.GetObjectAsync(_bucket, objectKey, cancellationToken);
             return new StoredFile(response.ResponseStream, response.ContentLength, response);
         }
-        catch (AmazonS3Exception exception) when (exception.StatusCode == HttpStatusCode.NotFound || exception.ErrorCode == "NoSuchKey")
+        catch (AmazonS3Exception exception) when (IsNotFound(exception))
         {
-            throw new FileNotFoundException("File not found.", exception);
+            try
+            {
+                // Keep file IDs uploaded before the object-key layout change readable.
+                GetObjectResponse legacyResponse = await _s3.GetObjectAsync(_bucket, $"{LegacyObjectPrefix}/{key}", cancellationToken);
+                return new StoredFile(legacyResponse.ResponseStream, legacyResponse.ContentLength, legacyResponse);
+            }
+            catch (AmazonS3Exception legacyException) when (IsNotFound(legacyException))
+            {
+                throw new FileNotFoundException("File not found.", legacyException);
+            }
         }
     }
 
-    private string GetObjectKey(string key)
+    private static bool IsNotFound(AmazonS3Exception exception)
     {
-        return string.IsNullOrEmpty(_prefix) ? key : $"{_prefix}/{key}";
+        return exception.StatusCode == HttpStatusCode.NotFound || exception.ErrorCode == "NoSuchKey";
+    }
+
+    private static string GetObjectKey(string key)
+    {
+        if (!Guid.TryParseExact(key, "N", out _)) throw new ArgumentException("Object key must be a compact file identifier.", nameof(key));
+        string fileId = key.ToLowerInvariant();
+        return $"objects/{fileId[..2]}/{fileId[2..4]}/{fileId}";
     }
 }
