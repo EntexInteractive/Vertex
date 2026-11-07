@@ -13,7 +13,7 @@ namespace Vertex.Core.IO
             IEnumerable<string> localFiles = Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories);
             foreach (string lf in localFiles)
             {
-                files.Add(new VFile(new FileInfo(lf), branch));
+                files.Add(new VFile(lf, branch));
             }
 
             return files.ToArray();

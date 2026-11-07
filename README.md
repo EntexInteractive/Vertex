@@ -9,6 +9,30 @@ Vertex is a server-centric, versioned file synchronization platform that gives y
 
 You install the Vertex Agent on your computers and connect them to your Vertex account. From the web interface, you decide which parts of your repository each device should synchronize.
 
+## S3 storage configuration
+
+S3 settings are stored in `server.yml`; other server settings continue to use `appsettings.json`. The server creates
+`server.yml` with defaults on first launch. Its storage section looks like this:
+
+```yaml
+storage:
+  endpoint: https://s3.amazonaws.com
+  region: us-east-1
+  bucket: your-bucket
+  prefix: files
+  accessKey: ""
+  secretKey: ""
+```
+
+The AWS SDK default credential chain is used when `accessKey` and `secretKey` are blank. In Kubernetes, provide
+credentials through an AWS workload identity or role rather than embedding access keys in `server.yml`. For
+S3-compatible services such as MinIO, set `endpoint` to the service URL; path-style addressing is enabled.
+
+Uploads are streamed as multipart objects. Each active large upload uses temporary pod storage for its current part;
+configure enough ephemeral storage for the largest part expected by your workload. AWS S3 itself limits a multipart
+object to 10,000 parts of at most 5 GiB each. Add a bucket lifecycle rule to remove incomplete multipart uploads if a
+pod stops before the upload can be aborted.
+
 ## Contact
 
 For questions and ideas, reach out via our [GitHub Issues](https://github.com/EntexInteractive/Vertex/issues).

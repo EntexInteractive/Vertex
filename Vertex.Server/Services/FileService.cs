@@ -6,81 +6,45 @@ namespace Vertex.Server.Services
 {
     public class FileService : Files.FilesBase
     {
-        private const int BufferSize = 256 * 1024;
+        private const int MaximumChunkSize = 256 * 1024;
         private readonly ILogger<FileService> _logger;
-        private readonly string _storageDirectory;
+        private readonly IFileStorage _storage;
 
-        public FileService(ILogger<FileService> logger, IConfiguration configuration)
+        public FileService(ILogger<FileService> logger, IFileStorage storage)
         {
             _logger = logger;
-            _storageDirectory = Path.GetFullPath(configuration["Vertex:StoragePath"] ?? Environment.GetEnvironmentVariable("VERTEX_STORAGE_PATH") ?? Path.Combine(AppContext.BaseDirectory, "data", "files"));
-            Directory.CreateDirectory(_storageDirectory);
+            _storage = storage;
         }
 
         public override async Task<UploadFileResponse> UploadAsync(IAsyncStreamReader<UploadFileRequest> requestStream, ServerCallContext context)
         {
-            FileMetadata? metadata = null;
-            string? temporaryPath = null;
-            string? fileId = null;
-            FileStream? outputStream = null;
-            long bytesReceived = 0;
+            if (!await requestStream.MoveNext(context.CancellationToken))
+                throw new RpcException(new Status(StatusCode.InvalidArgument, "Upload did not contain file metadata."));
+
+            UploadFileRequest first = requestStream.Current;
+            if (first.DataCase != UploadFileRequest.DataOneofCase.Metadata)
+                throw new RpcException(new Status(StatusCode.InvalidArgument, "File metadata must be the first upload message."));
+
+            FileMetadata metadata = first.Metadata;
+            if (metadata.FileSize < 0 || string.IsNullOrWhiteSpace(metadata.FileName))
+                throw new RpcException(new Status(StatusCode.InvalidArgument, "A file name and nonnegative file size are required."));
+
+            string fileId = Guid.NewGuid().ToString("N");
+            string fileName = Path.GetFileName(metadata.FileName);
+            string contentType = string.IsNullOrWhiteSpace(metadata.ContentType) ? "application/octet-stream" : metadata.ContentType;
+            _logger.LogInformation("Receiving {FileName} ({FileSize} bytes) as {FileId}", fileName, metadata.FileSize, fileId);
 
             try
             {
-                while (await requestStream.MoveNext(context.CancellationToken))
-                {
-                    UploadFileRequest request = requestStream.Current;
-                    switch (request.DataCase)
-                    {
-                        case UploadFileRequest.DataOneofCase.Metadata:
-                            if (metadata is not null || bytesReceived != 0)
-                                throw new RpcException(new Status(StatusCode.InvalidArgument, "File metadata must be the first and only metadata message."));
-
-                            metadata = request.Metadata;
-                            if (metadata.FileSize < 0 || string.IsNullOrWhiteSpace(metadata.FileName))
-                                throw new RpcException(new Status(StatusCode.InvalidArgument, "A file name and nonnegative file size are required."));
-
-                            metadata.FileName = Path.GetFileName(metadata.FileName);
-                            fileId = Guid.NewGuid().ToString("N");
-                            temporaryPath = GetFilePath(fileId) + ".upload";
-                            outputStream = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, BufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
-                            _logger.LogInformation("Receiving {FileName} ({FileSize} bytes)", metadata.FileName, metadata.FileSize);
-                            break;
-
-                        case UploadFileRequest.DataOneofCase.Chunk:
-                            if (metadata is null || temporaryPath is null)
-                                throw new RpcException(new Status(StatusCode.InvalidArgument, "File metadata must be sent before file data."));
-
-                            if (request.Chunk.Length > BufferSize || bytesReceived > metadata.FileSize - request.Chunk.Length)
-                                throw new RpcException(new Status(StatusCode.InvalidArgument, "File data exceeds the declared size or chunk limit."));
-
-                            await outputStream!.WriteAsync(request.Chunk.Memory, context.CancellationToken);
-                            bytesReceived += request.Chunk.Length;
-                            break;
-
-                        default:
-                            throw new RpcException(new Status(StatusCode.InvalidArgument, "Upload message must contain metadata or file data."));
-                    }
-                }
-
-                if (metadata is null || temporaryPath is null || fileId is null)
-                    throw new RpcException(new Status(StatusCode.InvalidArgument, "Upload did not contain file metadata."));
-
-                if (bytesReceived != metadata.FileSize)
-                    throw new RpcException(new Status(StatusCode.DataLoss, $"Expected {metadata.FileSize} bytes but received {bytesReceived}."));
-
-                await outputStream!.FlushAsync(context.CancellationToken);
-                await outputStream.DisposeAsync();
-                outputStream = null;
-                File.Move(temporaryPath, GetFilePath(fileId));
-                temporaryPath = null;
-                return new UploadFileResponse { FileId = fileId, FileName = metadata.FileName, BytesReceived = bytesReceived };
+                await _storage.WriteAsync(fileId, contentType, metadata.FileSize,
+                    ReadChunksAsync(requestStream, context.CancellationToken), context.CancellationToken);
             }
-            finally
+            catch (InvalidDataException exception)
             {
-                if (outputStream is not null) await outputStream.DisposeAsync();
-                if (temporaryPath is not null && File.Exists(temporaryPath)) File.Delete(temporaryPath);
+                throw new RpcException(new Status(StatusCode.DataLoss, exception.Message));
             }
+
+            return new UploadFileResponse { FileId = fileId, FileName = fileName, BytesReceived = metadata.FileSize };
         }
 
         public override async Task DownloadAsync(DownloadFileRequest request, IServerStreamWriter<DownloadFileResponse> responseStream, ServerCallContext context)
@@ -88,29 +52,51 @@ namespace Vertex.Server.Services
             if (!Guid.TryParseExact(request.FileId, "N", out _))
                 throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid file id."));
 
-            string filePath = GetFilePath(request.FileId);
-            if (!File.Exists(filePath)) throw new RpcException(new Status(StatusCode.NotFound, "File not found."));
-
-            await using FileStream input = new(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, BufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
-            await responseStream.WriteAsync(new DownloadFileResponse
+            StoredFile stored;
+            try
             {
-                Metadata = new FileMetadata { FileName = request.FileId, ContentType = "application/octet-stream", FileSize = input.Length }
-            });
+                stored = await _storage.OpenReadAsync(request.FileId, context.CancellationToken);
+            }
+            catch (FileNotFoundException)
+            {
+                throw new RpcException(new Status(StatusCode.NotFound, "File not found."));
+            }
 
-            byte[] buffer = new byte[BufferSize];
-            int bytesRead;
-            while ((bytesRead = await input.ReadAsync(buffer, context.CancellationToken)) > 0)
+            await using (stored)
             {
                 await responseStream.WriteAsync(new DownloadFileResponse
                 {
-                    Chunk = Google.Protobuf.ByteString.CopyFrom(buffer, 0, bytesRead)
+                    Metadata = new FileMetadata { FileName = request.FileId, ContentType = "application/octet-stream", FileSize = stored.Length }
                 });
+
+                byte[] buffer = new byte[MaximumChunkSize];
+                int bytesRead;
+                while ((bytesRead = await stored.Content.ReadAsync(buffer, context.CancellationToken)) > 0)
+                {
+                    await responseStream.WriteAsync(new DownloadFileResponse
+                    {
+                        Chunk = Google.Protobuf.ByteString.CopyFrom(buffer, 0, bytesRead)
+                    });
+                }
             }
         }
 
-        private string GetFilePath(string fileId)
+        private static async IAsyncEnumerable<ReadOnlyMemory<byte>> ReadChunksAsync(
+            IAsyncStreamReader<UploadFileRequest> requestStream,
+            [System.Runtime.CompilerServices.EnumeratorCancellation]
+            CancellationToken cancellationToken)
         {
-            return Path.Combine(_storageDirectory, $"{fileId}.blob");
+            while (await requestStream.MoveNext(cancellationToken))
+            {
+                UploadFileRequest request = requestStream.Current;
+                if (request.DataCase != UploadFileRequest.DataOneofCase.Chunk)
+                    throw new InvalidDataException("Upload may contain metadata only as its first message.");
+
+                if (request.Chunk.Length > MaximumChunkSize)
+                    throw new InvalidDataException("Upload chunk exceeds the server chunk limit.");
+
+                yield return request.Chunk.Memory;
+            }
         }
     }
 }

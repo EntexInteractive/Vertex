@@ -1,4 +1,8 @@
 using System.Reflection;
+using Amazon;
+using Amazon.Runtime;
+using Amazon.S3;
+using EntexInteractive.Extensions.Globalization;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.OpenApi;
 using Microsoft.OpenApi.Models;
@@ -20,8 +24,34 @@ namespace Vertex.Server
         /// <return>A task that represents the asynchronous operation of building and running the server application.</return>
         public static async Task Main(string[] args)
         {
+            CommandLineArguments arguments = new CommandLineArguments(args);
+
+            ServerSettings settings = ServerSettingsManager.Load();
             WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
             builder.Host.UseSerilog((context, services, configuration) => configuration.ReadFrom.Configuration(context.Configuration));
+            if (string.IsNullOrWhiteSpace(settings.Storage.Bucket))
+                throw new InvalidOperationException("storage.bucket must be set in server.yml.");
+
+            if (string.IsNullOrWhiteSpace(settings.Storage.AccessKey) != string.IsNullOrWhiteSpace(settings.Storage.SecretKey))
+                throw new InvalidDataException("storage.accessKey and storage.secretKey must either both be set or both be empty.");
+
+            string region = settings.Storage.Region;
+            string serviceUrl = settings.Storage.Endpoint;
+            builder.Services.AddSingleton<IAmazonS3>(_ =>
+            {
+                AmazonS3Config s3Config = new() { RegionEndpoint = RegionEndpoint.GetBySystemName(region) };
+                s3Config.ServiceURL = serviceUrl;
+                s3Config.ForcePathStyle = true;
+
+                AWSCredentials? credentials = string.IsNullOrWhiteSpace(settings.Storage.AccessKey)
+                    ? null
+                    : new BasicAWSCredentials(settings.Storage.AccessKey, settings.Storage.SecretKey);
+
+                return credentials is null ? new AmazonS3Client(s3Config) : new AmazonS3Client(credentials, s3Config);
+            });
+
+            builder.Services.AddSingleton(settings);
+            builder.Services.AddSingleton<IFileStorage, S3FileStorage>();
             builder.Services.AddSpaStaticFiles(config => { config.RootPath = "wwwroot"; });
             builder.WebHost.ConfigureKestrel(options =>
             {

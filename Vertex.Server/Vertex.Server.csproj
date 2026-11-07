@@ -30,6 +30,7 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <PackageReference Include="AWSSDK.S3" Version="4.0.104.10"/>
         <PackageReference Include="Grpc.AspNetCore" Version="2.83.0" />
         <PackageReference Include="Grpc.AspNetCore.Server.Reflection" Version="2.83.0" />
         <PackageReference Include="Grpc.HealthCheck" Version="2.83.0" />
@@ -45,9 +46,14 @@
         <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
         <PackageReference Include="StackExchange.Redis" Version="3.1.13" />
         <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+        <PackageReference Include="YamlDotNet" Version="18.1.0"/>
     </ItemGroup>
 
     <ItemGroup>
+        <Content Include="server.example.yml">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+            <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        </Content>
       <Content Include="..\.dockerignore">
         <Link>.dockerignore</Link>
       </Content>
@@ -63,9 +69,6 @@
     </ItemGroup>
 
     <ItemGroup>
-        <Protobuf Include="Protos\Files.proto">
-            <Generator>MSBuild:Compile</Generator>
-        </Protobuf>
         <Protobuf Include="Protos\Greeter.proto">
             <Generator>MSBuild:Compile</Generator>
         </Protobuf>

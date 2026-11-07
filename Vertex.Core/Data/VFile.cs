@@ -38,9 +38,9 @@ namespace Vertex.Core.Data
         /// </summary>
         public VUser? LockedBy { get; set; }
 
-        public VFile(FileInfo fileInfo, VBranch branch)
+        public VFile(string path, VBranch branch)
         {
-            throw new NotImplementedException();
+            
         }
     }
 }
