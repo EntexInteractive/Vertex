@@ -1,9 +1,10 @@
-﻿syntax = "proto3";
+syntax = "proto3";
 option csharp_namespace = "Vertex.Server";
 package files;
 
 service Files {
   rpc UploadAsync(stream UploadFileRequest) returns (UploadFileResponse);
+  rpc DownloadAsync(DownloadFileRequest) returns (stream DownloadFileResponse);
 }
 
 message UploadFileRequest {
@@ -23,4 +24,15 @@ message UploadFileResponse {
   string file_id = 1;
   string file_name = 2;
   int64 bytes_received = 3;
+}
+
+message DownloadFileRequest {
+  string file_id = 1;
+}
+
+message DownloadFileResponse {
+  oneof data {
+    FileMetadata metadata = 1;
+    bytes chunk = 2;
+  }
 }

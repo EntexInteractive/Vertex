@@ -8,8 +8,16 @@ using Vertex.Server.Services;
 
 namespace Vertex.Server
 {
+    /// <summary>
+    /// Provides the application entry point for the server host.
+    /// </summary>
     public static class ServerApp
     {
+        /// <summary>
+        /// Configures and starts the server application, including hosting, middleware, API endpoints, gRPC services, static file handling, and runtime integrations.
+        /// </summary>
+        /// <param name="args">Command-line arguments provided to the application at startup.</param>
+        /// <return>A task that represents the asynchronous operation of building and running the server application.</return>
         public static async Task Main(string[] args)
         {
             WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
@@ -17,7 +25,7 @@ namespace Vertex.Server
             builder.Services.AddSpaStaticFiles(config => { config.RootPath = "wwwroot"; });
             builder.WebHost.ConfigureKestrel(options =>
             {
-                options.ListenAnyIP(Convert.ToInt32(Environment.GetEnvironmentVariable("Http_Port") ?? "5000"), listenOptions =>
+                options.ListenAnyIP(Convert.ToInt32(Environment.GetEnvironmentVariable("Https_Port") ?? "5000"), listenOptions =>
                 {
                     // ALPN selects HTTP/1.1 for regular HTTP requests and HTTP/2 for gRPC.
                     // TLS is required because both protocols cannot be negotiated over one
@@ -31,7 +39,12 @@ namespace Vertex.Server
             builder.Services.AddMemoryCache();
 
             // Add services to the container.
-            builder.Services.AddGrpc();
+            builder.Services.AddGrpc(options =>
+            {
+                // Transfers are streamed in bounded messages; file size is not tied to a gRPC message limit.
+                options.MaxReceiveMessageSize = 1024 * 1024;
+                options.MaxSendMessageSize = 1024 * 1024;
+            });
             builder.Services.AddGrpcReflection();
             
             builder.Services.AddEndpointsApiExplorer();

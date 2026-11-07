@@ -1,5 +1,6 @@
 ﻿using System.CommandLine.Help;
 using System.Reflection;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Vertex.Cli
 {
@@ -9,9 +10,12 @@ namespace Vertex.Cli
 
         private static async Task Main(string[] args)
         {
+            await using ServiceProvider provider = Startup.CreateServiceProvider();
+            //await Startup.InitializeDatabaseAsync(provider);
+            
             RootCommand rootCommand = new("Vertex - Command-line interface for interacting with a Vertex server.");
             IEnumerable<Type> types = Assembly.GetExecutingAssembly().GetTypes().Where(t => typeof(Command).IsAssignableFrom(t) && !t.IsAbstract && t != typeof(Command));
-            foreach (Type type in types) rootCommand.Add((Command)Activator.CreateInstance(type)!);
+            foreach (Type type in types) rootCommand.Add((Command)ActivatorUtilities.CreateInstance(provider, type));
             rootCommand.SetAction(HandleRootCommand);
             rootCommand.Options.RemoveAt(1);
             rootCommand.Add(_versionOption);

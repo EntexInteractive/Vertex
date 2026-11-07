@@ -1,6 +1,6 @@
 ﻿// Copyright 2026 Entex Interactive
 
-using Entexinteractive.Extensions;
+using EntexInteractive.Extensions.Globalization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
