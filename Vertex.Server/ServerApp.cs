@@ -2,13 +2,20 @@ using System.Reflection;
 using Amazon;
 using Amazon.Runtime;
 using Amazon.S3;
+using EntexInteractive.Extensions.Diagnostics;
 using EntexInteractive.Extensions.Globalization;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.OpenApi;
 using Microsoft.OpenApi.Models;
 using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Serialization;
+using Serilog.Events;
+using StackExchange.Redis;
+using Vertex.Server.Database;
+using Vertex.Server.Diagnostics;
 using Vertex.Server.Services;
+using Vertex.Server.Storage;
 
 namespace Vertex.Server
 {
@@ -24,11 +31,13 @@ namespace Vertex.Server
         /// <return>A task that represents the asynchronous operation of building and running the server application.</return>
         public static async Task Main(string[] args)
         {
-            CommandLineArguments arguments = new CommandLineArguments(args);
-
             ServerSettings settings = ServerSettingsManager.Load();
-            WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+            AssemblyName assembly = Assembly.GetExecutingAssembly().GetName();
+
+            WebApplicationBuilder builder = WebApplication.CreateBuilder();
             builder.Host.UseSerilog((context, services, configuration) => configuration.ReadFrom.Configuration(context.Configuration));
+            Log.Information($"{assembly.Name} [Version {assembly.Version}]");
+            
             if (string.IsNullOrWhiteSpace(settings.Storage.Bucket))
                 throw new InvalidOperationException("storage.bucket must be set in server.yml.");
 
@@ -43,10 +52,7 @@ namespace Vertex.Server
                 s3Config.ServiceURL = serviceUrl;
                 s3Config.ForcePathStyle = true;
 
-                AWSCredentials? credentials = string.IsNullOrWhiteSpace(settings.Storage.AccessKey)
-                    ? null
-                    : new BasicAWSCredentials(settings.Storage.AccessKey, settings.Storage.SecretKey);
-
+                AWSCredentials? credentials = string.IsNullOrWhiteSpace(settings.Storage.AccessKey) ? null : new BasicAWSCredentials(settings.Storage.AccessKey, settings.Storage.SecretKey);
                 return credentials is null ? new AmazonS3Client(s3Config) : new AmazonS3Client(credentials, s3Config);
             });
 
@@ -56,25 +62,44 @@ namespace Vertex.Server
             builder.WebHost.ConfigureKestrel(options =>
             {
                 int httpPort = Convert.ToInt32(Environment.GetEnvironmentVariable("Http_Port") ?? "5000");
-                if (Environment.GetEnvironmentVariable("VERTEX_GUI") == "1")
+                options.ListenAnyIP(httpPort, listenOptions =>
                 {
-                    options.ListenLocalhost(httpPort, listenOptions => listenOptions.Protocols = HttpProtocols.Http1AndHttp2);
-                }
-                else
-                {
-                    options.ListenAnyIP(httpPort, listenOptions =>
-                    {
-                        // ALPN selects HTTP/1.1 for regular HTTP requests and HTTP/2 for gRPC.
-                        // TLS is required because both protocols cannot be negotiated over one
-                        // clear-text endpoint.
-                        listenOptions.UseHttps();
-                        listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
-                    });
-                }
+                    // ALPN selects HTTP/1.1 for regular HTTP requests and HTTP/2 for gRPC.
+                    // TLS is required because both protocols cannot be negotiated over one
+                    // clear-text endpoint.
+                    listenOptions.UseHttps();
+                    listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
+                });
             });
+
+            // Database services
+            Dapper.DefaultTypeMap.MatchNamesWithUnderscores = true;
+            builder.Services.AddScoped<MySqlDatabase>();
+            builder.Services.AddScoped<DapperContext>();
+
+            builder.Services.AddScoped<DiagnosticRepository>();
             
             // Caching services
+            builder.Services.AddSingleton<CacheContext>();
+            builder.Services.AddHostedService<RedisSubscriber>();
+            builder.Services.AddStackExchangeRedisCache(options =>
+            {
+                options.Configuration = Environment.GetEnvironmentVariable("RedisConnectionString") ?? "redis:6379";
+            });
+
             builder.Services.AddMemoryCache();
+            builder.Services.AddHybridCache(options =>
+            {
+                options.DefaultEntryOptions = new HybridCacheEntryOptions
+                {
+                    LocalCacheExpiration = TimeSpan.FromMinutes(5),
+                    Expiration = TimeSpan.FromMinutes(15)
+                };
+            });
+
+            // Background Services
+            builder.Services.AddSingleton<ProcessMonitor>();
+            builder.Services.AddScoped<DiagnosticMiddleware>();
 
             // Add services to the container.
             builder.Services.AddGrpc(options =>
@@ -83,8 +108,8 @@ namespace Vertex.Server
                 options.MaxReceiveMessageSize = 1024 * 1024;
                 options.MaxSendMessageSize = 1024 * 1024;
             });
-            builder.Services.AddGrpcReflection();
             
+            builder.Services.AddGrpcReflection();
             builder.Services.AddEndpointsApiExplorer();
             builder.Services.AddControllers().AddNewtonsoftJson(options =>
             {
@@ -138,6 +163,9 @@ namespace Vertex.Server
                 app.UseSwagger();
                 app.UseSwaggerUI();
             }
+
+            // Middleware
+            app.UseMiddleware<DiagnosticMiddleware>();
 
             app.UseDefaultFiles();
             app.UseStaticFiles();

@@ -1,6 +1,5 @@
 ﻿// Copyright 2026 Entex Interactive
 
-using Vertex.Core.Contexts;
 using Vertex.Core.Data;
 
 namespace Vertex.Core.IO
@@ -123,10 +122,9 @@ namespace Vertex.Core.IO
             return false;
         }
 
-        public IReadOnlyList<VChange> GetChanges(ClientDbContext context, VBranch branch)
+        public IReadOnlyList<VChange> GetChanges(VBranch branch)
         {
             List<VChange> changes = new();
-            IReadOnlyList<VFile> cacheFiles = context.Files.ToList();
             //IReadOnlyList<VFile> localFiles = GetFiles(branch);
 
             return changes;

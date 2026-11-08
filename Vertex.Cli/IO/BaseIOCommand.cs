@@ -1,10 +1,12 @@
 ﻿// Copyright 2026 Entex Interactive
 
 using Vertex.Cli.Net;
-using Vertex.Core.Contexts;
 
 namespace Vertex.Cli.IO
 {
+    /// <summary>
+    /// Represents a base command for I/O-related CLI operations that build on shared network command behavior.
+    /// </summary>
     public abstract class BaseIOCommand : BaseNetCommand
     {
         /// <summary>

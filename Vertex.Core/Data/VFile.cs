@@ -6,6 +6,9 @@ namespace Vertex.Core.Data
 {
     public class VFile
     {
+        /// <summary>
+        /// SHA-256 hash of the file's content.
+        /// </summary>
         public string Id { get; }
 
         /// <summary>

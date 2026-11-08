@@ -1,8 +1,8 @@
 ﻿// Copyright 2026 Entex Interactive
 
-namespace Vertex.Cli.System
+namespace Vertex.Cli.Net
 {
-    public class InfoCommand : Command
+    public class InfoCommand : BaseNetCommand
     {
         public InfoCommand() : base("info", "Display connection information.")
         {

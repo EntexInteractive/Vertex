@@ -1,7 +1,6 @@
 ﻿// Copyright 2026 Entex Interactive
 
 using EntexInteractive.Extensions;
-using Vertex.Core.Contexts;
 using Vertex.Core.Data;
 using Vertex.Core.IO;
 
@@ -9,12 +8,9 @@ namespace Vertex.Cli.IO
 {
     public class ChangesCommand : BaseIOCommand
     {
-        private readonly ClientDbContext _db;
-
-        public ChangesCommand(ClientDbContext db) : base("changes", "Gets a list of changed files.")
+        public ChangesCommand() : base("changes", "Gets a list of changed files.")
         {
             this.SetAction(HandleCommandAsync);
-            _db = db;
         }
 
         private void HandleCommandAsync(ParseResult arg)

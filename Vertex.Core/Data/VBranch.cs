@@ -1,7 +1,6 @@
 ﻿// Copyright 2026 Entex Interactive
 
 using EntexInteractive.Extensions;
-using Microsoft.EntityFrameworkCore;
 
 namespace Vertex.Core.Data
 {

@@ -1,12 +1,13 @@
 // Copyright 2026 Entex Interactive
 
 using Grpc.Core;
+using Vertex.Server.Storage;
 
 namespace Vertex.Server.Services
 {
     public class FileService : Files.FilesBase
     {
-        private const int MaximumChunkSize = 256 * 1024;
+        private const int MaximumChunkSize = 64 * 1024;
         private readonly ILogger<FileService> _logger;
         private readonly IFileStorage _storage;
 
