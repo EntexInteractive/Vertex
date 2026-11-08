@@ -1,48 +1,47 @@
 ﻿// Copyright 2026 Entex Interactive
 
 using System.Reflection;
+using System.Security.Claims;
+using EntexInteractive.Extensions.Diagnostics;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Vertex.Net.Responses;
+using Vertex.Server.Diagnostics;
 
 namespace Vertex.Server.Server
 {
     [Route("api/v1/server")]
     public class ServerController : Controller
     {
-        /// <summary>
-        /// Gets ports used by the server
-        /// </summary>
-        [HttpGet, AllowAnonymous]
-        [Route("ports")]
-        public ActionResult<GetPortsResponse> GetPorts()
+        private readonly DiagnosticRepository _diagnostics;
+        private readonly ProcessMonitor _monitor;
+
+        public ServerController(DiagnosticRepository diagnostics, ProcessMonitor monitor)
         {
-            GetPortsResponse response = new GetPortsResponse();
-            response.HttpPort = Convert.ToInt32(Environment.GetEnvironmentVariable("Http_Port") ?? "5000");
-            response.GrpcPort = response.HttpPort;
-            return response;
+            _diagnostics = diagnostics;
+            _monitor = monitor;
         }
         
         /// <summary>
         /// Gets ports used by the server
         /// </summary>
         [HttpGet, AllowAnonymous]
-        [Route("version")]
-        public ActionResult GetVersion()
+        [Route("info")]
+        public async Task<ActionResult<InfoResponse>> GetVersionAsync()
         {
+            _monitor.Refresh();
+            
             AssemblyName assemblyName = Assembly.GetExecutingAssembly().GetName();
-            return Content(assemblyName.Version?.ToString() ?? string.Empty, "text/plain");
+            return Ok(new InfoResponse
+            {
+                Address = HttpContext.Connection.LocalIpAddress?.ToString(),
+                CpuUsage = Convert.ToInt32(_monitor.CpuUsage),
+                Date = DateTime.UtcNow,
+                ProcessMs = await _diagnostics.GetProcessTimeAsync(),
+                RamUsage = _monitor.RamUsage,
+                Uptime = _monitor.Uptime,
+                Version = assemblyName.Version?.ToString()
+            });
         }
-        
-        /*/// <summary>
-        /// Get server information
-        /// </summary>
-        [HttpGet]
-        [AllowAnonymous]
-        [Route("/api/v1/server/info")]
-        [ProducesResponseType(typeof(GetServerInfoResponse), 200)]
-        public async Task<ActionResult<GetServerInfoResponse>> GetServerInfoAsync()
-        {
-            th
-        }*/
     }
 }
