@@ -13,6 +13,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vertex.Net", "Vertex.Net\Ve
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vertex.Agent", "Vertex.Agent\Vertex.Agent.csproj", "{FE226FC8-871D-4F33-9098-405DBC9DC68A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vertex.Gui", "Vertex.Gui\Vertex.Gui.csproj", "{9E9F339D-D917-44AE-810E-309C5ED76E09}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -39,6 +41,10 @@ Global
 		{FE226FC8-871D-4F33-9098-405DBC9DC68A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{FE226FC8-871D-4F33-9098-405DBC9DC68A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{FE226FC8-871D-4F33-9098-405DBC9DC68A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9E9F339D-D917-44AE-810E-309C5ED76E09}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9E9F339D-D917-44AE-810E-309C5ED76E09}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9E9F339D-D917-44AE-810E-309C5ED76E09}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9E9F339D-D917-44AE-810E-309C5ED76E09}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
