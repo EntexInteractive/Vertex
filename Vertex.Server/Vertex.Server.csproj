@@ -2,7 +2,7 @@
 
     <PropertyGroup>
         <Nullable>enable</Nullable>
-        <TargetFramework>net9.0</TargetFramework>
+        <TargetFramework>net10.0</TargetFramework>
         <!-- React sources live outside this project and must be rebuilt when the server builds. -->
         <DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
         <ImplicitUsings>enable</ImplicitUsings>
@@ -62,7 +62,6 @@
 
     <ItemGroup>
         <ProjectReference Include="..\Vertex.Core\Vertex.Core.csproj"/>
-        <ProjectReference Include="..\Vertex.Net\Vertex.Net.csproj"/>
     </ItemGroup>
 
     <ItemGroup>
