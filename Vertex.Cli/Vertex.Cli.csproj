@@ -5,8 +5,14 @@
         <TargetFramework>net9.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
-        <AssemblyName>vx</AssemblyName>
         <ApplicationIcon>vertex-icon.ico</ApplicationIcon>
+        <AssemblyName>vx</AssemblyName>
+        <AssemblyVersion>0.0.0.0</AssemblyVersion>
+        <Company>Entex Interactive, LLC</Company>
+        <Copyright>Copyright $(Company). All Rights Reserved.</Copyright>
+        <FileVersion>$(AssemblyVersion)</FileVersion>
+        <Version>$(VersionPrefix)$(AssemblyVersion)</Version>
+        <Authors>$(Company)</Authors>
     </PropertyGroup>
 
     <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">

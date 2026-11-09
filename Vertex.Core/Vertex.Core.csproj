@@ -5,6 +5,12 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <RootNamespace>Vertex.Core</RootNamespace>
+        <AssemblyVersion>0.0.0.0</AssemblyVersion>
+        <Company>Entex Interactive, LLC</Company>
+        <Copyright>Copyright $(Company). All Rights Reserved.</Copyright>
+        <FileVersion>$(AssemblyVersion)</FileVersion>
+        <Version>$(VersionPrefix)$(AssemblyVersion)</Version>
+        <Authors>$(Company)</Authors>
     </PropertyGroup>
 
     <ItemGroup>

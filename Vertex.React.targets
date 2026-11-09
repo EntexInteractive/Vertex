@@ -1,0 +1,54 @@
+<Project>
+
+    <PropertyGroup>
+        <!-- Location of our shared React application -->
+        <ReactRoot>$(MSBuildThisFileDirectory)Vertex.Web/</ReactRoot>
+
+        <!-- Where Vite generates its production files -->
+        <ReactDist>$(ReactRoot)dist/</ReactDist>
+    </PropertyGroup>
+
+    <!-- Build the shared React app before either host compiles or publishes. -->
+    <Target Name="BuildVertexReact" BeforeTargets="PrepareForBuild">
+
+        <Message Text="Building Vertex.Web..." Importance="high"/>
+
+        <!-- Install dependencies from package-lock.json -->
+        <Exec WorkingDirectory="$(ReactRoot)" Command="npm ci --include=dev"/>
+
+        <!-- Run the Vite production build -->
+        <Exec WorkingDirectory="$(ReactRoot)" Command="npm run build"/>
+
+    </Target>
+
+    <!-- Copy the same Vite output to the server's runtime wwwroot directory. -->
+    <Target Name="IncludeVertexReactInServer" AfterTargets="BuildVertexReact" Condition="'$(MSBuildProjectName)' == 'Vertex.Server'">
+        <ItemGroup>
+            <VertexReactFile Include="$(ReactDist)**\*"/>
+        </ItemGroup>
+        <Copy SourceFiles="@(VertexReactFile)"
+              DestinationFiles="@(VertexReactFile->'$(OutDir)wwwroot\%(RecursiveDir)%(Filename)%(Extension)')"
+              SkipUnchangedFiles="true"/>
+    </Target>
+
+    <Target Name="PublishVertexReactFromServer" BeforeTargets="ComputeFilesToPublish" Condition="'$(MSBuildProjectName)' == 'Vertex.Server'">
+        <ItemGroup>
+            <VertexReactPublishFile Include="$(ReactDist)**\*"/>
+            <ResolvedFileToPublish Include="@(VertexReactPublishFile)">
+                <RelativePath>wwwroot\%(VertexReactPublishFile.RecursiveDir)%(VertexReactPublishFile.Filename)%(VertexReactPublishFile.Extension)</RelativePath>
+                <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+            </ResolvedFileToPublish>
+        </ItemGroup>
+    </Target>
+
+    <!-- Embed the shared Vite output for Photino's static file server. -->
+    <Target Name="EmbedVertexReactInGui" AfterTargets="BuildVertexReact" Condition="'$(MSBuildProjectName)' == 'Vertex.Gui'">
+        <ItemGroup>
+            <VertexReactEmbeddedFile Include="$(ReactDist)**\*"/>
+            <EmbeddedResource Include="@(VertexReactEmbeddedFile)">
+                <Link>wwwroot\%(VertexReactEmbeddedFile.RecursiveDir)%(VertexReactEmbeddedFile.Filename)%(VertexReactEmbeddedFile.Extension)</Link>
+            </EmbeddedResource>
+        </ItemGroup>
+    </Target>
+
+</Project>
