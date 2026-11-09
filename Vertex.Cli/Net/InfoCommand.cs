@@ -2,9 +2,9 @@
 
 using EntexInteractive.Extensions;
 using Newtonsoft.Json.Linq;
-using Vertex.Net.Interfaces;
-using Vertex.Net.Responses;
-using Vertex.Net.Results;
+using Vertex.Core.Net.Interfaces;
+using Vertex.Core.Net.Responses;
+using Vertex.Core.Net.Results;
 
 namespace Vertex.Cli.Net
 {
@@ -17,7 +17,7 @@ namespace Vertex.Cli.Net
 
         private async Task HandleCommandAsync(ParseResult parse)
         {
-            ServerInterface server = new(parse.GetValue(ServerOption) ?? "http://localhost:5000");
+            using ServerInterface server = new(parse.GetValue(ServerOption) ?? "http://localhost:5000");
 
             ServerResult<InfoResponse> version = await server.GetInfoAsync();
             if (!version.IsSuccess)
