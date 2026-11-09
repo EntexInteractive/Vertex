@@ -1,6 +1,8 @@
 ﻿// Copyright 2026 Entex Interactive
 
+using System.Security.Cryptography;
 using EntexInteractive.Extensions;
+using Vertex.Core.IO;
 
 namespace Vertex.Core.Data
 {
@@ -9,7 +11,7 @@ namespace Vertex.Core.Data
         /// <summary>
         /// SHA-256 hash of the file's content.
         /// </summary>
-        public string Id { get; }
+        public Guid Id { get; set; }
 
         /// <summary>
         /// The name of the file.
@@ -29,7 +31,7 @@ namespace Vertex.Core.Data
         /// <summary>
         /// The branch of the file.
         /// </summary>
-        public VBranch Branch { get; set; }
+        public Guid BranchId { get; set; }
 
         /// <summary>
         /// The size, in bytes, of the file.
@@ -39,13 +41,45 @@ namespace Vertex.Core.Data
         /// <summary>
         /// The user that currently has the file locked. Null if unlocked.
         /// </summary>
-        public VUser? LockedBy { get; set; }
-
+        public Guid? LockedBy { get; set; }
+        public string? CheckSum { get; set; }
         public long Length { get; set; }
 
-        public VFile(string path, VBranch branch)
+        /// <summary>
+        /// Initializes a new instance of the <see cref="LocalFile"/> class with default properties.
+        /// </summary>
+        public VFile(string path, string branchId)
         {
+            Name = Path.GetFileName(path);
+            Fullname = Path.GetFullPath(path);
+            if (!File.Exists(path)) return;
             
+            FileInfo fi = new(path);
+            PhysicalSize = fi.Length;
+            LastWrite = new UnixTime(fi.LastWriteTimeUtc);
+            BranchId = Guid.Parse(branchId);
+        }
+        
+        public bool TryGenerateCheckSum()
+        {
+            if (!string.IsNullOrEmpty(CheckSum)) return true;
+
+            try
+            {
+                if (!File.Exists(Fullname)) return false;
+
+                using SHA256 sha256 = SHA256.Create();
+                using FileStream fs = File.OpenRead(Fullname);
+                
+                fs.Position = 0;
+                CheckSum = Convert.ToHexStringLower(sha256.ComputeHash(fs));
+                return !string.IsNullOrEmpty(CheckSum);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Error while generating checksum");
+                return false;
+            }
         }
     }
 }
