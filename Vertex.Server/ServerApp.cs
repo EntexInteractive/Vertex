@@ -6,6 +6,7 @@ using EntexInteractive.Extensions.Diagnostics;
 using EntexInteractive.Extensions.Globalization;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Caching.Hybrid;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.OpenApi;
 using Microsoft.OpenApi.Models;
 using Newtonsoft.Json.Converters;
@@ -172,7 +173,7 @@ namespace Vertex.Server
             app.UseMiddleware<DiagnosticMiddleware>();
 
             // Serve only the generated React files, even when development static assets are registered.
-            using var reactFiles = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(app.Environment.WebRootPath);
+            using PhysicalFileProvider reactFiles = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(app.Environment.WebRootPath);
             app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = reactFiles });
             app.UseStaticFiles(new StaticFileOptions { FileProvider = reactFiles });
             

@@ -5,7 +5,7 @@ using System.Security.Claims;
 using EntexInteractive.Extensions.Diagnostics;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Vertex.Net.Responses;
+using Vertex.Core.Net.Responses;
 using Vertex.Server.Diagnostics;
 
 namespace Vertex.Server.Server
