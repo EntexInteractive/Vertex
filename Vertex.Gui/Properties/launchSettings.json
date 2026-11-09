@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "Vertex.Gui": {
+      "commandName": "Project",
+      "commandLineArgs": "-debug"
+    }
+  }
+}
