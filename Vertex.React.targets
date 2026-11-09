@@ -46,7 +46,7 @@
         <ItemGroup>
             <VertexReactEmbeddedFile Include="$(ReactDist)**\*"/>
             <EmbeddedResource Include="@(VertexReactEmbeddedFile)">
-                <Link>wwwroot\%(VertexReactEmbeddedFile.RecursiveDir)%(VertexReactEmbeddedFile.Filename)%(VertexReactEmbeddedFile.Extension)</Link>
+                <Link>Resources\wwwroot\%(VertexReactEmbeddedFile.RecursiveDir)%(VertexReactEmbeddedFile.Filename)%(VertexReactEmbeddedFile.Extension)</Link>
             </EmbeddedResource>
         </ItemGroup>
     </Target>

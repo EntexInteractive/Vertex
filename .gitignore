@@ -120,6 +120,7 @@ out/
 **/.vitepress/dist
 **/.vitepress/cache
 **/wwwroot/
+wwwroot/
 .docusaurus/
 
 # TypeScript

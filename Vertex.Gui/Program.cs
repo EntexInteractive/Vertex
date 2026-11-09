@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.Text.Json;
 using System.Text;
 using EntexInteractive.Extensions.Globalization;
 using Photino.NET;
@@ -12,6 +13,7 @@ namespace Vertex.Gui
     class Program
     {
         public static bool IsDebugMode = false; //serve files from asp.net runtime
+        private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
         [STAThread]
         static void Main(string[] args)
@@ -24,7 +26,7 @@ namespace Vertex.Gui
             Console.WriteLine($"Serving React app at {appUrl}");
 
             // Window title declared here for visibility
-            string windowTitle = "Photino.React Demo App";
+            string windowTitle = "Vertex Desktop";
 
             // Creating a new PhotinoWindow instance with the fluent API
             PhotinoWindow window = new PhotinoWindow()
@@ -55,21 +57,58 @@ namespace Vertex.Gui
                 // PhotinoWindow was instantiated by calling a registration 
                 // method like the following RegisterWebMessageReceivedHandler.
                 // This could be added in the PhotinoWindowOptions if preferred.
-                .RegisterWebMessageReceivedHandler((object sender, string message) =>
-                {
-                    PhotinoWindow window = (PhotinoWindow)sender;
-
-                    // The message argument is coming in from sendMessage.
-                    // "window.external.sendMessage(message: string)"
-                    string response = $"Received message: \"{message}\"";
-
-                    // Send a message back the to JavaScript event handler.
-                    // "window.external.receiveMessage(callback: Function)"
-                    window.SendWebMessage(response);
-                })
+                .RegisterWebMessageReceivedHandler((sender, message) => HandleUiMessage((PhotinoWindow)sender!, message))
                 .Load(appUrl); // Can be used with relative path strings or "new URI()" instance to load a website.
 
             window.WaitForClose(); // Starts the application event loop
         }
+
+        private static void HandleUiMessage(PhotinoWindow? window, string message)
+        {
+            UiRequest? request;
+            try
+            {
+                request = JsonSerializer.Deserialize<UiRequest>(message, JsonOptions);
+            }
+            catch (JsonException)
+            {
+                return;
+            }
+
+            if (request is null || request.Type != "request" || string.IsNullOrWhiteSpace(request.Id))
+                return;
+
+            object? result = null;
+            string? error = null;
+            try
+            {
+                // Keep this switch as the explicit allowlist of methods the UI may call.
+                result = request.Method switch
+                {
+                    "app.getGreeting" => GetGreeting(request.Payload),
+                    _ => throw new InvalidOperationException($"Unknown backend method: {request.Method}")
+                };
+            }
+            catch (Exception exception)
+            {
+                error = exception.Message;
+            }
+
+            window?.SendWebMessage(JsonSerializer.Serialize(new UiResponse("response", request.Id, error is null, result, error), JsonOptions));
+        }
+
+        private static string GetGreeting(JsonElement payload)
+        {
+            var name = payload.ValueKind == JsonValueKind.Object &&
+                       payload.TryGetProperty("name", out var nameValue) &&
+                       nameValue.ValueKind == JsonValueKind.String
+                ? nameValue.GetString()
+                : null;
+
+            return $"Hello, {(!string.IsNullOrWhiteSpace(name) ? name : "there")}! This response came from C#.";
+        }
+
+        private sealed record UiRequest(string Type, string Id, string Method, JsonElement Payload);
+        private sealed record UiResponse(string Type, string Id, bool Success, object? Result, string? Error);
     }
 }

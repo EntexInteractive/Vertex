@@ -7,6 +7,18 @@ calls to the .NET back end if desired.
 
 ## Development
 
+### Calling C# from React
+
+This project uses Photino.NET, which provides a web-message bridge similar in purpose to Electron IPC. The React helper in `UserInterface/app/backend.ts` sends a request with a method name, payload, and request ID; the C# host handles it and returns a matching response. Calls return promises, so they can be awaited from button handlers.
+
+Add callable methods to the allowlist in `Program.HandleUiMessage`, then call them from React:
+
+```tsx
+const result = await invokeBackend<string>("app.getGreeting", { name: "Ada" });
+```
+
+Use only methods explicitly registered by the host. This bridge is for calls from the UI inside the Photino window; the helper reports an error when rendered in a normal browser.
+
 ### User Interface
 
 The entire user interface is contained in the UserInterface folder. It can be maintained independently of the .NET

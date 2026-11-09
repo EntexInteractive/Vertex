@@ -1,11 +1,25 @@
 import {useState} from 'react'
+import {callBackend, hasPhotinoBackend} from './backend'
 import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
+import reactLogo from './assets/vertex.svg'
 import viteLogo from './assets/vite.svg'
 import './App.css'
 
 function App() {
     const [count, setCount] = useState(0)
+    const [greeting, setGreeting] = useState('')
+    const [requestPending, setRequestPending] = useState(false)
+
+    async function requestGreeting() {
+        setRequestPending(true)
+        try {
+            setGreeting(await callBackend('app.getGreeting', {name: 'Vertex'}))
+        } catch (error) {
+            setGreeting(error instanceof Error ? error.message : 'The backend request failed.')
+        } finally {
+            setRequestPending(false)
+        }
+    }
 
     return (
         <>
@@ -16,7 +30,7 @@ function App() {
                     <img src={viteLogo} className="vite" alt="Vite logo"/>
                 </div>
                 <div>
-                    <h1>Get started</h1>
+                    <h1>Vertex React</h1>
                     <p>
                         Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
                     </p>
@@ -28,6 +42,14 @@ function App() {
                 >
                     Count is {count}
                 </button>
+                {hasPhotinoBackend() && (
+                    <>
+                        <button type="button" className="counter" disabled={requestPending} onClick={requestGreeting}>
+                            Get desktop greeting
+                        </button>
+                        <p role="status">{greeting}</p>
+                    </>
+                )}
             </section>
 
             <div className="ticks"></div>

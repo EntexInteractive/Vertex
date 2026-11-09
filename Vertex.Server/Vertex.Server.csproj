@@ -1,8 +1,10 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
     <PropertyGroup>
         <Nullable>enable</Nullable>
         <TargetFramework>net9.0</TargetFramework>
+        <!-- React sources live outside this project and must be rebuilt when the server builds. -->
+        <DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
         <ImplicitUsings>enable</ImplicitUsings>
         <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
         <ApplicationIcon>vertex-icon.ico</ApplicationIcon>
@@ -71,6 +73,11 @@
         <Protobuf Include="Protos\Greeter.proto">
             <Generator>MSBuild:Compile</Generator>
         </Protobuf>
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- The shared React build supplies the server web root. -->
+        <Content Remove="wwwroot/**"/>
     </ItemGroup>
 
     <Import Project="..\Vertex.React.targets"/>

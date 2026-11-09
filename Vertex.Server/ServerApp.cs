@@ -34,7 +34,12 @@ namespace Vertex.Server
             ServerSettings settings = ServerSettingsManager.Load();
             AssemblyName assembly = Assembly.GetExecutingAssembly().GetName();
 
-            WebApplicationBuilder builder = WebApplication.CreateBuilder();
+            WebApplicationBuilder builder = WebApplication.CreateBuilder(new WebApplicationOptions
+            {
+                WebRootPath = Path.Combine(AppContext.BaseDirectory, "wwwroot")
+            });
+            
+            
             builder.Host.UseSerilog((context, services, configuration) => configuration.ReadFrom.Configuration(context.Configuration));
             Log.Information($"{assembly.Name} [Version {assembly.Version}]");
             
@@ -58,7 +63,6 @@ namespace Vertex.Server
 
             builder.Services.AddSingleton(settings);
             builder.Services.AddSingleton<IFileStorage, S3FileStorage>();
-            builder.Services.AddSpaStaticFiles(config => { config.RootPath = "wwwroot"; });
             builder.WebHost.ConfigureKestrel(options =>
             {
                 int httpPort = Convert.ToInt32(Environment.GetEnvironmentVariable("Http_Port") ?? "5000");
@@ -167,9 +171,10 @@ namespace Vertex.Server
             // Middleware
             app.UseMiddleware<DiagnosticMiddleware>();
 
-            app.UseDefaultFiles();
-            app.UseStaticFiles();
-            app.UseWhen(IsSpaRequest, config => config.UseSpaStaticFiles());
+            // Serve only the generated React files, even when development static assets are registered.
+            using var reactFiles = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(app.Environment.WebRootPath);
+            app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = reactFiles });
+            app.UseStaticFiles(new StaticFileOptions { FileProvider = reactFiles });
             
             app.MapGrpcService<GreeterService>();
             app.MapGrpcService<FileService>();
@@ -178,11 +183,6 @@ namespace Vertex.Server
             app.UseAuthorization();
             app.MapControllers();
             await app.RunAsync();
-        }
-
-        private static bool IsSpaRequest(HttpContext context)
-        {
-            return !context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase);
         }
     }
 }
