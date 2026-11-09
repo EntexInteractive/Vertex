@@ -41,6 +41,8 @@ namespace Vertex.Core.Data
         /// </summary>
         public VUser? LockedBy { get; set; }
 
+        public long Length { get; set; }
+
         public VFile(string path, VBranch branch)
         {
             

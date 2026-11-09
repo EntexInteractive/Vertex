@@ -1,6 +1,6 @@
 // Copyright 2026 Entex Interactive
 
-namespace Vertex.Net.Results
+namespace Vertex.Core.Net.Results
 {
     /// <summary>
     /// Represents either a successful API value or a structured API error.

@@ -1,9 +1,6 @@
 // Copyright 2026 Entex Interactive
 
-using System.Text.Json;
-using System.Text.Json.Serialization;
-
-namespace Vertex.Net.Responses
+namespace Vertex.Core.Net.Responses
 {
     /// <summary>
     /// Version information returned by GET /api/v1/server/info.

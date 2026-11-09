@@ -2,7 +2,7 @@
 
 namespace Vertex.Core.Net.Interfaces
 {
-    public class AccountInterface(string url) : BaseInterface(url)
+    public class AccountsInterface(string url) : BaseInterface(url)
     {
     }
 }

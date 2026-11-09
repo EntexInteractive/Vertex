@@ -1,9 +1,9 @@
 // Copyright 2026 Entex Interactive
 
-using Vertex.Net.Responses;
-using Vertex.Net.Results;
+using Vertex.Core.Net.Responses;
+using Vertex.Core.Net.Results;
 
-namespace Vertex.Net.Interfaces
+namespace Vertex.Core.Net.Interfaces
 {
     /// <summary>
     /// Methods for Vertex server endpoints.

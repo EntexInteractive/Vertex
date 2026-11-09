@@ -1,34 +1,29 @@
-using System.Net;
 using System.Text;
-using Newtonsoft.Json;
-using Vertex.Net.Results;
+using Grpc.Net.Client;
+using Vertex.Core.Net.Results;
 
-namespace Vertex.Net.Interfaces
+namespace Vertex.Core.Net.Interfaces
 {
     /// <summary>
     /// Base class for Vertex server API endpoints.
     /// </summary>
     public abstract class BaseInterface : IDisposable
     {
-        private readonly HttpClient _httpClient;
+        public HttpClient HttpClient { get; }
+        public GrpcChannel GrpcChannel { get; }
 
-        protected BaseInterface(string baseUrl)
+        protected BaseInterface(string url)
         {
-            ArgumentException.ThrowIfNullOrWhiteSpace(baseUrl);
-            _httpClient = new HttpClient
+            ArgumentException.ThrowIfNullOrWhiteSpace(url);
+            HttpClient = new HttpClient
             {
-                BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/")
+                BaseAddress = new Uri(url.TrimEnd('/') + "/")
             };
+            
+            GrpcChannel = GrpcChannel.ForAddress(url);
         }
 
-        protected BaseInterface(HttpClient httpClient)
-        {
-            ArgumentNullException.ThrowIfNull(httpClient);
-            if (httpClient.BaseAddress is null) throw new ArgumentException("HttpClient must have a BaseAddress.", nameof(httpClient));
-            _httpClient = httpClient;
-        }
-
-        protected async Task<ServerResult<T>> SendAsync<T>(HttpMethod method, string endpoint, object? body = null, CancellationToken cancellationToken = default)
+        protected virtual async Task<ServerResult<T>> SendAsync<T>(HttpMethod method, string endpoint, object? body = null, CancellationToken cancellationToken = default)
         {
             using HttpRequestMessage request = new(method, endpoint);
             if (body is not null)
@@ -40,7 +35,7 @@ namespace Vertex.Net.Interfaces
 
             try
             {
-                response = await _httpClient.SendAsync(request, cancellationToken);
+                response = await HttpClient.SendAsync(request, cancellationToken);
             }
             catch (HttpRequestException ex)
             {
@@ -70,7 +65,8 @@ namespace Vertex.Net.Interfaces
 
         public void Dispose()
         {
-            _httpClient.Dispose();
+            HttpClient.Dispose();
+            GrpcChannel.Dispose();
             GC.SuppressFinalize(this);
         }
     }
