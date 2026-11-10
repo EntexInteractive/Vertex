@@ -34,4 +34,8 @@
         <Using Include="Serilog"/>
     </ItemGroup>
 
+    <ItemGroup>
+        <Folder Include="Net\Requests\"/>
+    </ItemGroup>
+
 </Project>

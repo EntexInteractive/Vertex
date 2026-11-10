@@ -27,6 +27,7 @@ namespace Vertex.Server.Server
         /// </summary>
         [HttpGet, AllowAnonymous]
         [Route("info")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<ActionResult<InfoResponse>> GetVersionAsync()
         {
             _monitor.Refresh();

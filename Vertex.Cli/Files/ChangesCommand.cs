@@ -6,7 +6,7 @@ using Vertex.Core.IO;
 
 namespace Vertex.Cli.IO
 {
-    public class ChangesCommand : BaseIOCommand
+    public class ChangesCommand : BaseFilesOptions
     {
         public ChangesCommand() : base("changes", "Gets a list of changed files.")
         {

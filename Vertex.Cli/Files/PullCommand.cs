@@ -1,6 +1,7 @@
 // Copyright 2026 Entex Interactive
 
 using Vertex.Core.Net;
+using Vertex.Core.Net.Interfaces;
 
 namespace Vertex.Cli.IO
 {
@@ -23,7 +24,7 @@ namespace Vertex.Cli.IO
             string fileId = parse.GetValue(_fileIdOption) ?? throw new ArgumentException("--file-id is required.");
             string destination = Path.GetFullPath(parse.GetValue(_pathOption) ?? fileId + ".blob");
             string address = parse.GetValue(_serverOption) ?? "https://localhost:5000";
-            using FileTransferClient client = new(address);
+            using FilesInterface client = new(address);
             long bytesReceived = await client.DownloadAsync(fileId, destination);
             Console.WriteLine($"Downloaded {bytesReceived:N0} bytes to {destination}");
         }

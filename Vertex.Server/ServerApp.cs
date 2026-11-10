@@ -15,6 +15,7 @@ using Serilog.Events;
 using StackExchange.Redis;
 using Vertex.Server.Database;
 using Vertex.Server.Diagnostics;
+using Vertex.Server.Projects;
 using Vertex.Server.Services;
 using Vertex.Server.Storage;
 
@@ -78,11 +79,12 @@ namespace Vertex.Server
             });
 
             // Database services
-            Dapper.DefaultTypeMap.MatchNamesWithUnderscores = true;
             builder.Services.AddScoped<MySqlDatabase>();
             builder.Services.AddScoped<DapperContext>();
 
+            //builder.Services.AddScoped<>()
             builder.Services.AddScoped<DiagnosticRepository>();
+            builder.Services.AddScoped<ProjectsRepository>();
             
             // Caching services
             builder.Services.AddSingleton<CacheContext>();

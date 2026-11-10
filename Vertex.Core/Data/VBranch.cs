@@ -9,7 +9,7 @@ namespace Vertex.Core.Data
         /// <summary>
         /// The branch unique identifier.
         /// </summary>
-        public string Id { get; }
+        public Guid Id { get; } = Guid.NewGuid();
 
         /// <summary>
         /// The time the branch was created.
@@ -24,12 +24,12 @@ namespace Vertex.Core.Data
         /// <summary>
         /// The parent project.
         /// </summary>
-        public VProject Project { get; }
+        public Guid ProjectId { get; }
 
         /// <summary>
         /// The parent branch.
         /// </summary>
-        public VBranch Parent { get; }
+        public Guid? ParentId { get; set; }
 
         /// <summary>
         /// The branch's required permission index.
@@ -39,6 +39,6 @@ namespace Vertex.Core.Data
         /// <summary>
         /// The <see cref="VUser"/> that created the branch.
         /// </summary>
-        public VUser Owner { get; set; }
+        public Guid OwnerId { get; set; }
     }
 }

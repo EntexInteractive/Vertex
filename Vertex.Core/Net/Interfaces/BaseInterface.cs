@@ -23,7 +23,7 @@ namespace Vertex.Core.Net.Interfaces
             GrpcChannel = GrpcChannel.ForAddress(url);
         }
 
-        protected virtual async Task<ServerResult<T>> SendAsync<T>(HttpMethod method, string endpoint, object? body = null, CancellationToken cancellationToken = default)
+        protected virtual async Task<ServerResult<TResult>> SendAsync<TResult>(HttpMethod method, string endpoint, object? body = null, CancellationToken cancellationToken = default)
         {
             using HttpRequestMessage request = new(method, endpoint);
             if (body is not null)
@@ -39,7 +39,7 @@ namespace Vertex.Core.Net.Interfaces
             }
             catch (HttpRequestException ex)
             {
-                return ServerResult<T>.Failure(ex, (int?)ex.StatusCode ?? 0);
+                return ServerResult<TResult>.Failure(ex, (int?)ex.StatusCode ?? 0);
             }
 
             using (response)
@@ -48,17 +48,17 @@ namespace Vertex.Core.Net.Interfaces
                 string content = await response.Content.ReadAsStringAsync(cancellationToken);
                 if (!response.IsSuccessStatusCode)
                 {
-                    return ServerResult<T>.Failure(new HttpRequestException(string.IsNullOrWhiteSpace(content) ? response.ReasonPhrase : content, null, response.StatusCode), statusCode);
+                    return ServerResult<TResult>.Failure(new HttpRequestException(string.IsNullOrWhiteSpace(content) ? response.ReasonPhrase : content, null, response.StatusCode), statusCode);
                 }
 
                 try
                 {
-                    T? data = JsonConvert.DeserializeObject<T>(content);
-                    return data is null ? ServerResult<T>.Failure(new JsonSerializationException("Server returned an empty response."), statusCode) : ServerResult<T>.Success(data, statusCode);
+                    TResult? data = JsonConvert.DeserializeObject<TResult>(content);
+                    return data is null ? ServerResult<TResult>.Failure(new JsonSerializationException("Server returned an empty response."), statusCode) : ServerResult<TResult>.Success(data, statusCode);
                 }
                 catch (JsonException ex)
                 {
-                    return ServerResult<T>.Failure(ex, statusCode);
+                    return ServerResult<TResult>.Failure(ex, statusCode);
                 }
             }
         }

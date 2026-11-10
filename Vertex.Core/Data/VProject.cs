@@ -9,7 +9,7 @@ namespace Vertex.Core.Data
         /// <summary>
         /// The project unique indentifer.
         /// </summary>
-        public string Id { get; }
+        public Guid Id { get; } = Guid.NewGuid();
 
         /// <summary>
         /// The time the project was created.
@@ -29,6 +29,6 @@ namespace Vertex.Core.Data
         /// <summary>
         /// The <see cref="VUser"/> that created the project.
         /// </summary>
-        public VUser Owner { get; set; }
+        public Guid OwnerId { get; set; }
     }
 }

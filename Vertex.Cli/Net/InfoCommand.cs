@@ -8,7 +8,7 @@ using Vertex.Core.Net.Results;
 
 namespace Vertex.Cli.Net
 {
-    public class InfoCommand : BaseNetCommand
+    public class InfoCommand : BaseNetOptions
     {
         public InfoCommand() : base("info", "Display connection information.")
         {
@@ -17,7 +17,8 @@ namespace Vertex.Cli.Net
 
         private async Task HandleCommandAsync(ParseResult parse)
         {
-            using ServerInterface server = new(parse.GetValue(ServerOption) ?? "http://localhost:5000");
+            string serverAddress = parse.GetValue(ServerOption) ?? "https://localhost:5000";
+            using ServerInterface server = new(serverAddress);
 
             ServerResult<InfoResponse> version = await server.GetInfoAsync();
             if (!version.IsSuccess)

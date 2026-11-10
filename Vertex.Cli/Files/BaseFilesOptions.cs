@@ -7,17 +7,12 @@ namespace Vertex.Cli.IO
     /// <summary>
     /// Represents a base command for I/O-related CLI operations that build on shared network command behavior.
     /// </summary>
-    public abstract class BaseIOCommand : BaseNetCommand
+    public abstract class BaseFilesOptions : BaseNetOptions
     {
-        /// <summary>
-        /// Specifies the branch to use for the command.
-        /// </summary>
-        protected readonly Option<string> BranchOption = new("--branch", ["-b"]) { Description = "Path to a file or directory." };
-
         /// <summary>
         /// Specifies the file or directory path to use for the command.
         /// </summary>
-        protected readonly Option<string> PathOption = new("--path", ["-p"]) { Description = "Path to a file or directory." };
+        protected readonly Option<string> PathOption = new("--path") { Description = "Path to a file or directory." };
 
         /// <summary>
         /// Forces the operation to proceed by bypassing applicable safety checks and confirmation safeguards.
@@ -35,9 +30,8 @@ namespace Vertex.Cli.IO
         /// </summary>
         /// <param name="name">The command name.</param>
         /// <param name="description">The command description.</param>
-        protected BaseIOCommand(string name, string description) : base(name, description)
+        protected BaseFilesOptions(string name, string description) : base(name, description)
         {
-            this.Add(BranchOption);
             this.Add(PathOption);
             this.Add(ForceOption);
             this.Add(ParallelOption);

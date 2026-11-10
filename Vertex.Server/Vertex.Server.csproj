@@ -79,5 +79,5 @@
         <Content Remove="wwwroot/**"/>
     </ItemGroup>
 
-    <Import Project="..\Vertex.React.targets"/>
+    <!--<Import Project="..\Vertex.React.targets"/>-->
 </Project>

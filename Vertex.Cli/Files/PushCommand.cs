@@ -2,11 +2,12 @@
 
 using EntexInteractive.Extensions;
 using Vertex.Core.Net;
+using Vertex.Core.Net.Interfaces;
 using Vertex.Server;
 
 namespace Vertex.Cli.IO
 {
-    public class PushCommand : BaseIOCommand
+    public class PushCommand : BaseFilesOptions
     {
         public PushCommand() : base("push", "Pushes files to the primary server.")
         {
@@ -23,12 +24,12 @@ namespace Vertex.Cli.IO
                     ? Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).ToArray()
                     : throw new FileNotFoundException("The push path does not exist.", path);
 
-            using FileTransferClient client = new(address);
-            foreach (string file in files)
+            using FilesInterface client = new(address);
+            /*foreach (string file in files)
             {
                 UploadFileResponse response = await client.UploadAsync(file);
                 Terminal.WriteLine($"Uploaded {response.FileName} ({response.BytesReceived:N0} bytes), id {response.FileId}", ConsoleColor.Green);
-            }
+            }*/
         }
     }
 }

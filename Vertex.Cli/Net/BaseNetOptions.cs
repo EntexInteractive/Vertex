@@ -2,7 +2,7 @@
 
 namespace Vertex.Cli.Net
 {
-    public abstract class BaseNetCommand : Command
+    public abstract class BaseNetOptions : Command
     {
         /// <summary>
         /// Specifies the server host URL to use when connecting to the target server.
@@ -14,7 +14,7 @@ namespace Vertex.Cli.Net
         /// </summary>
         protected readonly Option<bool> VerboseOption = new("--verbose", ["-v"]) { Description = "Display with verbose logging." };
 
-        protected BaseNetCommand(string name, string description) : base(name, description)
+        protected BaseNetOptions(string name, string description) : base(name, description)
         {
             this.Add(ServerOption);
             this.Add(VerboseOption);
