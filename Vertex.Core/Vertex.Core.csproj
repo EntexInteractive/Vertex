@@ -36,6 +36,7 @@
 
     <ItemGroup>
         <Folder Include="Net\Requests\"/>
+        <Folder Include="Text\" />
     </ItemGroup>
 
 </Project>

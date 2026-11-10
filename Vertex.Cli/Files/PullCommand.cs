@@ -1,9 +1,8 @@
 // Copyright 2026 Entex Interactive
 
-using Vertex.Core.Net;
 using Vertex.Core.Net.Interfaces;
 
-namespace Vertex.Cli.IO
+namespace Vertex.Cli.Files
 {
     public class PullCommand : Command
     {

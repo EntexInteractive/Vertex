@@ -1,19 +1,20 @@
 ﻿// Copyright 2026 Entex Interactive
 
+using Vertex.Cli.Branches;
 using Vertex.Cli.Net;
 
-namespace Vertex.Cli.IO
+namespace Vertex.Cli.Files
 {
     /// <summary>
     /// Represents a base command for I/O-related CLI operations that build on shared network command behavior.
     /// </summary>
-    public abstract class BaseFilesOptions : BaseNetOptions
+    public abstract class BaseFilesCommand : BaseBranchCommand
     {
         /// <summary>
         /// Specifies the file or directory path to use for the command.
         /// </summary>
         protected readonly Option<string> PathOption = new("--path") { Description = "Path to a file or directory." };
-
+        
         /// <summary>
         /// Forces the operation to proceed by bypassing applicable safety checks and confirmation safeguards.
         /// </summary>
@@ -30,7 +31,7 @@ namespace Vertex.Cli.IO
         /// </summary>
         /// <param name="name">The command name.</param>
         /// <param name="description">The command description.</param>
-        protected BaseFilesOptions(string name, string description) : base(name, description)
+        protected BaseFilesCommand(string name, string description) : base(name, description)
         {
             this.Add(PathOption);
             this.Add(ForceOption);

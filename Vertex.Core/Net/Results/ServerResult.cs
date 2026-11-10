@@ -13,7 +13,7 @@ namespace Vertex.Core.Net.Results
         /// <value>
         /// <see langword="true"/> when the status code is in the 2xx range; otherwise, <see langword="false"/>.
         /// </value>
-        public bool IsSuccess => StatusCode is >= 200 and < 300;
+        public bool IsSuccessStatusCode => StatusCode is >= 200 and < 300;
 
         /// <summary>
         /// Gets the value returned by the server when the operation completes successfully.

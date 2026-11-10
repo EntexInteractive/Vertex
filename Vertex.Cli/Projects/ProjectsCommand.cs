@@ -1,12 +1,14 @@
 ﻿// Copyright 2026 Entex Interactive
 
+using Vertex.Cli.Net;
 using Vertex.Core.Data;
+using Vertex.Core.IO;
 using Vertex.Core.Net.Interfaces;
 using Vertex.Core.Net.Results;
 
 namespace Vertex.Cli.Projects
 {
-    public class ProjectsCommand : BaseProjectOptions
+    public class ProjectsCommand : BaseNetCommand
     {
         private readonly Argument<string> _nameArg = new("name") { Description = "Name of the branch to create." };
 
@@ -23,12 +25,13 @@ namespace Vertex.Cli.Projects
 
         private async Task HandleCreateCommandAsync(ParseResult args)
         {
-            string serverAddress = args.GetValue<string>(ServerOption) ?? "https://localhost:5000";
-
-            string projectName = args.GetValue(ProjectOption) ?? "Vertex";
+            string serverAddress = args.GetValue(ServerOption) ?? "https://localhost:5000";
+            string projectName = args.GetRequiredValue(_nameArg);
+            Console.WriteLine(projectName);
+            
             using ProjectInterface projectInterface = new(serverAddress);
             ServerResult<VProject> result = await projectInterface.CreateProjectAsync(projectName);
-            if (result.IsSuccess)
+            if (result.IsSuccessStatusCode)
             {
                 Console.WriteLine($"Project '{result.Data?.Name}' created successfully.");
             }

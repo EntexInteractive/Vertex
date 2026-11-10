@@ -8,7 +8,7 @@ using Vertex.Core.Net.Results;
 
 namespace Vertex.Cli.Net
 {
-    public class InfoCommand : BaseNetOptions
+    public class InfoCommand : BaseNetCommand
     {
         public InfoCommand() : base("info", "Display connection information.")
         {
@@ -21,9 +21,9 @@ namespace Vertex.Cli.Net
             using ServerInterface server = new(serverAddress);
 
             ServerResult<InfoResponse> version = await server.GetInfoAsync();
-            if (!version.IsSuccess)
+            if (!version.IsSuccessStatusCode)
             {
-                Terminal.Error(version.Exception);
+                Terminal.Error(version.Exception?.Message ?? "Unknown error");
                 return;
             }
 

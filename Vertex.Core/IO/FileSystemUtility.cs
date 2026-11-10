@@ -4,7 +4,7 @@ using Vertex.Core.Data;
 
 namespace Vertex.Core.IO
 {
-    public class FileManager
+    public class FileSystemUtility
     {
         /// <summary>
         /// Checks if the given path is a directory.
@@ -129,11 +129,12 @@ namespace Vertex.Core.IO
 
             return changes;
         }
-        
+
         public static string[] GetIgnoredEntries(string path)
         {
             string ignoreFile = Path.Combine(path, ".vxignore");
-            return File.Exists(ignoreFile) ? File.ReadAllLines(ignoreFile).Select(line => line.Trim()).Where(line => !string.IsNullOrWhiteSpace(line) && !line.StartsWith('#')).ToArray() : [];
+            string[] ignoredEntries = File.ReadAllLines(ignoreFile).Select(line => line.Trim()).Where(line => !string.IsNullOrWhiteSpace(line) && !line.StartsWith('#')).ToArray();
+            return File.Exists(ignoreFile) ? ignoredEntries : [];
         }
     }
 }

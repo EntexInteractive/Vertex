@@ -29,9 +29,9 @@ namespace Vertex.Core.Data
         public UnixTime LastWrite { get; set; }
 
         /// <summary>
-        /// The branch of the file.
+        /// The branch id the file belongs to.
         /// </summary>
-        public Guid BranchId { get; set; }
+        public Guid Branch { get; set; }
 
         /// <summary>
         /// The size, in bytes, of the file.
@@ -48,7 +48,7 @@ namespace Vertex.Core.Data
         /// <summary>
         /// Initializes a new instance of the <see cref="LocalFile"/> class with default properties.
         /// </summary>
-        public VFile(string path, string branchId)
+        public VFile(string path, Guid branch)
         {
             Name = Path.GetFileName(path);
             Fullname = Path.GetFullPath(path);
@@ -57,7 +57,7 @@ namespace Vertex.Core.Data
             FileInfo fi = new(path);
             PhysicalSize = fi.Length;
             LastWrite = new UnixTime(fi.LastWriteTimeUtc);
-            BranchId = Guid.Parse(branchId);
+            Branch = branch;
         }
         
         public bool TryGenerateCheckSum()

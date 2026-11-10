@@ -4,7 +4,7 @@ using Vertex.Cli.Net;
 
 namespace Vertex.Cli.Projects
 {
-    public abstract class BaseProjectOptions : BaseNetOptions
+    public abstract class BaseProjectCommand : BaseNetCommand
     {
         /// <summary>
         /// Specifies the branch to use for the command.
@@ -14,7 +14,7 @@ namespace Vertex.Cli.Projects
         /// <summary>
         /// Provides a common base command for project-related CLI commands.
         /// </summary>
-        protected BaseProjectOptions(string name, string description) : base(name, description)
+        protected BaseProjectCommand(string name, string description) : base(name, description)
         {
             this.Add(ProjectOption);
         }

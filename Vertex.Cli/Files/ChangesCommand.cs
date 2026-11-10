@@ -1,12 +1,11 @@
 ﻿// Copyright 2026 Entex Interactive
 
 using EntexInteractive.Extensions;
-using Vertex.Core.Data;
 using Vertex.Core.IO;
 
-namespace Vertex.Cli.IO
+namespace Vertex.Cli.Files
 {
-    public class ChangesCommand : BaseFilesOptions
+    public class ChangesCommand : BaseFilesCommand
     {
         public ChangesCommand() : base("changes", "Gets a list of changed files.")
         {
@@ -22,7 +21,7 @@ namespace Vertex.Cli.IO
 
             Terminal.WriteLine($"Getting changes with {threads} threads...");
 
-            IEnumerable<string> localFiles = FileManager.IsDirectory(path) ? FileManager.GetFiles(path, FileManager.GetIgnoredEntries(path)) : [path];
+            IEnumerable<string> localFiles = FileSystemUtility.IsDirectory(path) ? FileSystemUtility.GetFiles(path, FileSystemUtility.GetIgnoredEntries(path)) : [path];
             Terminal.WriteArray(path, localFiles);
         }
     }

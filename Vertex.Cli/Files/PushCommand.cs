@@ -1,13 +1,10 @@
 // Copyright 2026 Entex Interactive
 
-using EntexInteractive.Extensions;
-using Vertex.Core.Net;
 using Vertex.Core.Net.Interfaces;
-using Vertex.Server;
 
-namespace Vertex.Cli.IO
+namespace Vertex.Cli.Files
 {
-    public class PushCommand : BaseFilesOptions
+    public class PushCommand : BaseFilesCommand
     {
         public PushCommand() : base("push", "Pushes files to the primary server.")
         {
