@@ -8,19 +8,25 @@ updates:
     target-branch: "main"
 
   - package-ecosystem: "nuget"
-    directory: "/Vertex.Core"
+    directory: "/Vertex.Cli"
     schedule:
       interval: "daily"
     target-branch: "main"
 
-  - package-ecosystem: "npm"
-    directory: "/Vertex.Dashboard"
+  - package-ecosystem: "nuget"
+    directory: "/Vertex.Core"
     schedule:
       interval: "daily"
     target-branch: "main"
 
   - package-ecosystem: "nuget"
     directory: "/Vertex.Server"
+    schedule:
+      interval: "daily"
+    target-branch: "main"
+
+  - package-ecosystem: "npm"
+    directory: "/Vertex.Web"
     schedule:
       interval: "daily"
     target-branch: "main"
