@@ -7,17 +7,9 @@ namespace Vertex.Server
 {
     public static class ServerSettingsManager
     {
-        private static readonly string ConfigPath = Environment.GetEnvironmentVariable("VERTEX_SERVER_CONFIG")
-                                                    ?? Path.Combine(AppContext.BaseDirectory, "VertexServer.yml");
-
-        private static readonly ISerializer Serializer = new SerializerBuilder()
-            .WithNamingConvention(CamelCaseNamingConvention.Instance)
-            .Build();
-
-        private static readonly IDeserializer Deserializer = new DeserializerBuilder()
-            .WithNamingConvention(CamelCaseNamingConvention.Instance)
-            .IgnoreUnmatchedProperties()
-            .Build();
+        private static readonly string ConfigPath = Environment.GetEnvironmentVariable("VERTEX_SERVER_CONFIG") ?? Path.Combine(AppContext.BaseDirectory, "VertexServer.yml");
+        private static readonly ISerializer Serializer = new SerializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
+        private static readonly IDeserializer Deserializer = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).IgnoreUnmatchedProperties().Build();
 
         /// <summary>
         /// Loads server settings from the configuration file.

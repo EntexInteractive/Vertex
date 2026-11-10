@@ -3,16 +3,13 @@ using Amazon;
 using Amazon.Runtime;
 using Amazon.S3;
 using EntexInteractive.Extensions.Diagnostics;
-using EntexInteractive.Extensions.Globalization;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.FileProviders;
-using Microsoft.OpenApi;
 using Microsoft.OpenApi.Models;
 using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Serialization;
-using Serilog.Events;
-using StackExchange.Redis;
+using Vertex.Server.Branches;
 using Vertex.Server.Database;
 using Vertex.Server.Diagnostics;
 using Vertex.Server.Projects;
@@ -82,7 +79,7 @@ namespace Vertex.Server
             builder.Services.AddScoped<MySqlDatabase>();
             builder.Services.AddScoped<DapperContext>();
 
-            //builder.Services.AddScoped<>()
+            builder.Services.AddScoped<BranchesRepository>();
             builder.Services.AddScoped<DiagnosticRepository>();
             builder.Services.AddScoped<ProjectsRepository>();
             

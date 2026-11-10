@@ -23,9 +23,11 @@ namespace Vertex.Server.Projects
         /// <return>A task that represents the asynchronous operation. The task result contains the created project wrapped in an <see cref="ActionResult{TValue}"/>.</return>
         [HttpPost]
         [ProducesResponseType(StatusCodes.Status201Created)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public async Task<ActionResult<VProject>> CreateProjectAsync([FromQuery] string name, CancellationToken cancellationToken)
         {
-            VProject project = await _projects.CreateProjectAsync(name, cancellationToken);
+            VProject project = new VProject(name, Guid.NewGuid());
+            if (!await _projects.CreateProjectAsync(project, cancellationToken)) return BadRequest();
             return StatusCode(StatusCodes.Status201Created, project);
         }
 
@@ -36,11 +38,9 @@ namespace Vertex.Server.Projects
         /// <return>A task that represents the asynchronous operation. The task result contains the collection of projects wrapped in an <see cref="ActionResult{TValue}"/>.</return>
         [HttpGet]
         [ProducesResponseType(StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<ActionResult<IReadOnlyList<VProject>>> GetProjectsAsync(CancellationToken cancellationToken)
         {
-            IReadOnlyList<VProject> projects = await _projects.GetProjectsAsync(cancellationToken);
-
+            IReadOnlyList<VProject> projects = await _projects.ListProjectsAsync(cancellationToken);
             return Ok(projects);
         }
 

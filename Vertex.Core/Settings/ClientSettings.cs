@@ -7,10 +7,6 @@ namespace Vertex.Core.Settings
         /// <summary>
         /// Gets the path to the application's roaming data directory.
         /// </summary>
-        /// <remarks>
-        /// This directory is located under the current user's roaming application data folder
-        /// and is created automatically if it does not already exist.
-        /// </remarks>
         public static string RoamingDirectory
         {
             get

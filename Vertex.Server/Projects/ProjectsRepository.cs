@@ -6,15 +6,12 @@ namespace Vertex.Server.Projects
 {
     public class ProjectsRepository
     {
-        public async Task<VProject> CreateProjectAsync(string name, CancellationToken cancellationToken)
+        public async Task<bool> CreateProjectAsync(VProject project, CancellationToken cancellationToken)
         {
-            return new VProject
-            {
-                Name = name
-            };
+            return true;
         }
 
-        public async Task<IReadOnlyList<VProject>> GetProjectsAsync(CancellationToken cancellationToken)
+        public async Task<IReadOnlyList<VProject>> ListProjectsAsync(CancellationToken cancellationToken)
         {
             throw new NotImplementedException();
         }

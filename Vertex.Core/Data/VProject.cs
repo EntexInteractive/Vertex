@@ -14,7 +14,7 @@ namespace Vertex.Core.Data
         /// <summary>
         /// The time the project was created.
         /// </summary>
-        public UnixTime CreatedAt { get; }
+        public UnixTime CreatedAt { get; } = UnixTime.Now;
 
         /// <summary>
         /// The project name.
@@ -30,5 +30,11 @@ namespace Vertex.Core.Data
         /// The <see cref="VUser"/> that created the project.
         /// </summary>
         public Guid OwnerId { get; set; }
+
+        public VProject(string name, Guid ownerId)
+        {
+            Name = name;
+            OwnerId = ownerId;
+        }
     }
 }

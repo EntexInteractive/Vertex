@@ -14,7 +14,7 @@ namespace Vertex.Core.Data
         /// <summary>
         /// The time the branch was created.
         /// </summary>
-        public UnixTime CreatedAt { get; }
+        public UnixTime CreatedAt { get; } = UnixTime.Now;
 
         /// <summary>
         /// The branch name.
@@ -27,18 +27,21 @@ namespace Vertex.Core.Data
         public Guid ProjectId { get; }
 
         /// <summary>
+        /// The <see cref="VUser"/> that created the branch.
+        /// </summary>
+        public Guid OwnerId { get; set; }
+
+        /// <summary>
         /// The parent branch.
         /// </summary>
         public Guid? ParentId { get; set; }
 
-        /// <summary>
-        /// The branch's required permission index.
-        /// </summary>
-        public int Permission { get; set; } = 0;
-
-        /// <summary>
-        /// The <see cref="VUser"/> that created the branch.
-        /// </summary>
-        public Guid OwnerId { get; set; }
+        public VBranch(string name, Guid projectId, Guid ownerId, Guid? parentId = null)
+        {
+            Name = name;
+            ProjectId = projectId;
+            OwnerId = ownerId;
+            ParentId = parentId;
+        }
     }
 }
