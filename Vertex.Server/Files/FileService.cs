@@ -50,8 +50,7 @@ namespace Vertex.Server.Services
 
         public override async Task DownloadAsync(DownloadFileRequest request, IServerStreamWriter<DownloadFileResponse> responseStream, ServerCallContext context)
         {
-            if (!Guid.TryParseExact(request.FileId, "N", out _))
-                throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid file id."));
+            if (!Guid.TryParseExact(request.FileId, "N", out _)) throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid file id."));
 
             StoredFile stored;
             try
@@ -90,12 +89,8 @@ namespace Vertex.Server.Services
             while (await requestStream.MoveNext(cancellationToken))
             {
                 UploadFileRequest request = requestStream.Current;
-                if (request.DataCase != UploadFileRequest.DataOneofCase.Chunk)
-                    throw new InvalidDataException("Upload may contain metadata only as its first message.");
-
-                if (request.Chunk.Length > MaximumChunkSize)
-                    throw new InvalidDataException("Upload chunk exceeds the server chunk limit.");
-
+                if (request.DataCase != UploadFileRequest.DataOneofCase.Chunk) throw new InvalidDataException("Upload may contain metadata only as its first message.");
+                if (request.Chunk.Length > MaximumChunkSize) throw new InvalidDataException("Upload chunk exceeds the server chunk limit.");
                 yield return request.Chunk.Memory;
             }
         }
