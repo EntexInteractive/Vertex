@@ -7,9 +7,12 @@ namespace Vertex.Core.Net.Interfaces
 {
     public class BranchInterface(string url) : BaseInterface(url)
     {
-        public async Task<ServerResult<VBranch>> CreateBranchAsync(Guid projectId, string branchName, CancellationToken cancellationToken = default)
+        public async Task<ServerResult<VBranch>> CreateBranchAsync(Guid projectId, string branchName, Guid? parentId = null, CancellationToken cancellationToken = default)
         {
-            return await SendAsync<VBranch>(HttpMethod.Post, "/api/v1/branches", new { projectId, name = branchName }, cancellationToken);
+            string query = $"/api/v1/branches?projectId={projectId}&name={Uri.EscapeDataString(branchName)}";
+            if (parentId.HasValue) query += $"&parentId={parentId.Value}";
+
+            return await SendAsync<VBranch>(HttpMethod.Post, query, null, cancellationToken);
         }
     }
 }

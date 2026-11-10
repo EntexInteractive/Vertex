@@ -50,11 +50,9 @@ namespace Vertex.Server.Diagnostics
             int statusCode = context.Response.StatusCode;
             long processMs = sw.ElapsedMilliseconds;
             long length = Convert.ToInt64(context.Request.ContentLength ?? 0 + context.Response.ContentLength ?? 0);
-            int cpuUsage = Convert.ToInt32(_monitor.CpuUsage);
-            long ramUsage = Convert.ToInt64(_monitor.RamUsage);
 
-            _logger.LogDebug($"Processed request: '{endpoint}' in {sw.ElapsedMilliseconds}ms (Authenticated: {context.User.Identity?.IsAuthenticated})");
-            VRequest request = new(uuid, method, endpoint, statusCode, processMs, length, cpuUsage, ramUsage);
+            _logger.LogDebug("Processed request: '{Endpoint}' in {SwElapsedMilliseconds}ms (Authenticated: {IdentityIsAuthenticated})", endpoint, sw.ElapsedMilliseconds, context.User.Identity?.IsAuthenticated);
+            VRequest request = new(null, method, endpoint, statusCode, processMs, length);
             await _db.AddRequestAsync(request);
         }
     }

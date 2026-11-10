@@ -4,14 +4,15 @@ using System.Data;
 using System.Diagnostics;
 using Dapper;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
-using MySql.Data.MySqlClient;
+using Npgsql;
+using StackExchange.Redis;
 
 namespace Vertex.Server.Database
 {
     /// <summary>
-    /// Provides MySQL database connectivity and health check support for the application.
+    /// Represents a PostgresSQL <see cref="IDatabase"/> instance.
     /// </summary>
-    public class MySqlDatabase : IHealthCheck
+    public class PostgresDatabase : IHealthCheck
     {
         /// <inheritdoc />
         public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = new CancellationToken())
@@ -29,7 +30,7 @@ namespace Vertex.Server.Database
             catch (Exception ex)
             {
                 sw.Stop();
-                return HealthCheckResult.Unhealthy("Unable to ping MySql", ex);
+                return HealthCheckResult.Unhealthy("Unable to ping Postgres", ex);
             }
         }
 
@@ -38,7 +39,7 @@ namespace Vertex.Server.Database
         /// </summary>
         public IDbConnection CreateConnection()
         {
-            return new MySqlConnection(Environment.GetEnvironmentVariable("DatabaseConnectionString"));
+            return new NpgsqlConnection(Environment.GetEnvironmentVariable("PostgresConnectionString") ?? "postgres:5432");
         }
     }
 }

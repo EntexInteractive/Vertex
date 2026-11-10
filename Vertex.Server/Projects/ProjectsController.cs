@@ -27,7 +27,7 @@ namespace Vertex.Server.Projects
         public async Task<ActionResult<VProject>> CreateProjectAsync([FromQuery] string name, CancellationToken cancellationToken)
         {
             VProject project = new VProject(name, Guid.NewGuid());
-            if (!await _projects.CreateProjectAsync(project, cancellationToken)) return BadRequest();
+            if (!await _projects.AddProjectAsync(project, cancellationToken)) return BadRequest();
             return StatusCode(StatusCodes.Status201Created, project);
         }
 
@@ -53,7 +53,7 @@ namespace Vertex.Server.Projects
         [HttpGet("by-id")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        public async Task<ActionResult<VProject>> GetProjectByIdAsync([FromQuery] string id, CancellationToken cancellationToken)
+        public async Task<ActionResult<VProject>> GetProjectByIdAsync([FromQuery] Guid id, CancellationToken cancellationToken)
         {
             VProject? project = await _projects.GetProjectByIdAsync(id, cancellationToken);
             if (project is null) return NotFound();

@@ -12,7 +12,7 @@ namespace Vertex.Core.Data
         /// <summary>
         /// The unique user id that sent the request.
         /// </summary>
-        public string? Uuid { get; }
+        public Guid? AuthUser { get; }
 
         /// <summary>
         /// The HTTP method used in the request.
@@ -39,22 +39,17 @@ namespace Vertex.Core.Data
         /// </summary>
         public long Length { get; }
 
-        public int CpuUsage { get; }
-        public long RamUsage { get; }
-
         /// <summary>
         /// Initializes a new instance of the <see cref="VRequest"/> class.
         /// </summary>
-        public VRequest(string? uuid, string method, string endpoint, int statusCode, long processMs, long length, int cpuUsage, long ramUsage)
+        public VRequest(Guid? uuid, string method, string endpoint, int statusCode, long processMs, long length)
         {
-            Uuid = uuid;
+            AuthUser = uuid;
             Method = method;
             Endpoint = endpoint;
             StatusCode = statusCode;
             ProcessMs = processMs;
             Length = length;
-            CpuUsage = cpuUsage;
-            RamUsage = ramUsage;
         }
     }
 }

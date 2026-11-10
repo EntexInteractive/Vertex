@@ -76,7 +76,8 @@ namespace Vertex.Server
             });
 
             // Database services
-            builder.Services.AddScoped<MySqlDatabase>();
+            Dapper.DefaultTypeMap.MatchNamesWithUnderscores = true;
+            builder.Services.AddScoped<PostgresDatabase>();
             builder.Services.AddScoped<DapperContext>();
 
             builder.Services.AddScoped<BranchesRepository>();

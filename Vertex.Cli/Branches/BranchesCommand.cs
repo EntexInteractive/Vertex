@@ -1,5 +1,6 @@
 ﻿// Copyright 2026 Entex Interactive
 
+using Newtonsoft.Json.Linq;
 using Vertex.Core.Data;
 using Vertex.Core.Net.Interfaces;
 using Vertex.Core.Net.Results;
@@ -35,6 +36,7 @@ namespace Vertex.Cli.Branches
             }
 
             VProject project = projectResult.Data!;
+            Console.WriteLine(JObject.FromObject(projectResult));
 
             string branchName = args.GetValue(BranchOption) ?? "main";
             using BranchInterface branchInterface = new(serverAddress);

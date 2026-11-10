@@ -129,14 +129,11 @@ namespace Vertex.Core.IO
 
             return changes;
         }
-
+        
         public static string[] GetIgnoredEntries(string path)
         {
             string ignoreFile = Path.Combine(path, ".vxignore");
-            return File.Exists(ignoreFile)
-                ? File.ReadAllLines(ignoreFile).Select(line => line.Trim())
-                    .Where(line => !string.IsNullOrWhiteSpace(line) && !line.StartsWith('#')).ToArray()
-                : [];
+            return File.Exists(ignoreFile) ? File.ReadAllLines(ignoreFile).Select(line => line.Trim()).Where(line => !string.IsNullOrWhiteSpace(line) && !line.StartsWith('#')).ToArray() : [];
         }
     }
 }

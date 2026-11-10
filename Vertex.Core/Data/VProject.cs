@@ -36,5 +36,15 @@ namespace Vertex.Core.Data
             Name = name;
             OwnerId = ownerId;
         }
+
+        [JsonConstructor]
+        public VProject(Guid id, long createdAt, string name, int permission, Guid ownerId)
+        {
+            Id = id;
+            CreatedAt = UnixTime.FromMilliseconds(createdAt);
+            Name = name;
+            Permission = permission;
+            OwnerId = ownerId;
+        }
     }
 }
