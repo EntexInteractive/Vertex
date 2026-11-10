@@ -3,6 +3,7 @@
 using System.Security.Cryptography;
 using EntexInteractive.Extensions;
 using Vertex.Core.IO;
+using ZstdSharp;
 
 namespace Vertex.Core.Data
 {
@@ -70,9 +71,13 @@ namespace Vertex.Core.Data
 
                 using SHA256 sha256 = SHA256.Create();
                 using FileStream fs = File.OpenRead(Fullname);
-                
-                fs.Position = 0;
-                CheckSum = Convert.ToHexStringLower(sha256.ComputeHash(fs));
+                using HashStream hs = new(Stream.Null);
+                using (ZstdStream zstd = new(hs, ZstdStreamMode.Compress))
+                {
+                    fs.CopyTo(zstd);
+                }
+
+                CheckSum = hs.GetHashHexString();
                 return !string.IsNullOrEmpty(CheckSum);
             }
             catch (Exception ex)

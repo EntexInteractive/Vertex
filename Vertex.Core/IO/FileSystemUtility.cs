@@ -122,7 +122,7 @@ namespace Vertex.Core.IO
             return false;
         }
 
-        public IReadOnlyList<VChange> GetChanges(VBranch branch)
+        public IReadOnlyList<VChange> GetFileChanges(VBranch branch)
         {
             List<VChange> changes = new();
             //IReadOnlyList<VFile> localFiles = GetFiles(branch);

@@ -30,6 +30,7 @@ namespace Vertex.Core.Net.Interfaces
 
             byte[] buffer = new byte[ChunkSize];
             await using FileStream input = new(file.Fullname, FileMode.Open, FileAccess.Read, FileShare.Read, ChunkSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            
             int read;
             while ((read = await input.ReadAsync(buffer, ct)) > 0)
                 await call.RequestStream.WriteAsync(new UploadFileRequest { Chunk = Google.Protobuf.ByteString.CopyFrom(buffer, 0, read) }, ct);
@@ -48,7 +49,7 @@ namespace Vertex.Core.Net.Interfaces
             string destination = Path.GetFullPath(destinationPath);
             string? directory = Path.GetDirectoryName(destination);
             if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
-            string temporaryPath = destination + ".download";
+            string temporaryPath = destination + ".tmp";
 
             try
             {
