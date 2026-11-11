@@ -1,71 +1,106 @@
 // Copyright 2026 Entex Interactive
 
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
-
 namespace Vertex.Server
 {
-    public static class ServerSettingsManager
+    /// <summary>
+    /// Server configuration, read from environment variables at startup. Every setting the server needs is
+    /// listed here, so this class is the single reference for deployment configuration.
+    /// </summary>
+    /// <remarks>
+    /// When <see cref="StorageSettings.AccessKey"/> and <see cref="StorageSettings.SecretKey"/> are unset, the AWS SDK
+    /// falls back to its default credential chain (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY, web identity such as
+    /// EKS IRSA or pod identity, instance profile).
+    /// </remarks>
+    public sealed class ServerSettings
     {
-        private static readonly string ConfigPath = Environment.GetEnvironmentVariable("SERVER_CONFIG") ?? Path.Combine(AppContext.BaseDirectory, "VertexServer.yml");
-        private static readonly ISerializer Serializer = new SerializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
-        private static readonly IDeserializer Deserializer = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).IgnoreUnmatchedProperties().Build();
+        public const string HttpPortVariable = "VERTEX_HTTP_PORT";
+        public const string PostgresVariable = "VERTEX_POSTGRES_CONNECTION";
+        public const string RedisVariable = "VERTEX_REDIS_CONNECTION";
+        public const string S3EndpointVariable = "VERTEX_S3_ENDPOINT";
+        public const string S3RegionVariable = "VERTEX_S3_REGION";
+        public const string S3BucketVariable = "VERTEX_S3_BUCKET";
+        public const string S3AccessKeyVariable = "VERTEX_S3_ACCESS_KEY";
+        public const string S3SecretKeyVariable = "VERTEX_S3_SECRET_KEY";
+
+        /// <summary>Port Kestrel listens on (clear-text HTTP/2). Default 5000.</summary>
+        public required int HttpPort { get; init; }
+
+        /// <summary>Npgsql connection string. Required.</summary>
+        public required string PostgresConnectionString { get; init; }
+
+        /// <summary>StackExchange.Redis configuration string. Default <c>redis:6379</c>.</summary>
+        public required string RedisConnectionString { get; init; }
+
+        public required StorageSettings Storage { get; init; }
 
         /// <summary>
-        /// Loads server settings from the configuration file.
-        /// If the configuration file does not exist, creates a new settings instance,
-        /// saves it to the default configuration path, and returns it.
+        /// Reads and validates all settings from the environment.
         /// </summary>
-        /// <return>
-        /// A <see cref="ServerSettings"/> instance loaded from the configuration file,
-        /// or a newly created default instance if the file does not exist.
-        /// </return>
-        /// <exception cref="InvalidDataException">
-        /// Thrown when the configuration file exists but is empty or contains invalid data.
-        /// </exception>
-        public static ServerSettings Load()
+        /// <exception cref="InvalidOperationException">One or more settings are missing or invalid; the message lists all of them.</exception>
+        public static ServerSettings FromEnvironment()
         {
-            if (!File.Exists(ConfigPath))
+            List<string> errors = new();
+
+            string portText = Read(HttpPortVariable) ?? "5000";
+            if (!int.TryParse(portText, out int port) || port is < 1 or > 65535)
+                errors.Add($"{HttpPortVariable} must be a port number between 1 and 65535 (got '{portText}').");
+
+            string? postgres = Read(PostgresVariable);
+            if (postgres is null)
+                errors.Add($"{PostgresVariable} is required, e.g. 'Host=postgres;Port=5432;Database=vertex;Username=...;Password=...'.");
+
+            string endpoint = Read(S3EndpointVariable) ?? "https://s3.amazonaws.com";
+            if (!Uri.TryCreate(endpoint, UriKind.Absolute, out _))
+                errors.Add($"{S3EndpointVariable} must be an absolute URL (got '{endpoint}').");
+
+            string? accessKey = Read(S3AccessKeyVariable);
+            string? secretKey = Read(S3SecretKeyVariable);
+            if (accessKey is null != secretKey is null)
+                errors.Add($"{S3AccessKeyVariable} and {S3SecretKeyVariable} must either both be set or both be unset.");
+
+            if (errors.Count > 0)
+                throw new InvalidOperationException("Invalid server configuration:" + Environment.NewLine + string.Join(Environment.NewLine, errors.Select(e => "  - " + e)));
+
+            return new ServerSettings
             {
-                ServerSettings defaults = new();
-                Save(defaults);
-                return defaults;
-            }
-
-            string yaml = File.ReadAllText(ConfigPath);
-            return Deserializer.Deserialize<ServerSettings>(yaml) ?? throw new InvalidDataException($"Configuration file '{ConfigPath}' is empty or invalid.");
+                HttpPort = port,
+                PostgresConnectionString = postgres!,
+                RedisConnectionString = Read(RedisVariable) ?? "redis:6379",
+                Storage = new StorageSettings
+                {
+                    Endpoint = endpoint,
+                    Region = Read(S3RegionVariable) ?? "us-east-1",
+                    Bucket = Read(S3BucketVariable) ?? "vertex-storage",
+                    AccessKey = accessKey,
+                    SecretKey = secretKey
+                }
+            };
         }
 
         /// <summary>
-        /// Saves the specified server settings to the default configuration file.
-        /// Serializes the settings instance to YAML and overwrites any existing file at the configured path.
+        /// Returns the variable's value, treating unset and blank the same.
         /// </summary>
-        /// <param name="settings">
-        /// The <see cref="ServerSettings"/> instance to serialize and write to the configuration file.
-        /// </param>
-        /// <exception cref="ArgumentNullException">
-        /// Thrown when <paramref name="settings"/> is <see langword="null"/>.
-        /// </exception>
-        /// <exception cref="IOException">
-        /// Thrown when an I/O error occurs while writing the configuration file.
-        /// </exception>
-        public static void Save(ServerSettings settings)
+        private static string? Read(string name)
         {
-            File.WriteAllText(ConfigPath, Serializer.Serialize(settings));
+            string? value = Environment.GetEnvironmentVariable(name);
+            return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         }
     }
 
-    public class ServerSettings
+    public sealed class StorageSettings
     {
-        public StorageSettings Storage { get; set; } = new();
-    }
+        /// <summary>S3-compatible endpoint URL. Default <c>https://s3.amazonaws.com</c>.</summary>
+        public required string Endpoint { get; init; }
 
-    public class StorageSettings
-    {
-        public string Endpoint { get; set; } = "https://s3.amazonaws.com";
-        public string Region { get; set; } = "us-east-1";
-        public string Bucket { get; set; } = "vertex-storage";
-        public string AccessKey { get; set; } = string.Empty;
-        public string SecretKey { get; set; } = string.Empty;
+        /// <summary>Default <c>us-east-1</c>.</summary>
+        public required string Region { get; init; }
+
+        /// <summary>Default <c>vertex-storage</c>.</summary>
+        public required string Bucket { get; init; }
+
+        /// <summary>Optional; unset uses the AWS default credential chain.</summary>
+        public string? AccessKey { get; init; }
+
+        public string? SecretKey { get; init; }
     }
 }

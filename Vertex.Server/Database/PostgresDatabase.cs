@@ -14,6 +14,16 @@ namespace Vertex.Server.Database
     /// </summary>
     public class PostgresDatabase : IHealthCheck
     {
+        private readonly string _connectionString;
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="PostgresDatabase"/> class.
+        /// </summary>
+        public PostgresDatabase(ServerSettings settings)
+        {
+            _connectionString = settings.PostgresConnectionString;
+        }
+
         /// <inheritdoc />
         public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = new CancellationToken())
         {
@@ -39,7 +49,7 @@ namespace Vertex.Server.Database
         /// </summary>
         public IDbConnection CreateConnection()
         {
-            return new NpgsqlConnection(Environment.GetEnvironmentVariable("PostgresConnectionString") ?? "postgres:5432");
+            return new NpgsqlConnection(_connectionString);
         }
     }
 }

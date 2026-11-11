@@ -34,9 +34,9 @@ namespace Vertex.Server
         public static async Task Main(string[] args)
         {
             CommandLineArguments arguments = new(args);
-            
-            
-            ServerSettings settings = ServerSettingsManager.Load();
+
+
+            ServerSettings settings = ServerSettings.FromEnvironment();
             AssemblyName assembly = Assembly.GetExecutingAssembly().GetName();
 
             WebApplicationBuilder builder = WebApplication.CreateBuilder(new WebApplicationOptions
@@ -48,12 +48,6 @@ namespace Vertex.Server
             builder.Host.UseSerilog((context, services, configuration) => configuration.ReadFrom.Configuration(context.Configuration));
             Log.Information($"{assembly.Name} [Version {assembly.Version}]");
             
-            if (string.IsNullOrWhiteSpace(settings.Storage.Bucket))
-                throw new InvalidOperationException("storage.bucket must be set in server.yml.");
-
-            if (string.IsNullOrWhiteSpace(settings.Storage.AccessKey) != string.IsNullOrWhiteSpace(settings.Storage.SecretKey))
-                throw new InvalidDataException("storage.accessKey and storage.secretKey must either both be set or both be empty.");
-
             string region = settings.Storage.Region;
             string serviceUrl = settings.Storage.Endpoint;
             builder.Services.AddSingleton<IAmazonS3>(_ =>
@@ -62,7 +56,7 @@ namespace Vertex.Server
                 s3Config.ServiceURL = serviceUrl;
                 s3Config.ForcePathStyle = true;
 
-                AWSCredentials? credentials = string.IsNullOrWhiteSpace(settings.Storage.AccessKey) ? null : new BasicAWSCredentials(settings.Storage.AccessKey, settings.Storage.SecretKey);
+                AWSCredentials? credentials = settings.Storage.AccessKey is null ? null : new BasicAWSCredentials(settings.Storage.AccessKey, settings.Storage.SecretKey);
                 return credentials is null ? new AmazonS3Client(s3Config) : new AmazonS3Client(credentials, s3Config);
             });
 
@@ -76,8 +70,7 @@ namespace Vertex.Server
                 options.Limits.Http2.InitialStreamWindowSize = FileTransferLimits.StreamWindowSize;
                 options.Limits.Http2.InitialConnectionWindowSize = FileTransferLimits.ConnectionWindowSize;
 
-                int httpPort = Convert.ToInt32(Environment.GetEnvironmentVariable("Http_Port") ?? "5000");
-                options.ListenAnyIP(httpPort, listenOptions =>
+                options.ListenAnyIP(settings.HttpPort, listenOptions =>
                 {
                     // ALPN selects HTTP/1.1 for regular HTTP requests and HTTP/2 for gRPC.
                     // TLS is required because both protocols cannot be negotiated over one
@@ -100,7 +93,7 @@ namespace Vertex.Server
             builder.Services.AddHostedService<RedisSubscriber>();
             builder.Services.AddStackExchangeRedisCache(options =>
             {
-                options.Configuration = Environment.GetEnvironmentVariable("RedisConnectionString") ?? "redis:6379";
+                options.Configuration = settings.RedisConnectionString;
             });
 
             builder.Services.AddMemoryCache();

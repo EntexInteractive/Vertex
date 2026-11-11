@@ -9,28 +9,29 @@ Vertex is a server-centric, versioned file synchronization platform that gives y
 
 You install the Vertex Agent on your computers and connect them to your Vertex account. From the web interface, you decide which parts of your repository each device should synchronize.
 
-## S3 storage configuration
+## Server configuration
 
-S3 settings are stored in `server.yml`; other server settings continue to use `appsettings.json`. The server creates
-`server.yml` with defaults on first launch. Its storage section looks like this:
+The server is configured entirely through environment variables. It checks them at startup and exits with a list of
+every missing or invalid setting.
 
-```yaml
-storage:
-  endpoint: https://s3.amazonaws.com
-  region: us-east-1
-  bucket: your-bucket
-  accessKey: ""
-  secretKey: ""
-```
+| Variable                     | Required | Default                    | Description                                                                                              |
+|------------------------------|----------|----------------------------|----------------------------------------------------------------------------------------------------------|
+| `VERTEX_HTTP_PORT`           | No       | `5000`                     | Port the server listens on (HTTP/2 without TLS; terminate TLS at your ingress or proxy).                 |
+| `VERTEX_POSTGRES_CONNECTION` | **Yes**  | —                          | Npgsql connection string, e.g. `Host=postgres;Port=5432;Database=vertex;Username=...;Password=...`.      |
+| `VERTEX_REDIS_CONNECTION`    | No       | `redis:6379`               | StackExchange.Redis connection string. The server runs with a memory-only cache if Redis is unreachable. |
+| `VERTEX_S3_ENDPOINT`         | No       | `https://s3.amazonaws.com` | S3 or S3-compatible endpoint URL (e.g. MinIO). Path-style addressing is used.                            |
+| `VERTEX_S3_REGION`           | No       | `us-east-1`                | S3 region.                                                                                               |
+| `VERTEX_S3_BUCKET`           | No       | `vertex-storage`           | Bucket for file chunks and manifests.                                                                    |
+| `VERTEX_S3_ACCESS_KEY`       | No       | —                          | Static S3 access key. Set together with `VERTEX_S3_SECRET_KEY`, or leave both unset.                     |
+| `VERTEX_S3_SECRET_KEY`       | No       | —                          | Static S3 secret key.                                                                                    |
 
-The AWS SDK default credential chain is used when `accessKey` and `secretKey` are blank. In Kubernetes, provide
-credentials through an AWS workload identity or role rather than embedding access keys in `server.yml`. For
-S3-compatible services such as MinIO, set `endpoint` to the service URL; path-style addressing is enabled.
+When the S3 keys are unset, the AWS SDK default credential chain is used (`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`,
+EKS IRSA or pod identity, instance profile). In Kubernetes, prefer workload identity, or load the keys from a Secret.
+Standard ASP.NET Core variables such as `ASPNETCORE_ENVIRONMENT` also apply; `Development` enables Swagger and gRPC
+reflection.
 
-Uploads are streamed as multipart objects. Each active large upload uses temporary pod storage for its current part;
-configure enough ephemeral storage for the largest part expected by your workload. AWS S3 itself limits a multipart
-object to 10,000 parts of at most 5 GiB each. Add a bucket lifecycle rule to remove incomplete multipart uploads if a
-pod stops before the upload can be aborted.
+For local development, set these in `Vertex.Server/Properties/launchSettings.json` or with `dotnet user-secrets`.
+Keep credentials out of source control.
 
 ## Contact
 

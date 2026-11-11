@@ -72,7 +72,9 @@ namespace Vertex.Core.Net.Interfaces
         /// Pushes chunked files: skips files and chunks the server already stores, uploads the rest over parallel
         /// streams, then commits each file's manifest.
         /// </summary>
+        /// <param name="files">Files chunked with <see cref="ContentChunker.ChunkFile"/>.</param>
         /// <param name="onCommitted">Invoked for each newly stored file.</param>
+        /// <param name="ct">Cancels the push.</param>
         public async Task<PushResult> PushAsync(IReadOnlyCollection<ChunkedFile> files, Action<ChunkedFile>? onCommitted = null, CancellationToken ct = default)
         {
             ArgumentNullException.ThrowIfNull(files);
