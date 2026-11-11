@@ -3,6 +3,7 @@ using Amazon;
 using Amazon.Runtime;
 using Amazon.S3;
 using EntexInteractive.Extensions.Diagnostics;
+using EntexInteractive.Extensions.Globalization;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.FileProviders;
@@ -30,6 +31,9 @@ namespace Vertex.Server
         /// <return>A task that represents the asynchronous operation of building and running the server application.</return>
         public static async Task Main(string[] args)
         {
+            CommandLineArguments arguments = new(args);
+            
+            
             ServerSettings settings = ServerSettingsManager.Load();
             AssemblyName assembly = Assembly.GetExecutingAssembly().GetName();
 

@@ -1,6 +1,7 @@
 ﻿// Copyright 2026 Entex Interactive
 
 using EntexInteractive.Extensions;
+using Vertex.Core.Client.IO;
 using Vertex.Core.IO;
 
 namespace Vertex.Cli.Files
@@ -9,17 +10,16 @@ namespace Vertex.Cli.Files
     {
         public ChangesCommand() : base("changes", "Gets a list of changed files.")
         {
-            this.SetAction(HandleCommandAsync);
+            SetAction(HandleCommandAsync);
+            Add(ServerOption);
+            Add(ProjectOption);
+            Add(BranchOption);
+            Add(PathOption);
         }
 
         private void HandleCommandAsync(ParseResult arg)
         {
             string path = arg.GetValue(PathOption) ?? Directory.GetCurrentDirectory();
-            int threads = arg.GetValue(ParallelOption) <= 0 ? Environment.ProcessorCount : arg.GetValue(ParallelOption);
-            
-            Terminal.WriteLine($"Using path: {path}");
-
-            Terminal.WriteLine($"Getting changes with {threads} threads...");
 
             IEnumerable<string> localFiles = FileSystemUtility.IsDirectory(path) ? FileSystemUtility.GetFiles(path, FileSystemUtility.GetIgnoredEntries(path)) : [path];
             Terminal.WriteArray(path, localFiles);

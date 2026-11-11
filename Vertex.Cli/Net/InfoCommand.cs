@@ -13,6 +13,7 @@ namespace Vertex.Cli.Net
         public InfoCommand() : base("info", "Display connection information.")
         {
             SetAction(HandleCommandAsync);
+            Add(ServerOption);
         }
 
         private async Task HandleCommandAsync(ParseResult parse)
@@ -31,14 +32,15 @@ namespace Vertex.Cli.Net
             string[] data =
             [
                 $"Current directory: {Directory.GetCurrentDirectory()}",
+                $"Client version:    {typeof(Program).Assembly.GetName().Version}",
                 $"Server address:    {info.Address}",
-                $"Server version:    {info.Version}",
                 $"Server date:       {info.Date.ToLocalTime():yyyy/MM/dd HH:mm:ss zzz}",
+                $"Server uptime:     {info.Uptime}",
                 $"Server response:   {info.ProcessMs}ms",
-                $"Server uptime:     {info.Uptime}"
+                $"Server version:    {info.Version}",
             ];
 
-            Terminal.WriteArray("Vertex information", data.OrderBy(x => x));
+            Terminal.WriteArray("Vertex information", data);
         }
     }
 }

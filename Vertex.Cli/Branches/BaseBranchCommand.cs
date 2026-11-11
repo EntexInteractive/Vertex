@@ -9,11 +9,8 @@ namespace Vertex.Cli.Branches
         /// <summary>
         /// Specifies the branch to use for the command.
         /// </summary>
-        protected readonly Option<string> BranchOption = new("--branch", ["-b"]) { Description = "Name of the branch to use." };
+        protected readonly Option<string> BranchOption = new("--branch", ["-b"]) { Description = "Name of the branch." };
 
-        protected BaseBranchCommand(string name, string description) : base(name, description)
-        {
-            this.Add(BranchOption);
-        }
+        protected BaseBranchCommand(string name, string description) : base(name, description) { }
     }
 }

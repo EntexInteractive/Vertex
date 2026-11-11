@@ -1,10 +1,8 @@
 ﻿// Copyright 2026 Entex Interactive
 
-using Vertex.Core.Data;
-
-namespace Vertex.Core.IO
+namespace Vertex.Core.Client.IO
 {
-    public class FileSystemUtility
+    public static class FileSystemUtility
     {
         /// <summary>
         /// Checks if the given path is a directory.
@@ -122,17 +120,11 @@ namespace Vertex.Core.IO
             return false;
         }
 
-        public IReadOnlyList<VChange> GetFileChanges(VBranch branch)
-        {
-            List<VChange> changes = new();
-            //IReadOnlyList<VFile> localFiles = GetFiles(branch);
-
-            return changes;
-        }
-
         public static string[] GetIgnoredEntries(string path)
         {
             string ignoreFile = Path.Combine(path, ".vxignore");
+            if (!File.Exists(ignoreFile)) return [];
+            
             string[] ignoredEntries = File.ReadAllLines(ignoreFile).Select(line => line.Trim()).Where(line => !string.IsNullOrWhiteSpace(line) && !line.StartsWith('#')).ToArray();
             return File.Exists(ignoreFile) ? ignoredEntries : [];
         }

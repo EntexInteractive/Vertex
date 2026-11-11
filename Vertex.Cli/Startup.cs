@@ -1,7 +1,6 @@
 ﻿// Copyright 2026 Entex Interactive
 
 using Microsoft.Extensions.DependencyInjection;
-using Vertex.Core.Settings;
 
 namespace Vertex.Cli
 {

@@ -31,11 +31,6 @@ namespace Vertex.Cli.Files
         /// </summary>
         /// <param name="name">The command name.</param>
         /// <param name="description">The command description.</param>
-        protected BaseFilesCommand(string name, string description) : base(name, description)
-        {
-            this.Add(PathOption);
-            this.Add(ForceOption);
-            this.Add(ParallelOption);
-        }
+        protected BaseFilesCommand(string name, string description) : base(name, description) { }
     }
 }

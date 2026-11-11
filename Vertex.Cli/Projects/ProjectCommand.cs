@@ -8,13 +8,13 @@ using Vertex.Core.Net.Results;
 
 namespace Vertex.Cli.Projects
 {
-    public class ProjectsCommand : BaseNetCommand
+    public class ProjectCommand : BaseNetCommand
     {
         private readonly Argument<string> _nameArg = new("name") { Description = "Name of the branch to create." };
 
         private readonly Command _createCmd = new Command("create", "Creates a new branch.");
 
-        public ProjectsCommand() : base("projects", "Manages projects.")
+        public ProjectCommand() : base("project", "Manages projects.")
         {
             _createCmd.SetAction(HandleCreateCommandAsync);
             _createCmd.Add(_nameArg);

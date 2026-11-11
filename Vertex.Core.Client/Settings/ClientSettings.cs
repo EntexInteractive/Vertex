@@ -1,6 +1,6 @@
 ﻿// Copyright 2026 Entex Interactive
 
-namespace Vertex.Core.Settings
+namespace Vertex.Core.Client.Settings
 {
     public class ClientSettings
     {
@@ -14,6 +14,15 @@ namespace Vertex.Core.Settings
                 string path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Entex Interactive", "Vertex");
                 if (!Directory.Exists(path)) Directory.CreateDirectory(path);
                 return path;
+            }
+        }
+
+        public static string DatabaseConnectionString
+        {
+            get
+            {
+                string path = Path.Combine(RoamingDirectory, "VertexClient.db");
+                return $"Data Source={path};Cache=Shared;Mode=ReadWriteCreate;Pooling=true;";
             }
         }
     }

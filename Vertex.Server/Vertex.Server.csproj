@@ -61,7 +61,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\Vertex.Core\Vertex.Core.csproj"/>
+        <ProjectReference Include="..\Vertex.Core\Vertex.Core.csproj" AdditionalProperties="VertexTarget=Server"/>
     </ItemGroup>
 
     <ItemGroup>
