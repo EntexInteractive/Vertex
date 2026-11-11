@@ -25,7 +25,7 @@ namespace Vertex.Core.Net.Interfaces
             using AsyncClientStreamingCall<UploadFileRequest, UploadFileResponse> call = FilesClient.UploadAsync(cancellationToken: ct);
             await call.RequestStream.WriteAsync(new UploadFileRequest
             {
-                Metadata = new FileMetadata { FileName = file.Name, ContentType = "application/octet-stream", FileSize = file.Length }
+                Metadata = new FileMetadata { FileName = file.Name, ContentType = "application/octet-stream", FileSize = file.PhysicalSize, FileId = file.CheckSum ?? throw new InvalidOperationException("File checksum must be generated before upload.") }
             }, ct);
 
             byte[] buffer = new byte[ChunkSize];

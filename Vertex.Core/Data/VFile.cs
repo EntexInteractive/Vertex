@@ -35,17 +35,21 @@ namespace Vertex.Core.Data
         public Guid Branch { get; set; }
 
         /// <summary>
-        /// The size, in bytes, of the file.
+        /// The size, in bytes, of the local file.
         /// </summary>
         public long PhysicalSize { get; set; }
+
+        /// <summary>
+        /// The size, in bytes, of the compressed file.
+        /// </summary>
+        public long CompressedSize { get; set; }
 
         /// <summary>
         /// The user that currently has the file locked. Null if unlocked.
         /// </summary>
         public Guid? LockedBy { get; set; }
         public string? CheckSum { get; set; }
-        public long Length { get; set; }
-
+        
         /// <summary>
         /// Initializes a new instance of the <see cref="LocalFile"/> class with default properties.
         /// </summary>
@@ -60,7 +64,13 @@ namespace Vertex.Core.Data
             LastWrite = new UnixTime(fi.LastWriteTimeUtc);
             Branch = branch;
         }
-        
+
+        /// <summary>
+        /// Attempts to generate and assign a checksum for the current file based on its contents.
+        /// </summary>
+        /// <return>
+        /// <see langword="true"/> if a checksum already exists or is generated successfully; otherwise, <see langword="false"/> if the file does not exist or an error occurs during generation.
+        /// </return>
         public bool TryGenerateCheckSum()
         {
             if (!string.IsNullOrEmpty(CheckSum)) return true;
@@ -71,7 +81,7 @@ namespace Vertex.Core.Data
 
                 using SHA256 sha256 = SHA256.Create();
                 using FileStream fs = File.OpenRead(Fullname);
-                using HashStream hs = new(Stream.Null);
+                using HashStream hs = new(Stream.Null, reportBytes => CompressedSize = reportBytes);
                 using (ZstdStream zstd = new(hs, ZstdStreamMode.Compress))
                 {
                     fs.CopyTo(zstd);

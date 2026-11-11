@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text;
 using Grpc.Net.Client;
 using Vertex.Core.Net.Results;
@@ -17,7 +18,9 @@ namespace Vertex.Core.Net.Interfaces
             ArgumentException.ThrowIfNullOrWhiteSpace(url);
             HttpClient = new HttpClient
             {
-                BaseAddress = new Uri(url.TrimEnd('/') + "/")
+                BaseAddress = new Uri(url.TrimEnd('/') + "/"),
+                DefaultVersionPolicy = HttpVersionPolicy.RequestVersionExact,
+                DefaultRequestVersion = HttpVersion.Version20
             };
             
             GrpcChannel = GrpcChannel.ForAddress(url);
@@ -26,6 +29,9 @@ namespace Vertex.Core.Net.Interfaces
         protected virtual async Task<ServerResult<TResult>> SendAsync<TResult>(HttpMethod method, string endpoint, object? body = null, CancellationToken cancellationToken = default)
         {
             using HttpRequestMessage request = new(method, endpoint);
+            request.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
+            request.Version = HttpVersion.Version20;
+
             if (body is not null)
             {
                 request.Content = new StringContent(JsonConvert.SerializeObject(body), Encoding.UTF8, "application/json");

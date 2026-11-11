@@ -1,31 +1,27 @@
 // Copyright 2026 Entex Interactive
 
+using Spectre.Console;
+using Spectre.Console.Cli;
 using Vertex.Core.Net.Interfaces;
+using Vertex.Cli.Net;
 
-namespace Vertex.Cli.Files
+namespace Vertex.Cli.Files;
+
+public sealed class PullSettings : NetworkSettings
 {
-    public class PullCommand : Command
+    [CommandOption("--file-id")] public string? FileId { get; set; }
+    [CommandOption("--path|-p")] public string? Destination { get; set; }
+}
+
+public sealed class PullCommand : AsyncCommand<PullSettings>
+{
+    public override async Task<int> ExecuteAsync(CommandContext context, PullSettings settings, CancellationToken cancellationToken)
     {
-        private readonly Option<string> _fileIdOption = new("--file-id") { Description = "The file id returned by push." };
-        private readonly Option<string> _pathOption = new("--path", ["-p"]) { Description = "Destination file path." };
-        private readonly Option<string> _serverOption = new("--server") { Description = "The server address to connect to." };
-
-        public PullCommand() : base("pull", "Downloads a file from the primary server.")
-        {
-            this.Add(_fileIdOption);
-            this.Add(_pathOption);
-            this.Add(_serverOption);
-            this.SetAction(HandleCommandAsync);
-        }
-
-        private async Task HandleCommandAsync(ParseResult parse)
-        {
-            string fileId = parse.GetValue(_fileIdOption) ?? throw new ArgumentException("--file-id is required.");
-            string destination = Path.GetFullPath(parse.GetValue(_pathOption) ?? fileId + ".blob");
-            string address = parse.GetValue(_serverOption) ?? "https://localhost:5000";
-            using FilesInterface client = new(address);
-            long bytesReceived = await client.DownloadAsync(fileId, destination);
-            Console.WriteLine($"Downloaded {bytesReceived:N0} bytes to {destination}");
-        }
+        string fileId = settings.FileId ?? throw new ArgumentException("--file-id is required.");
+        string destination = Path.GetFullPath(settings.Destination ?? fileId);
+        using FilesInterface client = new(settings.Server ?? "https://localhost:5000");
+        long bytesReceived = await client.DownloadAsync(fileId, destination, cancellationToken);
+        AnsiConsole.MarkupLine($"Downloaded {bytesReceived:N0} bytes to {Markup.Escape(destination)}");
+        return 0;
     }
 }

@@ -1,32 +1,36 @@
 // Copyright 2026 Entex Interactive
 
+using EntexInteractive.Extensions;
+using Vertex.Core.Client.IO;
+using Vertex.Core.Data;
 using Vertex.Core.Net.Interfaces;
+using Vertex.Server;
 
 namespace Vertex.Cli.Files
 {
-    public class PushCommand : BaseFilesCommand
+    public sealed class PushCommand : AsyncCommand<FilesSettings>
     {
-        public PushCommand() : base("push", "Pushes files to the primary server.")
+        public override async Task<int> ExecuteAsync(CommandContext context, FilesSettings settings, CancellationToken cancellationToken)
         {
-            this.SetAction(HandleCommand);
-        }
-
-        private async Task HandleCommand(ParseResult parse)
-        {
-            string path = Path.GetFullPath(parse.GetValue(PathOption) ?? Directory.GetCurrentDirectory());
-            string address = parse.GetValue(ServerOption) ?? "http://localhost:5000";
-            string[] files = File.Exists(path)
-                ? [path]
-                : Directory.Exists(path)
-                    ? Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).ToArray()
-                    : throw new FileNotFoundException("The push path does not exist.", path);
+            string rootPath = Path.GetFullPath(settings.Path ?? Directory.GetCurrentDirectory());
+            string address = settings.Server ?? "http://localhost:5000";
+            IEnumerable<string> localFiles = FileSystemUtility.IsDirectory(rootPath) ? FileSystemUtility.GetFiles(rootPath, FileSystemUtility.GetIgnoredEntries(rootPath)) : [rootPath];
 
             using FilesInterface client = new(address);
-            /*foreach (string file in files)
+            foreach (string path in localFiles)
             {
-                UploadFileResponse response = await client.UploadAsync(file);
-                Terminal.WriteLine($"Uploaded {response.FileName} ({response.BytesReceived:N0} bytes), id {response.FileId}", ConsoleColor.Green);
-            }*/
+                VFile file = new(path, Guid.Empty);
+                if (!file.TryGenerateCheckSum()) continue;
+
+                UploadFileResponse response = await client.UploadAsync(file, cancellationToken);
+                if (!string.Equals(response.FileId, file.CheckSum, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("The server did not use the file checksum as its id. Rebuild and restart the server.");
+
+                Terminal.WriteLine($"Uploaded {response.FileName} ({response.BytesReceived:N0} bytes), id {file.CheckSum}", ConsoleColor.Green);
+            }
+
+            await Task.CompletedTask;
+            return 0;
         }
     }
 }

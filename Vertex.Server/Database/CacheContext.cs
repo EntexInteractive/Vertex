@@ -28,7 +28,7 @@ namespace Vertex.Server.Database
                 string config = Environment.GetEnvironmentVariable("RedisConnectionString") ?? "redis:6379";
                 _redis = ConnectionMultiplexer.Connect(config);
 
-                _logger.LogInformation($"Connected to redis at '{_redis.GetEndPoints().FirstOrDefault()}'. Caching will be enabled.");
+                _logger.LogInformation("Connected to redis at '{FirstOrDefault}'. Caching will be enabled.", _redis.GetEndPoints().FirstOrDefault());
             }
             catch (Exception ex)
             {
@@ -59,10 +59,10 @@ namespace Vertex.Server.Database
         /// <param name="key">The key to use to retrieve the cached data.</param>
         /// <param name="expires">The data to be serialized and cached.</param>
         /// <returns>True if successful, otherwise false.</returns>
-        public async Task<bool> TrySetKeyAsync(string key, double expires)
+        public async Task<bool> TrySetKeyAsync(string key, TimeSpan expires)
         {
             string redisKey = key.ToLowerInvariant();
-            return await (_redis?.GetDatabase().StringSetAsync(new RedisKey(redisKey), "locked", TimeSpan.FromMinutes(expires), When.NotExists) ?? Task.FromResult(false));
+            return await (_redis?.GetDatabase().StringSetAsync(new RedisKey(redisKey), "locked", expires, When.NotExists) ?? Task.FromResult(false));
         }
 
         /// <summary>
@@ -72,7 +72,7 @@ namespace Vertex.Server.Database
         public async Task DeleteCachedValueAsync(string key)
         {
             string cacheKey = key.ToLowerInvariant();
-            _logger.LogDebug($"Remove redis key: {cacheKey}");
+            _logger.LogDebug("Remove redis key: {CacheKey}", cacheKey);
 
             await (_redis?.GetDatabase().KeyDeleteAsync(new RedisKey(cacheKey)) ?? Task.CompletedTask);
             await _cache.RemoveAsync(cacheKey);
@@ -100,7 +100,7 @@ namespace Vertex.Server.Database
         /// <param name="callback"></param>
         public Task SubscribeAsync(string channel, Action<string> callback)
         {
-            _logger.LogInformation($"Subscribed to channel: '{channel}'");
+            _logger.LogInformation("Subscribed to channel: '{Channel}'", channel);
             Task subscribeAsync = _redis?.GetSubscriber().SubscribeAsync(RedisChannel.Literal(channel), (_, value) =>
             {
                 if (!value.HasValue) return;

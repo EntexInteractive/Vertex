@@ -13,6 +13,7 @@ using Newtonsoft.Json.Serialization;
 using Vertex.Server.Branches;
 using Vertex.Server.Database;
 using Vertex.Server.Diagnostics;
+using Vertex.Server.FileServices;
 using Vertex.Server.Projects;
 using Vertex.Server.Services;
 using Vertex.Server.Storage;
@@ -74,8 +75,7 @@ namespace Vertex.Server
                     // ALPN selects HTTP/1.1 for regular HTTP requests and HTTP/2 for gRPC.
                     // TLS is required because both protocols cannot be negotiated over one
                     // clear-text endpoint.
-                    listenOptions.UseHttps();
-                    listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
+                    listenOptions.Protocols = HttpProtocols.Http2;
                 });
             });
 
@@ -182,7 +182,7 @@ namespace Vertex.Server
             app.UseStaticFiles(new StaticFileOptions { FileProvider = reactFiles });
             
             app.MapGrpcService<GreeterService>();
-            app.MapGrpcService<FileService>();
+            app.MapGrpcService<FileTransferService>();
             
             app.UseHttpsRedirection();
             app.UseAuthorization();
