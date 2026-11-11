@@ -8,7 +8,7 @@ namespace Vertex.Server.FileServices
 {
     public class FileTransferService : Files.FilesBase
     {
-        private const int MaximumChunkSize = 64 * 1024;
+        private const int MaximumChunkSize = 256 * 1024;
         private readonly ILogger<FileTransferService> _logger;
         private readonly IFileStorage _storage;
 
