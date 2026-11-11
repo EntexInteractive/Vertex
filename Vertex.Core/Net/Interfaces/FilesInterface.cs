@@ -1,18 +1,32 @@
 ﻿// Copyright 2026 Entex Interactive
 
 using System.Buffers;
+using System.Security.Cryptography;
 using Google.Protobuf;
 using Grpc.Core;
-using Vertex.Core.Data;
+using Microsoft.Win32.SafeHandles;
+using Vertex.Core.Storage;
 using Vertex.Server;
 
 namespace Vertex.Core.Net.Interfaces
 {
+    /// <summary>
+    /// Outcome of a push: how much was actually sent versus deduplicated.
+    /// </summary>
+    public sealed record PushResult(int FilesCommitted, int FilesAlreadyStored, int ChunksUploaded, int ChunksDeduplicated, long RawBytesUploaded, long CompressedBytesUploaded);
+
+    /// <summary>
+    /// Outcome of a pull: how much was downloaded versus reused from the existing local file.
+    /// </summary>
+    public sealed record PullResult(long Size, long RawBytesDownloaded, long CompressedBytesDownloaded, long BytesReused);
+
     public class FilesInterface : BaseInterface
     {
-        private const int FindMissingBatchSize = 1_000;
+        /// <summary>
+        /// Parallel upload/download streams per operation.
+        /// </summary>
+        public int MaxConcurrency { get; set; } = 4;
 
-        public int ChunkSize { get; set; } = FileTransferLimits.ChunkSize;
         public Files.FilesClient FilesClient { get; }
 
         public FilesInterface(string url) : base(url)
@@ -21,17 +35,16 @@ namespace Vertex.Core.Net.Interfaces
         }
 
         /// <summary>
-        /// Returns the file ids the server does not already store, so callers can skip redundant uploads.
+        /// Returns the file ids (lowercase hex) the server does not already store.
         /// </summary>
-        public async Task<HashSet<string>> FindMissingAsync(IEnumerable<string> fileIds, CancellationToken ct = default)
+        public async Task<HashSet<string>> FindMissingFilesAsync(IEnumerable<string> fileIds, CancellationToken ct = default)
         {
-            ArgumentNullException.ThrowIfNull(fileIds);
             HashSet<string> missing = new(StringComparer.OrdinalIgnoreCase);
-            foreach (string[] batch in fileIds.Distinct(StringComparer.OrdinalIgnoreCase).Chunk(FindMissingBatchSize))
+            foreach (string[] batch in fileIds.Distinct(StringComparer.OrdinalIgnoreCase).Chunk(FileTransferLimits.MaximumIdsPerRequest))
             {
-                FindMissingRequest request = new();
+                FindMissingFilesRequest request = new();
                 request.FileIds.AddRange(batch);
-                FindMissingResponse response = await FilesClient.FindMissingAsync(request, cancellationToken: ct);
+                FindMissingFilesResponse response = await FilesClient.FindMissingFilesAsync(request, cancellationToken: ct);
                 missing.UnionWith(response.FileIds);
             }
 
@@ -39,171 +52,105 @@ namespace Vertex.Core.Net.Interfaces
         }
 
         /// <summary>
-        /// Uploads a file and returns the server's assigned file identifier and byte count.
+        /// Returns the chunk ids (lowercase hex) the server does not already store.
         /// </summary>
-        public async Task<UploadFileResponse> UploadAsync(VFile file, CancellationToken ct = default)
+        public async Task<HashSet<string>> FindMissingChunksAsync(IEnumerable<byte[]> chunkIds, CancellationToken ct = default)
         {
-            ArgumentNullException.ThrowIfNull(file);
-            int chunkSize = GetChunkSize();
-            using AsyncClientStreamingCall<UploadFileRequest, UploadFileResponse> call = FilesClient.UploadAsync(cancellationToken: ct);
-            await call.RequestStream.WriteAsync(new UploadFileRequest
+            HashSet<string> missing = new(StringComparer.Ordinal);
+            foreach (byte[][] batch in chunkIds.Chunk(FileTransferLimits.MaximumIdsPerRequest))
             {
-                Metadata = new FileMetadata { FileName = file.Name, ContentType = "application/octet-stream", FileSize = file.PhysicalSize, FileId = file.CheckSum ?? throw new InvalidOperationException("File checksum must be generated before upload.") }
-            }, ct);
-
-            // bufferSize 0 disables FileStream's internal buffer; reads are already chunk-sized.
-            await using FileStream input = new(file.Fullname, FileMode.Open, FileAccess.Read, FileShare.Read, 0, FileOptions.Asynchronous | FileOptions.SequentialScan);
-
-            // Double-buffer: read the next chunk from disk while the previous one is on the wire.
-            // WriteAsync serializes the message before completing, so the buffer can be wrapped
-            // without copying and reused once its write has been awaited.
-            byte[] current = ArrayPool<byte>.Shared.Rent(chunkSize);
-            byte[] next = ArrayPool<byte>.Shared.Rent(chunkSize);
-            try
-            {
-                int currentLength = await FillAsync(input, current, chunkSize, ct);
-                while (currentLength > 0)
-                {
-                    Task<int> readNext = FillAsync(input, next, chunkSize, ct);
-                    try
-                    {
-                        await call.RequestStream.WriteAsync(new UploadFileRequest
-                        {
-                            Chunk = UnsafeByteOperations.UnsafeWrap(current.AsMemory(0, currentLength))
-                        }, ct);
-                    }
-                    catch
-                    {
-                        // Never return a buffer to the pool while a read may still be writing into it.
-                        try
-                        {
-                            await readNext;
-                        }
-                        catch
-                        {
-                            /* Preserve the original error. */
-                        }
-
-                        throw;
-                    }
-
-                    currentLength = await readNext;
-                    (current, next) = (next, current);
-                }
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(current);
-                ArrayPool<byte>.Shared.Return(next);
+                FindMissingChunksRequest request = new();
+                request.Ids.AddRange(batch.Select(id => UnsafeByteOperations.UnsafeWrap(id)));
+                FindMissingChunksResponse response = await FilesClient.FindMissingChunksAsync(request, cancellationToken: ct);
+                missing.UnionWith(response.Ids.Select(id => ContentId.ToHex(id.Span)));
             }
 
-            await call.RequestStream.CompleteAsync();
-            return await call.ResponseAsync;
+            return missing;
         }
 
         /// <summary>
-        /// Uploads several files concurrently over the shared channel, skipping files the server already stores.
-        /// Every file must already have a checksum.
+        /// Pushes chunked files: skips files and chunks the server already stores, uploads the rest over parallel
+        /// streams, then commits each file's manifest.
         /// </summary>
-        /// <param name="onUploaded">Invoked after each upload completes; may be called from multiple threads.</param>
-        /// <returns>The number of files uploaded (excluding ones the server already had).</returns>
-        public async Task<int> UploadManyAsync(IReadOnlyCollection<VFile> files, int maxConcurrency = 4, Action<VFile, UploadFileResponse>? onUploaded = null, CancellationToken ct = default)
+        /// <param name="onCommitted">Invoked for each newly stored file.</param>
+        public async Task<PushResult> PushAsync(IReadOnlyCollection<ChunkedFile> files, Action<ChunkedFile>? onCommitted = null, CancellationToken ct = default)
         {
             ArgumentNullException.ThrowIfNull(files);
-            ArgumentOutOfRangeException.ThrowIfLessThan(maxConcurrency, 1);
-            if (files.Any(f => string.IsNullOrEmpty(f.CheckSum))) throw new InvalidOperationException("File checksum must be generated before upload.");
+            List<ChunkedFile> unique = files.DistinctBy(f => f.FileId).ToList();
+            HashSet<string> missingFiles = await FindMissingFilesAsync(unique.Select(f => f.FileId), ct);
+            List<ChunkedFile> pending = unique.Where(f => missingFiles.Contains(f.FileId)).ToList();
 
-            HashSet<string> missing = await FindMissingAsync(files.Select(f => f.CheckSum!), ct);
+            // One source location per distinct chunk; identical chunks across and within files upload once.
+            Dictionary<string, (ChunkedFile File, FileChunk Chunk)> sources = new(StringComparer.Ordinal);
+            foreach (ChunkedFile file in pending)
+            foreach (FileChunk chunk in file.Chunks)
+                sources.TryAdd(ContentId.ToHex(chunk.Id), (file, chunk));
 
-            // Content-addressed storage: identical files share an id, so upload each id only once.
-            List<VFile> pending = files.Where(f => missing.Contains(f.CheckSum!)).DistinctBy(f => f.CheckSum!, StringComparer.OrdinalIgnoreCase).ToList();
-            int uploaded = 0;
-            await Parallel.ForEachAsync(pending, new ParallelOptions { MaxDegreeOfParallelism = maxConcurrency, CancellationToken = ct }, async (file, token) =>
+            HashSet<string> missingChunks = await FindMissingChunksAsync(sources.Values.Select(s => s.Chunk.Id), ct);
+            List<(ChunkedFile File, FileChunk Chunk)> toUpload = sources.Where(s => missingChunks.Contains(s.Key)).Select(s => s.Value).ToList();
+
+            long rawBytes = 0, compressedBytes = 0;
+            await Parallel.ForEachAsync(BatchUploads(toUpload), new ParallelOptions { MaxDegreeOfParallelism = MaxConcurrency, CancellationToken = ct }, async (batch, token) =>
             {
-                UploadFileResponse response = await UploadAsync(file, token);
-                Interlocked.Increment(ref uploaded);
-                onUploaded?.Invoke(file, response);
+                (long raw, long compressed) = await UploadBatchAsync(batch, token);
+                Interlocked.Add(ref rawBytes, raw);
+                Interlocked.Add(ref compressedBytes, compressed);
             });
 
-            return uploaded;
+            foreach (List<ChunkedFile> batch in BatchCommits(pending))
+            {
+                CommitFilesRequest request = new();
+                request.Manifests.AddRange(batch.Select(f => f.ToManifest()));
+                CommitFilesResponse response = await FilesClient.CommitFilesAsync(request, cancellationToken: ct);
+                for (int i = 0; i < batch.Count; i++)
+                {
+                    if (!string.Equals(response.FileIds[i], batch[i].FileId, StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidDataException($"Server computed a different id for {batch[i].Path}; client and server chunk formats differ.");
+
+                    onCommitted?.Invoke(batch[i]);
+                }
+            }
+
+            return new PushResult(pending.Count, unique.Count - pending.Count, toUpload.Count, sources.Count - toUpload.Count, rawBytes, compressedBytes);
         }
 
         /// <summary>
-        /// Downloads a file to a destination, publishing it only after the complete stream is received.
+        /// Downloads a file by id. Chunks that already exist in the current file at <paramref name="destinationPath"/>
+        /// are reused, so pulling a new version of a file only transfers the changed chunks. The file is published
+        /// only after every chunk has been verified.
         /// </summary>
-        public async Task<long> DownloadAsync(string fileId, string destinationPath, CancellationToken ct = default)
+        public async Task<PullResult> DownloadAsync(string fileId, string destinationPath, CancellationToken ct = default)
         {
-            ArgumentException.ThrowIfNullOrWhiteSpace(fileId);
+            if (!ContentId.IsValidFileId(fileId)) throw new ArgumentException("File id must be a 64-character hex string.", nameof(fileId));
             ArgumentException.ThrowIfNullOrWhiteSpace(destinationPath);
+            fileId = fileId.ToLowerInvariant();
             string destination = Path.GetFullPath(destinationPath);
             string? directory = Path.GetDirectoryName(destination);
             if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
-            string temporaryPath = destination + ".tmp";
 
+            FileManifest manifest = await FilesClient.GetManifestAsync(new GetManifestRequest { FileId = fileId }, cancellationToken: ct);
+            Dictionary<string, PendingChunk> needed = PlanChunks(fileId, manifest);
+
+            string temporaryPath = destination + ".vxtmp";
+            long reused = 0, rawDownloaded = 0, compressedDownloaded = 0;
             try
             {
-                using AsyncServerStreamingCall<DownloadFileResponse> call = FilesClient.DownloadAsync(new DownloadFileRequest { FileId = fileId }, cancellationToken: ct);
-
-                // bufferSize 0 disables FileStream's internal buffer; chunks are written directly.
-                await using FileStream output = new(temporaryPath, FileMode.Create, FileAccess.Write, FileShare.None, 0, FileOptions.Asynchronous | FileOptions.SequentialScan);
-                FileMetadata? metadata = null;
-                long bytesReceived = 0;
-                Task pendingWrite = Task.CompletedTask;
-                try
+                using (SafeFileHandle output = File.OpenHandle(temporaryPath, FileMode.Create, FileAccess.ReadWrite, FileShare.None, FileOptions.Asynchronous))
                 {
-                    while (await call.ResponseStream.MoveNext(ct))
-                    {
-                        DownloadFileResponse response = call.ResponseStream.Current;
-                        if (response.DataCase == DownloadFileResponse.DataOneofCase.Metadata)
-                        {
-                            if (metadata is not null || bytesReceived != 0) throw new InvalidDataException("Invalid download stream metadata.");
-                            metadata = response.Metadata;
-                            if (metadata.FileSize < 0) throw new InvalidDataException("Server reported an invalid file size.");
+                    RandomAccess.SetLength(output, manifest.Size);
+                    if (File.Exists(destination) && needed.Count > 0)
+                        reused = await ReuseLocalChunksAsync(destination, needed, output, ct);
 
-                            // Reserve the full size up front to avoid repeated file growth and fragmentation.
-                            output.SetLength(metadata.FileSize);
-                        }
-                        else if (response.DataCase == DownloadFileResponse.DataOneofCase.Chunk)
-                        {
-                            if (metadata is null || response.Chunk.Length > FileTransferLimits.MaximumChunkSize || bytesReceived > metadata.FileSize - response.Chunk.Length)
-                                throw new InvalidDataException("Download stream exceeded its declared size or chunk limit.");
-
-                            // Write this chunk to disk while the next one is received. Each message owns its
-                            // own memory, so the chunk stays valid after the stream advances.
-                            await pendingWrite;
-                            pendingWrite = output.WriteAsync(response.Chunk.Memory, ct).AsTask();
-                            bytesReceived += response.Chunk.Length;
-                        }
-                        else
-                        {
-                            throw new InvalidDataException("Download stream contained an empty message.");
-                        }
-                    }
-                }
-                catch
-                {
-                    // Ensure no write is in flight before the temporary file is deleted.
-                    try
+                    await Parallel.ForEachAsync(BatchDownloads(needed.Values), new ParallelOptions { MaxDegreeOfParallelism = MaxConcurrency, CancellationToken = ct }, async (batch, token) =>
                     {
-                        await pendingWrite;
-                    }
-                    catch
-                    {
-                        /* Preserve the original error. */
-                    }
-
-                    throw;
+                        (long raw, long compressed) = await DownloadBatchAsync(batch, output, token);
+                        Interlocked.Add(ref rawDownloaded, raw);
+                        Interlocked.Add(ref compressedDownloaded, compressed);
+                    });
                 }
 
-                await pendingWrite;
-
-                if (metadata is null || bytesReceived != metadata.FileSize)
-                    throw new InvalidDataException("Download ended before the complete file arrived.");
-
-                await output.FlushAsync(ct);
-                await output.DisposeAsync();
                 File.Move(temporaryPath, destination, true);
-                return bytesReceived;
+                return new PullResult(manifest.Size, rawDownloaded, compressedDownloaded, reused);
             }
             finally
             {
@@ -211,28 +158,251 @@ namespace Vertex.Core.Net.Interfaces
             }
         }
 
-        private int GetChunkSize()
+        private sealed class PendingChunk(byte[] id, int size)
         {
-            if (ChunkSize < 1 || ChunkSize > FileTransferLimits.MaximumChunkSize)
-                throw new InvalidOperationException($"ChunkSize must be between 1 and {FileTransferLimits.MaximumChunkSize} bytes.");
-
-            return ChunkSize;
+            public byte[] Id { get; } = id;
+            public int Size { get; } = size;
+            public List<long> Offsets { get; } = new();
         }
 
         /// <summary>
-        /// Reads until the chunk is full or the stream ends, so every message carries a full chunk.
+        /// Verifies the manifest against the requested id and maps each distinct chunk to every offset it fills.
         /// </summary>
-        private static async Task<int> FillAsync(Stream stream, byte[] buffer, int count, CancellationToken ct)
+        private static Dictionary<string, PendingChunk> PlanChunks(string fileId, FileManifest manifest)
         {
-            int total = 0;
-            while (total < count)
+            if (ContentId.ComputeFileId(manifest) != fileId) throw new InvalidDataException("Server returned a manifest that does not match the file id.");
+
+            Dictionary<string, PendingChunk> chunks = new(StringComparer.Ordinal);
+            long offset = 0;
+            foreach (ChunkRef chunk in manifest.Chunks)
             {
-                int read = await stream.ReadAsync(buffer.AsMemory(total, count - total), ct);
-                if (read == 0) break;
-                total += read;
+                if (chunk.Size is < 1 or > ContentChunker.MaximumChunkSize) throw new InvalidDataException("Manifest contains an invalid chunk size.");
+                string key = ContentId.ToHex(chunk.Id.Span);
+                if (!chunks.TryGetValue(key, out PendingChunk? pending))
+                    chunks.Add(key, pending = new PendingChunk(chunk.Id.ToByteArray(), (int)chunk.Size));
+                else if (pending.Size != chunk.Size) throw new InvalidDataException("Manifest lists one chunk with two sizes.");
+
+                pending.Offsets.Add(offset);
+                offset += chunk.Size;
             }
 
-            return total;
+            if (offset != manifest.Size) throw new InvalidDataException("Manifest chunk sizes do not add up to the file size.");
+            return chunks;
+        }
+
+        /// <summary>
+        /// Chunks the existing local file and copies any chunks the new version shares, removing them from
+        /// <paramref name="needed"/>. Chunk ids are content hashes, so a matching id means matching bytes.
+        /// </summary>
+        private static async Task<long> ReuseLocalChunksAsync(string path, Dictionary<string, PendingChunk> needed, SafeFileHandle output, CancellationToken ct)
+        {
+            ChunkedFile local;
+            try
+            {
+                local = await Task.Run(() => ContentChunker.ChunkFile(path, ct), ct);
+            }
+            catch (IOException)
+            {
+                return 0; // Unreadable local copy: download everything.
+            }
+
+            long reused = 0;
+            using SafeFileHandle input = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read, FileOptions.Asynchronous);
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(ContentChunker.MaximumChunkSize);
+            try
+            {
+                foreach (FileChunk chunk in local.Chunks)
+                {
+                    if (!needed.Remove(ContentId.ToHex(chunk.Id), out PendingChunk? pending)) continue;
+                    Memory<byte> data = buffer.AsMemory(0, chunk.Length);
+                    await ReadExactlyAsync(input, data, chunk.Offset, ct);
+                    foreach (long offset in pending.Offsets)
+                        await RandomAccess.WriteAsync(output, data, offset, ct);
+
+                    reused += (long)chunk.Length * pending.Offsets.Count;
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+
+            return reused;
+        }
+
+        private async Task<(long Raw, long Compressed)> DownloadBatchAsync(PendingChunk[] batch, SafeFileHandle output, CancellationToken ct)
+        {
+            Dictionary<string, PendingChunk> expected = batch.ToDictionary(c => ContentId.ToHex(c.Id), StringComparer.Ordinal);
+            DownloadChunksRequest request = new();
+            request.Ids.AddRange(batch.Select(c => UnsafeByteOperations.UnsafeWrap(c.Id)));
+
+            long raw = 0, compressed = 0;
+            using AsyncServerStreamingCall<ChunkData> call = FilesClient.DownloadChunks(request, cancellationToken: ct);
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(ContentChunker.MaximumChunkSize);
+            try
+            {
+                await foreach (ChunkData message in call.ResponseStream.ReadAllAsync(ct))
+                {
+                    if (!expected.Remove(ContentId.ToHex(message.Id.Span), out PendingChunk? chunk) || message.Size != chunk.Size)
+                        throw new InvalidDataException("Server sent a chunk that was not requested.");
+
+                    Memory<byte> data = buffer.AsMemory(0, chunk.Size);
+                    ChunkCodec.DecompressAndVerify(chunk.Id, message.Data.Span, data.Span);
+                    foreach (long offset in chunk.Offsets)
+                        await RandomAccess.WriteAsync(output, data, offset, ct);
+
+                    raw += (long)chunk.Size * chunk.Offsets.Count;
+                    compressed += message.Data.Length;
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+
+            if (expected.Count > 0) throw new InvalidDataException($"Server did not return {expected.Count} requested chunk(s).");
+            return (raw, compressed);
+        }
+
+        private async Task<(long Raw, long Compressed)> UploadBatchAsync(List<(ChunkedFile File, FileChunk Chunk)> batch, CancellationToken ct)
+        {
+            using AsyncClientStreamingCall<ChunkData, UploadChunksResponse> call = FilesClient.UploadChunks(cancellationToken: ct);
+            long raw = 0;
+
+            // Read + compress the next chunk on the thread pool while the current one is on the wire.
+            Task<ChunkData> next = Task.Run(() => PrepareChunk(batch[0].File, batch[0].Chunk), ct);
+            for (int i = 0; i < batch.Count; i++)
+            {
+                ChunkData message = await next;
+                if (i + 1 < batch.Count)
+                {
+                    (ChunkedFile file, FileChunk chunk) = batch[i + 1];
+                    next = Task.Run(() => PrepareChunk(file, chunk), ct);
+                }
+
+                await call.RequestStream.WriteAsync(message, ct);
+                raw += message.Size;
+            }
+
+            await call.RequestStream.CompleteAsync();
+            UploadChunksResponse response = await call.ResponseAsync;
+            return (raw, response.BytesReceived);
+        }
+
+        private static ChunkData PrepareChunk(ChunkedFile file, FileChunk chunk)
+        {
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(chunk.Length);
+            try
+            {
+                Span<byte> data = buffer.AsSpan(0, chunk.Length);
+                using (SafeFileHandle input = File.OpenHandle(file.Path, FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    int total = 0;
+                    while (total < data.Length)
+                    {
+                        int read = RandomAccess.Read(input, data[total..], chunk.Offset + total);
+                        if (read == 0) break;
+                        total += read;
+                    }
+
+                    if (total != data.Length) throw new IOException($"{file.Path} changed while it was being pushed.");
+                }
+
+                if (!SHA256.HashData(data).AsSpan().SequenceEqual(chunk.Id))
+                    throw new IOException($"{file.Path} changed while it was being pushed.");
+
+                return new ChunkData
+                {
+                    Id = UnsafeByteOperations.UnsafeWrap(chunk.Id),
+                    Size = chunk.Length,
+                    Data = UnsafeByteOperations.UnsafeWrap(ChunkCodec.Compress(data))
+                };
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+
+        private static async Task ReadExactlyAsync(SafeFileHandle handle, Memory<byte> buffer, long offset, CancellationToken ct)
+        {
+            int total = 0;
+            while (total < buffer.Length)
+            {
+                int read = await RandomAccess.ReadAsync(handle, buffer[total..], offset + total, ct);
+                if (read == 0) throw new IOException("Local file changed while it was being read.");
+                total += read;
+            }
+        }
+
+        /// <summary>
+        /// Groups chunks into upload streams capped at <see cref="FileTransferLimits.MaximumUploadStreamBytes"/>,
+        /// keeping a file's chunks together so reads stay mostly sequential.
+        /// </summary>
+        private static IEnumerable<List<(ChunkedFile File, FileChunk Chunk)>> BatchUploads(List<(ChunkedFile File, FileChunk Chunk)> chunks)
+        {
+            List<(ChunkedFile, FileChunk)> batch = new();
+            long bytes = 0;
+            foreach ((ChunkedFile File, FileChunk Chunk) item in chunks)
+            {
+                if (batch.Count > 0 && bytes + item.Chunk.Length > FileTransferLimits.MaximumUploadStreamBytes)
+                {
+                    yield return batch;
+                    batch = new List<(ChunkedFile, FileChunk)>();
+                    bytes = 0;
+                }
+
+                batch.Add(item);
+                bytes += item.Chunk.Length;
+            }
+
+            if (batch.Count > 0) yield return batch;
+        }
+
+        /// <summary>
+        /// Groups chunks into download requests of bounded count and size so work spreads across streams.
+        /// </summary>
+        private static IEnumerable<PendingChunk[]> BatchDownloads(IEnumerable<PendingChunk> chunks)
+        {
+            List<PendingChunk> batch = new();
+            long bytes = 0;
+            foreach (PendingChunk chunk in chunks)
+            {
+                if (batch.Count > 0 && (batch.Count == FileTransferLimits.MaximumChunksPerDownload || bytes + chunk.Size > FileTransferLimits.MaximumUploadStreamBytes))
+                {
+                    yield return batch.ToArray();
+                    batch.Clear();
+                    bytes = 0;
+                }
+
+                batch.Add(chunk);
+                bytes += chunk.Size;
+            }
+
+            if (batch.Count > 0) yield return batch.ToArray();
+        }
+
+        private static IEnumerable<List<ChunkedFile>> BatchCommits(List<ChunkedFile> files)
+        {
+            List<ChunkedFile> batch = new();
+            int chunks = 0;
+            foreach (ChunkedFile file in files)
+            {
+                if (file.Chunks.Count > FileTransferLimits.MaximumChunksPerCommit)
+                    throw new InvalidOperationException($"{file.Path} has too many chunks to commit in one request.");
+
+                if (batch.Count > 0 && chunks + file.Chunks.Count > FileTransferLimits.MaximumChunksPerCommit)
+                {
+                    yield return batch;
+                    batch = new List<ChunkedFile>();
+                    chunks = 0;
+                }
+
+                batch.Add(file);
+                chunks += file.Chunks.Count;
+            }
+
+            if (batch.Count > 0) yield return batch;
         }
     }
 }

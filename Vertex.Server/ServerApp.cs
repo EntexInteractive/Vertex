@@ -67,7 +67,8 @@ namespace Vertex.Server
             });
 
             builder.Services.AddSingleton(settings);
-            builder.Services.AddSingleton<IFileStorage, S3FileStorage>();
+            builder.Services.AddSingleton<IContentStore, S3ContentStore>();
+            builder.Services.AddSingleton<TransferBudget>();
             builder.WebHost.ConfigureKestrel(options =>
             {
                 // Larger HTTP/2 flow-control windows let a single upload stream fill high-latency links;

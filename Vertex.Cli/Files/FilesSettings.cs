@@ -8,6 +8,8 @@ namespace Vertex.Cli.Files
     {
         [CommandOption("--force|-f")] public bool Force { get; set; }
 
+        [CommandOption("--parallel")] public int DegreeOfParallelism { get; set; } = Environment.ProcessorCount;
+
         [CommandOption("--path")] public string? Path { get; set; }
     }
 }

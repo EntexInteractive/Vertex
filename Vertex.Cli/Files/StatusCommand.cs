@@ -14,9 +14,8 @@ namespace Vertex.Cli.Files
             string path = settings.Path ?? Directory.GetCurrentDirectory();
             IEnumerable<string> localFiles = FileSystemUtility.IsDirectory(path) ? FileSystemUtility.GetFiles(path, FileSystemUtility.GetIgnoredEntries(path)) : [path];
 
-            Table table = new Table().Border(TableBorder.Rounded).AddColumn("Changed files");
-            foreach (string file in localFiles) table.AddRow(Markup.Escape(file));
-            AnsiConsole.Write(table);
+            foreach (string file in localFiles) Markup.Escape(file);
+            //AnsiConsole.Write(table);
             return 0;
         }
     }

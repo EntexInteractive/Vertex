@@ -1,9 +1,7 @@
 ﻿// Copyright 2026 Entex Interactive
 
-using System.Security.Cryptography;
 using EntexInteractive.Extensions;
-using Vertex.Core.IO;
-using ZstdSharp;
+using Vertex.Core.Storage;
 
 namespace Vertex.Core.Data
 {
@@ -48,7 +46,17 @@ namespace Vertex.Core.Data
         /// The user that currently has the file locked. Null if unlocked.
         /// </summary>
         public Guid? LockedBy { get; set; }
+
+        /// <summary>
+        /// Content-addressed file id (see <see cref="ContentId"/>). Identical content always has the same id.
+        /// </summary>
         public string? CheckSum { get; set; }
+
+        /// <summary>
+        /// The file's chunk layout, populated by <see cref="TryGenerateCheckSum"/>. Local-only; not serialized.
+        /// </summary>
+        [JsonIgnore]
+        public ChunkedFile? Chunks { get; private set; }
         
         /// <summary>
         /// Initializes a new instance of the <see cref="LocalFile"/> class with default properties.
@@ -79,16 +87,11 @@ namespace Vertex.Core.Data
             {
                 if (!File.Exists(Fullname)) return false;
 
-                using SHA256 sha256 = SHA256.Create();
-                using FileStream fs = File.OpenRead(Fullname);
-                using HashStream hs = new(Stream.Null, reportBytes => CompressedSize = reportBytes);
-                using (ZstdStream zstd = new(hs, ZstdStreamMode.Compress))
-                {
-                    fs.CopyTo(zstd);
-                }
-
-                CheckSum = hs.GetHashHexString();
-                return !string.IsNullOrEmpty(CheckSum);
+                // The checksum is the content-addressed file id: a hash over the file's content-defined chunks.
+                Chunks = ContentChunker.ChunkFile(Fullname);
+                PhysicalSize = Chunks.Size;
+                CheckSum = Chunks.FileId;
+                return true;
             }
             catch (Exception ex)
             {
