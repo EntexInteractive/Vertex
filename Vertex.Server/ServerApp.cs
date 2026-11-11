@@ -74,8 +74,7 @@ namespace Vertex.Server
                     // ALPN selects HTTP/1.1 for regular HTTP requests and HTTP/2 for gRPC.
                     // TLS is required because both protocols cannot be negotiated over one
                     // clear-text endpoint.
-                    listenOptions.UseHttps();
-                    listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
+                    listenOptions.Protocols = HttpProtocols.Http2;
                 });
             });
 
