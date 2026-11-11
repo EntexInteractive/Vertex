@@ -1,5 +1,6 @@
 // Copyright 2026 Entex Interactive
 
+using System.Buffers;
 using System.Net;
 using Amazon.S3;
 using Amazon.S3.Model;
@@ -13,6 +14,7 @@ namespace Vertex.Server.Storage
     {
         Task WriteAsync(string key, string contentType, long expectedLength, IAsyncEnumerable<ReadOnlyMemory<byte>> chunks, CancellationToken cancellationToken);
         Task<StoredFile> OpenReadAsync(string key, CancellationToken cancellationToken);
+        Task<bool> ExistsAsync(string key, CancellationToken cancellationToken);
     }
 
     public sealed class StoredFile(Stream content, long length, IDisposable owner) : IAsyncDisposable
@@ -33,6 +35,8 @@ namespace Vertex.Server.Storage
         private const int MaximumParts = 10_000;
         private const long MaximumPartSize = 5L * 1024 * 1024 * 1024;
         private const long MaximumObjectSize = MaximumPartSize * MaximumParts;
+        private const int MaximumBufferedPartSize = 256 * 1024 * 1024;
+        private const int PartUploadConcurrency = 4;
         private const string LegacyObjectPrefix = "files";
         private readonly IAmazonS3 _s3;
         private readonly string _bucket;
@@ -50,49 +54,63 @@ namespace Vertex.Server.Storage
             string objectKey = GetObjectKey(key);
             if (expectedLength == 0)
             {
+                await foreach (ReadOnlyMemory<byte> incoming in chunks.WithCancellation(cancellationToken))
+                    if (!incoming.IsEmpty)
+                        throw new InvalidDataException("Upload exceeded its declared length.");
+
                 await _s3.PutObjectAsync(new PutObjectRequest { BucketName = _bucket, Key = objectKey, ContentType = contentType, InputStream = new MemoryStream() }, cancellationToken);
                 return;
             }
 
             long partSize = Math.Max(MinimumPartSize, (expectedLength + MaximumParts - 1) / MaximumParts);
-            if (partSize > MaximumPartSize) throw new InvalidDataException("File requires S3 multipart parts larger than the supported limit.");
+            if (partSize > MaximumBufferedPartSize) throw new InvalidDataException("File requires S3 multipart parts larger than the server supports.");
 
+            // Parts are assembled in pooled memory (no temp-file round trip) and uploaded in the background,
+            // so the client stream keeps flowing while earlier parts are sent to S3.
+            int bufferSize = (int)Math.Min(partSize, expectedLength);
+            using CancellationTokenSource partsCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            using SemaphoreSlim uploadSlots = new(PartUploadConcurrency);
+            List<Task<PartETag>> partUploads = new();
             string? uploadId = null;
-            List<PartETag> parts = new();
-            string temporaryPartPath = Path.Combine(Path.GetTempPath(), $"vertex-s3-part-{Guid.NewGuid():N}.tmp");
-            long received = 0;
+            byte[]? part = null;
+            int partLength = 0;
             int partNumber = 0;
+            long received = 0;
+            bool completed = false;
+
             try
             {
-                await using FileStream part = new(temporaryPartPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, 1024 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
+                part = ArrayPool<byte>.Shared.Rent(bufferSize);
                 await foreach (ReadOnlyMemory<byte> incoming in chunks.WithCancellation(cancellationToken))
                 {
                     received = checked(received + incoming.Length);
                     if (received > expectedLength) throw new InvalidDataException("Upload exceeded its declared length.");
+
                     ReadOnlyMemory<byte> remaining = incoming;
                     while (!remaining.IsEmpty)
                     {
-                        int count = (int)Math.Min(partSize - part.Length, remaining.Length);
-                        await part.WriteAsync(remaining[..count], cancellationToken);
+                        int count = Math.Min(bufferSize - partLength, remaining.Length);
+                        remaining.Span[..count].CopyTo(part.AsSpan(partLength));
+                        partLength += count;
                         remaining = remaining[count..];
-                        if (part.Length == partSize)
+
+                        // The final part is sent after the stream ends so the declared length can be verified first.
+                        if (partLength == bufferSize && received < expectedLength)
                         {
                             uploadId ??= (await _s3.InitiateMultipartUploadAsync(new InitiateMultipartUploadRequest
                             {
                                 BucketName = _bucket, Key = objectKey, ContentType = contentType
                             }, cancellationToken)).UploadId;
 
-                            partNumber++;
-                            part.Position = 0;
-                            UploadPartResponse uploaded = await _s3.UploadPartAsync(new UploadPartRequest
-                            {
-                                BucketName = _bucket, Key = objectKey, UploadId = uploadId, PartNumber = partNumber,
-                                PartSize = part.Length, InputStream = part
-                            }, cancellationToken);
-
-                            parts.Add(new PartETag(partNumber, uploaded.ETag));
-                            part.Position = 0;
-                            part.SetLength(0);
+                            // Waiting for a slot bounds memory to (concurrency + 1) parts per upload and applies
+                            // back-pressure to the client when S3 is slower than the network.
+                            await uploadSlots.WaitAsync(cancellationToken);
+                            ThrowIfAnyPartFailed(partUploads);
+                            byte[] full = part;
+                            part = null;
+                            partUploads.Add(UploadPartAsync(objectKey, uploadId, ++partNumber, full, partLength, uploadSlots, partsCts.Token));
+                            part = ArrayPool<byte>.Shared.Rent(bufferSize);
+                            partLength = 0;
                         }
                     }
                 }
@@ -100,34 +118,46 @@ namespace Vertex.Server.Storage
                 if (received != expectedLength) throw new InvalidDataException("Upload ended before its declared length.");
                 if (uploadId is null)
                 {
-                    part.Position = 0;
-                    await _s3.PutObjectAsync(new PutObjectRequest { BucketName = _bucket, Key = objectKey, ContentType = contentType, InputStream = part }, cancellationToken);
+                    await _s3.PutObjectAsync(new PutObjectRequest
+                    {
+                        BucketName = _bucket, Key = objectKey, ContentType = contentType,
+                        InputStream = new MemoryStream(part, 0, partLength, false)
+                    }, cancellationToken);
+
+                    completed = true;
                     return;
                 }
 
-                if (part.Length > 0)
-                {
-                    partNumber++;
-                    part.Position = 0;
-                    UploadPartResponse uploaded = await _s3.UploadPartAsync(new UploadPartRequest
-                    {
-                        BucketName = _bucket, Key = objectKey, UploadId = uploadId, PartNumber = partNumber,
-                        PartSize = part.Length, InputStream = part
-                    }, cancellationToken);
+                await uploadSlots.WaitAsync(cancellationToken);
+                byte[] last = part;
+                part = null;
+                partUploads.Add(UploadPartAsync(objectKey, uploadId, ++partNumber, last, partLength, uploadSlots, partsCts.Token));
 
-                    parts.Add(new PartETag(partNumber, uploaded.ETag));
-                }
-
+                PartETag[] parts = await Task.WhenAll(partUploads);
                 await _s3.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
                 {
-                    BucketName = _bucket, Key = objectKey, UploadId = uploadId, PartETags = parts
+                    BucketName = _bucket, Key = objectKey, UploadId = uploadId, PartETags = parts.ToList()
                 }, cancellationToken);
 
-                uploadId = null;
+                completed = true;
             }
             finally
             {
-                if (uploadId is not null)
+                if (!completed)
+                {
+                    await partsCts.CancelAsync();
+                    try
+                    {
+                        await Task.WhenAll(partUploads);
+                    }
+                    catch
+                    {
+                        /* Preserve the original transfer error. */
+                    }
+                }
+
+                if (part is not null) ArrayPool<byte>.Shared.Return(part);
+                if (!completed && uploadId is not null)
                 {
                     try
                     {
@@ -138,8 +168,6 @@ namespace Vertex.Server.Storage
                         /* Preserve the original transfer error; bucket lifecycle rules should clear abandoned uploads. */
                     }
                 }
-
-                if (File.Exists(temporaryPartPath)) File.Delete(temporaryPartPath);
             }
         }
 
@@ -164,6 +192,53 @@ namespace Vertex.Server.Storage
                     throw new FileNotFoundException("File not found.", legacyException);
                 }
             }
+        }
+
+        public async Task<bool> ExistsAsync(string key, CancellationToken cancellationToken)
+        {
+            foreach (string objectKey in new[] { GetObjectKey(key), $"{LegacyObjectPrefix}/{key}" })
+            {
+                try
+                {
+                    await _s3.GetObjectMetadataAsync(_bucket, objectKey, cancellationToken);
+                    return true;
+                }
+                catch (AmazonS3Exception exception) when (IsNotFound(exception))
+                {
+                    /* Try the next key layout. */
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Uploads one part from a pooled buffer, then returns the buffer and releases its concurrency slot.
+        /// </summary>
+        private async Task<PartETag> UploadPartAsync(string objectKey, string uploadId, int partNumber, byte[] buffer, int length, SemaphoreSlim slots, CancellationToken cancellationToken)
+        {
+            try
+            {
+                UploadPartResponse uploaded = await _s3.UploadPartAsync(new UploadPartRequest
+                {
+                    BucketName = _bucket, Key = objectKey, UploadId = uploadId, PartNumber = partNumber,
+                    PartSize = length, InputStream = new MemoryStream(buffer, 0, length, false)
+                }, cancellationToken);
+
+                return new PartETag(partNumber, uploaded.ETag);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+                slots.Release();
+            }
+        }
+
+        private static void ThrowIfAnyPartFailed(List<Task<PartETag>> partUploads)
+        {
+            foreach (Task<PartETag> upload in partUploads)
+                if (upload.IsFaulted || upload.IsCanceled)
+                    upload.GetAwaiter().GetResult();
         }
 
         private static bool IsNotFound(AmazonS3Exception exception)

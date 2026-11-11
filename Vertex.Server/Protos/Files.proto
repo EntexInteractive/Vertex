@@ -5,6 +5,16 @@ package files;
 service Files {
   rpc UploadAsync(stream UploadFileRequest) returns (UploadFileResponse);
   rpc DownloadAsync(DownloadFileRequest) returns (stream DownloadFileResponse);
+  // Returns the subset of the given file ids that the server does not already store.
+  rpc FindMissing(FindMissingRequest) returns (FindMissingResponse);
+}
+
+message FindMissingRequest {
+  repeated string file_ids = 1;
+}
+
+message FindMissingResponse {
+  repeated string file_ids = 1;
 }
 
 message UploadFileRequest {

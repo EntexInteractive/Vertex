@@ -13,23 +13,25 @@ namespace Vertex.Cli.Files
         public override async Task<int> ExecuteAsync(CommandContext context, FilesSettings settings, CancellationToken cancellationToken)
         {
             string rootPath = Path.GetFullPath(settings.Path ?? Directory.GetCurrentDirectory());
-            string address = settings.Server ?? "http://localhost:5000";
+            string address = settings.ServerAddress;
             IEnumerable<string> localFiles = FileSystemUtility.IsDirectory(rootPath) ? FileSystemUtility.GetFiles(rootPath, FileSystemUtility.GetIgnoredEntries(rootPath)) : [rootPath];
 
-            using FilesInterface client = new(address);
-            foreach (string path in localFiles)
-            {
-                VFile file = new(path, Guid.Empty);
-                if (!file.TryGenerateCheckSum()) continue;
+            // Checksums compress each file, so hash in parallel across cores.
+            VFile[] files = localFiles.AsParallel().WithCancellation(cancellationToken)
+                .Select(path => new VFile(path, Guid.Empty))
+                .Where(file => file.TryGenerateCheckSum())
+                .ToArray();
 
-                UploadFileResponse response = await client.UploadAsync(file, cancellationToken);
+            using FilesInterface client = new(address);
+            int uploaded = await client.UploadManyAsync(files, Environment.ProcessorCount >= 8 ? 8 : 4, (file, response) =>
+            {
                 if (!string.Equals(response.FileId, file.CheckSum, StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException("The server did not use the file checksum as its id. Rebuild and restart the server.");
 
                 Terminal.WriteLine($"Uploaded {response.FileName} ({response.BytesReceived:N0} bytes), id {file.CheckSum}", ConsoleColor.Green);
-            }
+            }, cancellationToken);
 
-            await Task.CompletedTask;
+            Terminal.WriteLine($"{uploaded:N0} uploaded, {files.Length - uploaded:N0} already on server.", ConsoleColor.Gray);
             return 0;
         }
     }

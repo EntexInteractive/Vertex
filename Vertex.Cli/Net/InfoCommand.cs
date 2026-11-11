@@ -11,7 +11,7 @@ namespace Vertex.Cli.Net
     {
         public override async Task<int> ExecuteAsync(CommandContext context, NetworkSettings settings, CancellationToken cancellationToken)
         {
-            using ServerInterface server = new(settings.Server ?? "http://localhost:5000");
+            using ServerInterface server = new(settings.ServerAddress);
             ServerResult<InfoResponse> result = await server.GetInfoAsync(cancellationToken);
             if (!result.IsSuccessStatusCode)
             {

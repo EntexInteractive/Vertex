@@ -16,7 +16,7 @@ namespace Vertex.Cli.Branches
     {
         public override async Task<int> ExecuteAsync(CommandContext context, CreateBranchSettings settings, CancellationToken cancellationToken)
         {
-            string server = settings.Server ?? "https://localhost:5000";
+            string server = settings.ServerAddress;
             string relativePath = settings.Path ?? Directory.GetCurrentDirectory();
             VConfig? config = VConfig.Parse(Path.Combine(relativePath, ".vxconfig"));
             string? projectName = settings.Project ?? config?.Project;

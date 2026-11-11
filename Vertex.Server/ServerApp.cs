@@ -10,6 +10,7 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.OpenApi.Models;
 using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Serialization;
+using Vertex.Core.Net;
 using Vertex.Server.Branches;
 using Vertex.Server.Database;
 using Vertex.Server.Diagnostics;
@@ -69,6 +70,11 @@ namespace Vertex.Server
             builder.Services.AddSingleton<IFileStorage, S3FileStorage>();
             builder.WebHost.ConfigureKestrel(options =>
             {
+                // Larger HTTP/2 flow-control windows let a single upload stream fill high-latency links;
+                // per-stream throughput is bounded by window size / round-trip time.
+                options.Limits.Http2.InitialStreamWindowSize = FileTransferLimits.StreamWindowSize;
+                options.Limits.Http2.InitialConnectionWindowSize = FileTransferLimits.ConnectionWindowSize;
+
                 int httpPort = Convert.ToInt32(Environment.GetEnvironmentVariable("Http_Port") ?? "5000");
                 options.ListenAnyIP(httpPort, listenOptions =>
                 {
@@ -114,8 +120,8 @@ namespace Vertex.Server
             builder.Services.AddGrpc(options =>
             {
                 // Transfers are streamed in bounded messages; file size is not tied to a gRPC message limit.
-                options.MaxReceiveMessageSize = 1024 * 1024;
-                options.MaxSendMessageSize = 1024 * 1024;
+                options.MaxReceiveMessageSize = FileTransferLimits.MaximumMessageSize;
+                options.MaxSendMessageSize = FileTransferLimits.MaximumMessageSize;
             });
             
             builder.Services.AddGrpcReflection();
