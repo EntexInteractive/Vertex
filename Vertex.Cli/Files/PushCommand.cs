@@ -23,7 +23,10 @@ namespace Vertex.Cli.Files
                 if (!file.TryGenerateCheckSum()) continue;
 
                 UploadFileResponse response = await client.UploadAsync(file, cancellationToken);
-                Terminal.WriteLine($"Uploaded {response.FileName} ({response.BytesReceived:N0} bytes), id {response.FileId}", ConsoleColor.Green);
+                if (!string.Equals(response.FileId, file.CheckSum, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("The server did not use the file checksum as its id. Rebuild and restart the server.");
+
+                Terminal.WriteLine($"Uploaded {response.FileName} ({response.BytesReceived:N0} bytes), id {file.CheckSum}", ConsoleColor.Green);
             }
 
             await Task.CompletedTask;

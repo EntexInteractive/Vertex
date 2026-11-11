@@ -31,7 +31,8 @@ namespace Vertex.Server.FileServices
             if (metadata.FileSize < 0 || string.IsNullOrWhiteSpace(metadata.FileName))
                 throw new RpcException(new Status(StatusCode.InvalidArgument, "A file name and nonnegative file size are required."));
 
-            string fileId = Guid.NewGuid().ToString("N");
+            string fileId = first.Metadata.FileId;
+            if (!IsValidFileId(fileId)) throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid file id."));
             string fileName = Path.GetFileName(metadata.FileName);
             string contentType = string.IsNullOrWhiteSpace(metadata.ContentType) ? "application/octet-stream" : metadata.ContentType;
             _logger.LogInformation("Receiving {FileName} ({FileSize} bytes) as {FileId}", fileName, metadata.FileSize, fileId);
@@ -51,7 +52,7 @@ namespace Vertex.Server.FileServices
 
         public override async Task DownloadAsync(DownloadFileRequest request, IServerStreamWriter<DownloadFileResponse> responseStream, ServerCallContext context)
         {
-            if (!Guid.TryParseExact(request.FileId, "N", out _)) throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid file id."));
+            if (!IsValidFileId(request.FileId)) throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid file id."));
 
             StoredFile stored;
             try
@@ -80,6 +81,12 @@ namespace Vertex.Server.FileServices
                     });
                 }
             }
+        }
+
+        private static bool IsValidFileId(string fileId)
+        {
+            return (fileId.Length == 32 && Guid.TryParseExact(fileId, "N", out _)) ||
+                   (fileId.Length == 64 && fileId.All(Uri.IsHexDigit));
         }
 
         private static async IAsyncEnumerable<ReadOnlyMemory<byte>> ReadChunksAsync(

@@ -173,7 +173,9 @@ namespace Vertex.Server.Storage
 
         private static string GetObjectKey(string key)
         {
-            if (!Guid.TryParseExact(key, "N", out _)) throw new ArgumentException("Object key must be a compact file identifier.", nameof(key));
+            bool legacyId = Guid.TryParseExact(key, "N", out _);
+            bool checksumId = key.Length == 64 && key.All(Uri.IsHexDigit);
+            if (!legacyId && !checksumId) throw new ArgumentException("Object key must be a compact file identifier or SHA-256 checksum.", nameof(key));
             string fileId = key.ToLowerInvariant();
             return $"objects/{fileId[..2]}/{fileId[2..4]}/{fileId}";
         }
