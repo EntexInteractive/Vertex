@@ -22,6 +22,7 @@ namespace Vertex.Cli.Projects
             if (!result.IsSuccessStatusCode)
             {
                 AnsiConsole.MarkupLine($"[red]Failed to create project: {Markup.Escape(result.Exception?.Message ?? "Unknown error")}[/]");
+                Log.Error(result.Exception, "Failed to create project");
                 return 0;
             }
 

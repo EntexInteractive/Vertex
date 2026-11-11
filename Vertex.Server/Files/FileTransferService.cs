@@ -1,17 +1,18 @@
 // Copyright 2026 Entex Interactive
 
 using Grpc.Core;
+using Vertex.Core.Net.Interfaces;
 using Vertex.Server.Storage;
 
-namespace Vertex.Server.Services
+namespace Vertex.Server.FileServices
 {
-    public class FileService : Files.FilesBase
+    public class FileTransferService : Files.FilesBase
     {
         private const int MaximumChunkSize = 64 * 1024;
-        private readonly ILogger<FileService> _logger;
+        private readonly ILogger<FileTransferService> _logger;
         private readonly IFileStorage _storage;
 
-        public FileService(ILogger<FileService> logger, IFileStorage storage)
+        public FileTransferService(ILogger<FileTransferService> logger, IFileStorage storage)
         {
             _logger = logger;
             _storage = storage;

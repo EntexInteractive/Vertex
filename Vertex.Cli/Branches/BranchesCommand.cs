@@ -31,18 +31,20 @@ namespace Vertex.Cli.Branches
             if (!projectResult.IsSuccessStatusCode && projectResult.Data == null)
             {
                 AnsiConsole.MarkupLine($"[red]Failed to get project: {Markup.Escape(projectResult.Exception?.Message ?? "Unknown error")}[/]");
+                Log.Error(projectResult.Exception, "Failed to get project");
                 return 0;
             }
 
             using BranchInterface branches = new(server);
-            ServerResult<VBranch> result = await branches.CreateBranchAsync(projectResult.Data!.Id, settings.Branch ?? "main", cancellationToken: cancellationToken);
-            if (!result.IsSuccessStatusCode)
+            ServerResult<VBranch> branchResult = await branches.CreateBranchAsync(projectResult.Data!.Id, settings.Branch ?? "main", cancellationToken: cancellationToken);
+            if (!branchResult.IsSuccessStatusCode)
             {
-                AnsiConsole.MarkupLine($"[red]Failed to create branch: {Markup.Escape(result.Exception?.Message ?? "Unknown error")}[/]");
+                AnsiConsole.MarkupLine($"[red]Failed to create branch: {Markup.Escape(branchResult.Exception?.Message ?? "Unknown error")}[/]");
+                Log.Error(branchResult.Exception, "Failed to create branch");
                 return 0;
             }
 
-            AnsiConsole.MarkupLine($"Branch '{Markup.Escape(result.Data?.Name ?? "")}' created successfully.");
+            AnsiConsole.MarkupLine($"Branch '{Markup.Escape(branchResult.Data?.Name ?? "")}' created successfully.");
             return 0;
         }
     }

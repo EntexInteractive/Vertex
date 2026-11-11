@@ -13,6 +13,7 @@ using Newtonsoft.Json.Serialization;
 using Vertex.Server.Branches;
 using Vertex.Server.Database;
 using Vertex.Server.Diagnostics;
+using Vertex.Server.FileServices;
 using Vertex.Server.Projects;
 using Vertex.Server.Services;
 using Vertex.Server.Storage;
@@ -181,7 +182,7 @@ namespace Vertex.Server
             app.UseStaticFiles(new StaticFileOptions { FileProvider = reactFiles });
             
             app.MapGrpcService<GreeterService>();
-            app.MapGrpcService<FileService>();
+            app.MapGrpcService<FileTransferService>();
             
             app.UseHttpsRedirection();
             app.UseAuthorization();

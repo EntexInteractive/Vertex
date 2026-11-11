@@ -35,7 +35,7 @@ namespace Vertex.Cli
 
                 config.SetExceptionHandler((ex, resolver) =>
                 {
-                    Terminal.Error(ex);
+                    AnsiConsole.MarkupLine($"[red]Command execution failed: {Markup.Escape(ex?.Message ?? "Unknown error")}[/]");
                     Log.Error(ex, "Command execution failed");
                 });
 
