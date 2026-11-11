@@ -1,32 +1,33 @@
 // Copyright 2026 Entex Interactive
 
+using EntexInteractive.Extensions;
+using Spectre.Console.Cli;
+using Vertex.Core.Client.IO;
+using Vertex.Core.Data;
 using Vertex.Core.Net.Interfaces;
+using Vertex.Server;
 
-namespace Vertex.Cli.Files
+namespace Vertex.Cli.Files;
+
+public sealed class PushCommand : AsyncCommand<FilesSettings>
 {
-    public class PushCommand : BaseFilesCommand
+    public override async Task<int> ExecuteAsync(CommandContext context, FilesSettings settings, CancellationToken cancellationToken)
     {
-        public PushCommand() : base("push", "Pushes files to the primary server.")
+        string rootPath = Path.GetFullPath(settings.Path ?? Directory.GetCurrentDirectory());
+        string address = settings.Server ?? "http://localhost:5000";
+        IEnumerable<string> localFiles = FileSystemUtility.IsDirectory(rootPath) ? FileSystemUtility.GetFiles(rootPath, FileSystemUtility.GetIgnoredEntries(rootPath)) : [rootPath];
+
+        using FilesInterface client = new(address);
+        foreach (string path in localFiles)
         {
-            this.SetAction(HandleCommand);
+            VFile file = new(path, Guid.NewGuid());
+            if (!file.TryGenerateCheckSum()) continue;
+
+            UploadFileResponse response = await client.UploadAsync(file, cancellationToken);
+            Terminal.WriteLine($"Uploaded {response.FileName} ({response.BytesReceived:N0} bytes), id {response.FileId}", ConsoleColor.Green);
         }
 
-        private async Task HandleCommand(ParseResult parse)
-        {
-            string path = Path.GetFullPath(parse.GetValue(PathOption) ?? Directory.GetCurrentDirectory());
-            string address = parse.GetValue(ServerOption) ?? "http://localhost:5000";
-            string[] files = File.Exists(path)
-                ? [path]
-                : Directory.Exists(path)
-                    ? Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).ToArray()
-                    : throw new FileNotFoundException("The push path does not exist.", path);
-
-            using FilesInterface client = new(address);
-            /*foreach (string file in files)
-            {
-                UploadFileResponse response = await client.UploadAsync(file);
-                Terminal.WriteLine($"Uploaded {response.FileName} ({response.BytesReceived:N0} bytes), id {response.FileId}", ConsoleColor.Green);
-            }*/
-        }
+        await Task.CompletedTask;
+        return 0;
     }
 }
