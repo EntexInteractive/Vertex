@@ -160,3 +160,4 @@ pids/
 # Optional
 .cache
 .parcel-cache
+launchSettings.json
