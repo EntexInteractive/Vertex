@@ -31,8 +31,7 @@ namespace Vertex.Cli
             CommandApp app = new CommandApp();
             app.Configure(config =>
             {
-                config.SetApplicationName("UShell");
-
+                config.SetApplicationName("Vertex CLI");
                 config.SetExceptionHandler((ex, resolver) =>
                 {
                     AnsiConsole.MarkupLine($"[red]Command execution failed: {Markup.Escape(ex?.Message ?? "Unknown error")}[/]");
