@@ -73,7 +73,7 @@ jobs:
         with:
           context: .
           file: ./Vertex.Server/Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/vertex-server:stable
