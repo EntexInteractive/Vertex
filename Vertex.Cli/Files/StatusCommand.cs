@@ -1,16 +1,22 @@
 // Copyright 2026 Entex Interactive
 
+using System.ComponentModel;
 using System.Diagnostics;
 using Vertex.Core.Client.Workspaces;
 using Vertex.Core.Data;
 
 namespace Vertex.Cli.Files
 {
-    public sealed class StatusCommand : Command<FilesSettings>
+    public sealed class StatusSettings : FilesSettings
     {
-        private const int MaximumDisplayed = 50;
+        [CommandOption("--limit")]
+        [Description("The maximum number of changes to display. Defaults to 25.")]
+        public int DisplayLimit { get; set; } = 25;
+    }
 
-        public override int Execute(CommandContext context, FilesSettings settings, CancellationToken cancellationToken)
+    public sealed class StatusCommand : Command<StatusSettings>
+    {
+        public override int Execute(CommandContext context, StatusSettings settings, CancellationToken cancellationToken)
         {
             Stopwatch sw = Stopwatch.StartNew();
             VWorkspace workspace = VWorkspace.FindRequired(settings.RootPath);
@@ -22,7 +28,7 @@ namespace Vertex.Cli.Files
                 status = WorkspaceScanner.Scan(workspace, index, new ScanOptions { MaxConcurrency = settings.MaxConcurrency, Force = settings.Force }, cancellationToken);
             });
 
-            foreach (WorkspaceChange change in status.Changes.Take(MaximumDisplayed))
+            foreach (WorkspaceChange change in status.Changes.Take(settings.DisplayLimit))
             {
                 string path = Markup.Escape(change.Path);
                 AnsiConsole.MarkupLine(change.Type switch
@@ -35,7 +41,7 @@ namespace Vertex.Cli.Files
                 });
             }
 
-            int remaining = status.Changes.Count - MaximumDisplayed;
+            int remaining = status.Changes.Count - settings.DisplayLimit;
             if (remaining > 0) AnsiConsole.MarkupLine($"[grey]  ...and {remaining:N0} more[/]");
 
             foreach (string path in status.Unreadable.Take(10)) AnsiConsole.MarkupLine($"[red]  unreadable {Markup.Escape(path)}[/]");
