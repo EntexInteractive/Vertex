@@ -11,7 +11,13 @@ namespace Vertex.Core.Data
 
     public class VChange
     {
-        public VFile File { get; }
         public ChangeType Type { get; }
+        public VFile File { get; }
+
+        public VChange(ChangeType type, VFile file)
+        {
+            Type = type;
+            File = file;
+        }
     }
 }

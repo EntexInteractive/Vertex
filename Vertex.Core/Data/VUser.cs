@@ -10,17 +10,17 @@ namespace Vertex.Core.Data
         /// <summary>
         /// The user's unique identifier.
         /// </summary>
-        public string Id { get; }
+        public Guid Id { get; } = Guid.NewGuid();
 
         /// <summary>
         /// The time the user was created.
         /// </summary>
-        public UnixTime CreatedAt { get; }
+        public UnixTime CreatedAt { get; } = UnixTime.Now;
 
         /// <summary>
         /// The username of the user.
         /// </summary>
-        public string Username { get; set; }
+        public string Username { get; set; } = string.Empty;
 
         /// <summary>
         /// The user's current display name.
@@ -32,17 +32,17 @@ namespace Vertex.Core.Data
         /// The user's password encoded as a SHA256 hash.
         /// </summary>
         [JsonIgnore]
-        public string Password { get; set; }
+        public string Password { get; set; } = string.Empty;
 
         /// <summary>
         /// The user's firstname.
         /// </summary>
-        public string Firstname { get; set; }
+        public string Firstname { get; set; } = string.Empty;
 
         /// <summary>
         /// The user's lastname.
         /// </summary>
-        public string Lastname { get; set; }
+        public string Lastname { get; set; } = string.Empty;
 
         /// <summary>
         /// The user's last login time.
@@ -52,7 +52,7 @@ namespace Vertex.Core.Data
         /// <summary>
         /// The user's linked email.
         /// </summary>
-        public string Email { get; set; }
+        public string Email { get; set; } = string.Empty;
 
         /// <summary>
         /// The user's permission level.
