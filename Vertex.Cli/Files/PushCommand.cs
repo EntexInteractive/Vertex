@@ -19,7 +19,7 @@ namespace Vertex.Cli.Files
     {
         public override async Task<int> ExecuteAsync(CommandContext context, FilesSettings settings, CancellationToken cancellationToken)
         {
-            Workspace workspace = Workspace.FindRequired(settings.RootPath);
+            VWorkspace workspace = VWorkspace.FindRequired(settings.RootPath);
             using WorkspaceIndex index = workspace.OpenIndex();
 
             WorkspaceStatus status = WorkspaceScanner.Scan(workspace, index, new ScanOptions

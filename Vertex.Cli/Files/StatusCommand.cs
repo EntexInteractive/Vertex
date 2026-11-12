@@ -13,7 +13,7 @@ namespace Vertex.Cli.Files
         public override int Execute(CommandContext context, FilesSettings settings, CancellationToken cancellationToken)
         {
             Stopwatch sw = Stopwatch.StartNew();
-            Workspace workspace = Workspace.FindRequired(settings.RootPath);
+            VWorkspace workspace = VWorkspace.FindRequired(settings.RootPath);
             using WorkspaceIndex index = workspace.OpenIndex();
 
             WorkspaceStatus status = null!;

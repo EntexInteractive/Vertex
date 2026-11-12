@@ -61,7 +61,7 @@ namespace Vertex.Core.Client.IO
                 ShouldRecursePredicate = (ref FileSystemEntry entry) =>
                 {
                     if ((entry.Attributes & FileAttributes.ReparsePoint) != 0) return false;
-                    if (entry.FileName.Equals(Workspace.MetadataDirectoryName, StringComparison.OrdinalIgnoreCase)) return false;
+                    if (entry.FileName.Equals(VWorkspace.MetadataDirectoryName, StringComparison.OrdinalIgnoreCase)) return false;
                     return !ignore.IsIgnored(ToRelativePath(prefix, entry.ToFullPath()), isDirectory: true);
                 }
             };

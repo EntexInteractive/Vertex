@@ -59,67 +59,28 @@ namespace Vertex.Server.FileServices
             return response;
         }
 
-        public override async Task<UploadChunksResponse> UploadChunks(IAsyncStreamReader<ChunkData> requestStream, ServerCallContext context)
+        public override async Task<UploadChunksResponse> UploadChunks(UploadChunksRequest request, ServerCallContext context)
         {
-            using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(context.CancellationToken);
-            using SemaphoreSlim callSlots = new(ChunksPerCall);
-            List<Task> inFlight = new();
+            // Validate everything before storing anything, so a bad request stores nothing.
+            (byte[] Id, ChunkData Chunk)[] chunks = request.Chunks.Select(chunk =>
+            {
+                byte[] id = ToChunkId(chunk.Id);
+                if (chunk.Size is < 1 or > ContentChunker.MaximumChunkSize) throw Invalid("Chunk size is out of range.");
+                if (chunk.Data.IsEmpty || chunk.Data.Length > ChunkCodec.MaximumCompressedSize) throw Invalid("Chunk data is out of range.");
+                return (id, chunk);
+            }).ToArray();
+
+            // The pod-wide budget bounds decompression buffers across all concurrent uploads.
             int stored = 0;
-            long received = 0;
-
-            try
+            ParallelOptions parallel = new() { MaxDegreeOfParallelism = ChunksPerCall, CancellationToken = context.CancellationToken };
+            await Parallel.ForEachAsync(chunks, parallel, async (item, ct) =>
             {
-                while (true)
-                {
-                    // Take both slots before reading the next message: while the server is saturated it stops
-                    // reading, and HTTP/2 flow control slows the client instead of buffering in memory.
-                    await callSlots.WaitAsync(cts.Token);
-                    IDisposable? lease = null;
-                    bool handedOff = false;
-                    try
-                    {
-                        lease = await _budget.AcquireAsync(cts.Token);
-                        if (!await requestStream.MoveNext(cts.Token)) break;
+                using IDisposable lease = await _budget.AcquireAsync(ct);
+                await StoreChunkAsync(item.Id, item.Chunk, ct);
+                Interlocked.Increment(ref stored);
+            });
 
-                        ChunkData chunk = requestStream.Current;
-                        byte[] id = ToChunkId(chunk.Id);
-                        if (chunk.Size is < 1 or > ContentChunker.MaximumChunkSize) throw Invalid("Chunk size is out of range.");
-                        if (chunk.Data.IsEmpty || chunk.Data.Length > ChunkCodec.MaximumCompressedSize) throw Invalid("Chunk data is out of range.");
-                        ThrowIfAnyFailed(inFlight);
-
-                        received += chunk.Data.Length;
-                        inFlight.Add(StoreChunkAsync(id, chunk, lease, callSlots, () => Interlocked.Increment(ref stored), cts.Token));
-                        handedOff = true;
-                        inFlight.RemoveAll(t => t.IsCompletedSuccessfully);
-                    }
-                    finally
-                    {
-                        if (!handedOff)
-                        {
-                            lease?.Dispose();
-                            callSlots.Release();
-                        }
-                    }
-                }
-
-                await Task.WhenAll(inFlight);
-            }
-            catch
-            {
-                // Stop and drain background work before the semaphores are disposed.
-                await cts.CancelAsync();
-                try
-                {
-                    await Task.WhenAll(inFlight);
-                }
-                catch
-                {
-                    /* Preserve the original error. */
-                }
-
-                throw;
-            }
-
+            long received = chunks.Sum(c => (long)c.Chunk.Data.Length);
             _logger.LogDebug("Stored {Chunks} chunks ({Bytes} compressed bytes)", stored, received);
             return new UploadChunksResponse { ChunksStored = stored, BytesReceived = received };
         }
@@ -220,7 +181,7 @@ namespace Vertex.Server.FileServices
         /// Verifies a chunk's content against its id (so no client can store bytes under someone else's hash),
         /// then writes it to storage. Releases the call and budget slots when done.
         /// </summary>
-        private async Task StoreChunkAsync(byte[] id, ChunkData chunk, IDisposable lease, SemaphoreSlim callSlots, Action onStored, CancellationToken ct)
+        private async Task StoreChunkAsync(byte[] id, ChunkData chunk, CancellationToken ct)
         {
             byte[] buffer = ArrayPool<byte>.Shared.Rent((int)chunk.Size);
             try
@@ -238,21 +199,11 @@ namespace Vertex.Server.FileServices
                 }, ct);
 
                 await _store.PutChunkAsync(id, chunk.Size, chunk.Data.Memory, ct);
-                onStored();
             }
             finally
             {
                 ArrayPool<byte>.Shared.Return(buffer);
-                lease.Dispose();
-                callSlots.Release();
             }
-        }
-
-        private static void ThrowIfAnyFailed(List<Task> tasks)
-        {
-            foreach (Task task in tasks)
-                if (task.IsFaulted || task.IsCanceled)
-                    task.GetAwaiter().GetResult();
         }
 
         private static ParallelOptions Lookup(ServerCallContext context)

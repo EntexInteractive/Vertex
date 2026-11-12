@@ -30,10 +30,11 @@ namespace Vertex.Cli.Workspaces
         public override async Task<int> ExecuteAsync(CommandContext context, InitSettings settings, CancellationToken cancellationToken)
         {
             string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(settings.RootPath));
-            Workspace? existing = Workspace.Find(root);
+            VWorkspace? existing = VWorkspace.Find(root);
             if (existing is not null)
             {
-                AnsiConsole.MarkupLine($"[red]'{Markup.Escape(existing.Root)}' is already a Vertex workspace.[/]");
+                string linkedTo = existing.Config.Project is null ? "" : $" (linked to {existing.Config.Project}/{existing.Config.Branch})";
+                AnsiConsole.MarkupLine($"[red]'{Markup.Escape(existing.Root)}' is already a Vertex workspace{Markup.Escape(linkedTo)}.[/]");
                 return 1;
             }
 
@@ -72,10 +73,10 @@ namespace Vertex.Cli.Workspaces
             }
 
             CreateProjectResponse created = result.Data!;
-            Workspace workspace;
+            VWorkspace workspace;
             try
             {
-                workspace = Workspace.Initialize(root, new WorkspaceConfig
+                workspace = VWorkspace.Initialize(root, new WorkspaceConfig
                 {
                     Address = settings.ServerAddress,
                     Project = created.Project.Name,

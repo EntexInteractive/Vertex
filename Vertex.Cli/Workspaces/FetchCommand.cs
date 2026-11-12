@@ -58,7 +58,7 @@ namespace Vertex.Cli.Workspaces
             string root = System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(settings.Path ?? Directory.GetCurrentDirectory()));
 
             // Fetching again into a folder already linked to this project and branch is a no-op, not an error.
-            Workspace? existing = Workspace.Find(root);
+            VWorkspace? existing = VWorkspace.Find(root);
             if (existing is not null)
             {
                 bool sameRoot = string.Equals(existing.Root, root, OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase);
@@ -73,7 +73,7 @@ namespace Vertex.Cli.Workspaces
                 return 1;
             }
 
-            Workspace workspace = Workspace.Initialize(root, new WorkspaceConfig
+            VWorkspace workspace = VWorkspace.Initialize(root, new WorkspaceConfig
             {
                 Address = settings.ServerAddress,
                 Project = project.Name,
