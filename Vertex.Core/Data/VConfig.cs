@@ -55,5 +55,15 @@ namespace Vertex.Core.Data
                 User    = Get(values, "User"),
             };
         }
+
+        /// <summary>
+        /// Parses a <see cref="VConfig"/> instance from a configuration file located at the specified path relative to the root directory.
+        /// </summary>
+        /// <param name="relativePath">The directory path used to locate the .vxconfig configuration file.</param>
+        /// <return>The parsed <see cref="VConfig"/> instance if the configuration file is found and successfully parsed; otherwise, <see langword="null"/>.</return>
+        public static VConfig? ParseFromRoot(string relativePath)
+        {
+            return Parse(Path.Combine(relativePath, ".vxconfig"));
+        }
     }
 }

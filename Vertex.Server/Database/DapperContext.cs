@@ -16,6 +16,7 @@ namespace Vertex.Server.Database
         /// <summary>
         /// Creates a new <see cref="DapperContext"/> class.
         /// </summary>
+        /// <param name="logger"></param>>
         /// <param name="cache"></param>
         public DapperContext(ILogger<DapperContext> logger, CacheContext cache)
         {
@@ -42,7 +43,7 @@ namespace Vertex.Server.Database
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, ex.Message);
+                _logger.LogError(ex, "Error querying database");
                 return false;
             }
         }
@@ -55,9 +56,9 @@ namespace Vertex.Server.Database
         /// <param name="parameters"></param>
         /// <param name="key"></param>
         /// <param name="expires"></param>
-        public async Task<string> QueryJsonAsync(Func<IDbConnection> connectionFactory, string sql, object? parameters, string? key = null, int expires = 15)
+        public async Task<string?> QueryJsonAsync(Func<IDbConnection> connectionFactory, string sql, object? parameters, string? key = null, int expires = 15)
         {
-            return await QuerySingleAsync<string>(connectionFactory, sql, parameters, key, expires) ?? string.Empty;
+            return await QuerySingleAsync<string>(connectionFactory, sql, parameters, key, expires);
         }
 
         /// <summary>
@@ -88,7 +89,7 @@ namespace Vertex.Server.Database
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, ex.Message);
+                _logger.LogError(ex, "Error querying database");
                 return default;
             }
         }
@@ -122,7 +123,7 @@ namespace Vertex.Server.Database
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, ex.Message);
+                _logger.LogError(ex, "Error querying database");
                 return [];
             }
         }

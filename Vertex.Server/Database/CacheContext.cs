@@ -101,7 +101,6 @@ namespace Vertex.Server.Database
         /// <param name="callback"></param>
         public Task SubscribeAsync(string channel, Action<string> callback)
         {
-            _logger.LogInformation("Subscribed to channel: '{Channel}'", channel);
             Task subscribeAsync = _redis?.GetSubscriber().SubscribeAsync(RedisChannel.Literal(channel), (_, value) =>
             {
                 if (!value.HasValue) return;

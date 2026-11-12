@@ -7,18 +7,14 @@ using Vertex.Core.Net.Results;
 
 namespace Vertex.Cli.Branches
 {
-    public sealed class CreateBranchSettings : BranchSettings
+    public sealed class BranchesCommand : AsyncCommand<BranchSettings>
     {
-        [CommandOption("--path")] public string? Path { get; set; }
-    }
-
-    public sealed class BranchesCommand : AsyncCommand<CreateBranchSettings>
-    {
-        public override async Task<int> ExecuteAsync(CommandContext context, CreateBranchSettings settings, CancellationToken cancellationToken)
+        public override async Task<int> ExecuteAsync(CommandContext context, BranchSettings settings, CancellationToken cancellationToken)
         {
             string server = settings.ServerAddress;
             string relativePath = settings.Path ?? Directory.GetCurrentDirectory();
-            VConfig? config = VConfig.Parse(Path.Combine(relativePath, ".vxconfig"));
+            VConfig? config = VConfig.ParseFromRoot(relativePath);
+            
             string? projectName = settings.Project ?? config?.Project;
             if (string.IsNullOrWhiteSpace(projectName))
             {
