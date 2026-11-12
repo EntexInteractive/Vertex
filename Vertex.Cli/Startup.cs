@@ -4,6 +4,7 @@ using Spectre.Console.Cli;
 using Vertex.Cli.Branches;
 using Vertex.Cli.Files;
 using Vertex.Cli.Net;
+using Vertex.Cli.Profiles;
 using Vertex.Cli.Projects;
 using Vertex.Cli.Utils;
 
@@ -22,15 +23,20 @@ namespace Vertex.Cli
 
             config.AddCommand<StatusCommand>("status").WithDescription("Displays the status of the local files.");
 
+            config.AddBranch("profile", branch =>
+            {
+                branch.AddCommand<CreateProfileCommand>("create").WithDescription("Creates a new profile.");
+            });
+            
             config.AddBranch("project", branch =>
             {
-                branch.AddCommand<CreateProjectCommand>("create");
+                branch.AddCommand<CreateProjectCommand>("create").WithDescription("Creates a new project.");
             });
 
             config.AddBranch("branch", branch =>
             {
-                branch.AddCommand<BranchesCommand>("create");
-                branch.AddCommand<DeleteBranchCommand>("delete");
+                branch.AddCommand<CreateBranchCommand>("create").WithDescription("Creates a new branch.");
+                branch.AddCommand<DeleteBranchCommand>("delete").WithDescription("Deletes an existing branch.");
             });
         }
     }

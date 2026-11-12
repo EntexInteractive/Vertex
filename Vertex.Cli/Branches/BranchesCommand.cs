@@ -1,13 +1,14 @@
 ﻿// Copyright 2026 Entex Interactive
 
 using Vertex.Cli.Net;
+using Vertex.Core.Client.Data;
 using Vertex.Core.Data;
 using Vertex.Core.Net.Interfaces;
 using Vertex.Core.Net.Results;
 
 namespace Vertex.Cli.Branches
 {
-    public sealed class BranchesCommand : AsyncCommand<BranchSettings>
+    public sealed class CreateBranchCommand : AsyncCommand<BranchSettings>
     {
         public override async Task<int> ExecuteAsync(CommandContext context, BranchSettings settings, CancellationToken cancellationToken)
         {

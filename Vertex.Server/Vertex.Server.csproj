@@ -31,6 +31,14 @@
         <DebugType>Full</DebugType>
     </PropertyGroup>
 
+    <PropertyGroup>
+        <BuildDate>$([System.DateTime]::UtcNow.ToString("MM/dd/yyyy"))</BuildDate>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <AssemblyMetadata Include="BuildDate" Value="$(BuildDate)"/>
+    </ItemGroup>
+
     <ItemGroup>
         <PackageReference Include="AWSSDK.S3" Version="4.0.104.10"/>
         <PackageReference Include="Dapper" Version="2.1.89"/>

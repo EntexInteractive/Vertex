@@ -101,9 +101,9 @@ namespace Vertex.Core.Net.Interfaces
 
             foreach (List<ChunkedFile> batch in BatchCommits(pending))
             {
-                CommitFilesRequest request = new();
+                SubmitFilesRequest request = new();
                 request.Manifests.AddRange(batch.Select(f => f.ToManifest()));
-                CommitFilesResponse response = await FilesClient.CommitFilesAsync(request, cancellationToken: ct);
+                SubmitFilesResponse response = await FilesClient.SubmitFilesAsync(request, cancellationToken: ct);
                 for (int i = 0; i < batch.Count; i++)
                 {
                     if (!string.Equals(response.FileIds[i], batch[i].FileId, StringComparison.OrdinalIgnoreCase))

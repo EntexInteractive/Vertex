@@ -9,13 +9,13 @@ package files;
 // manifest (ordered list of chunk refs) whose id is a hash over that list, so both chunk ids and file ids
 // can be recomputed and verified by the server and by clients.
 //
-// Push: FindMissingFiles -> FindMissingChunks -> UploadChunks -> CommitFiles.
+// Push: FindMissingFiles -> FindMissingChunks -> UploadChunks -> SubmitFiles.
 // Pull: GetManifest -> DownloadChunks (only for chunks not already available locally).
 service Files {
   rpc FindMissingFiles(FindMissingFilesRequest) returns (FindMissingFilesResponse);
   rpc FindMissingChunks(FindMissingChunksRequest) returns (FindMissingChunksResponse);
   rpc UploadChunks(stream ChunkData) returns (UploadChunksResponse);
-  rpc CommitFiles(CommitFilesRequest) returns (CommitFilesResponse);
+  rpc SubmitFiles(SubmitFilesRequest) returns (SubmitFilesResponse);
   rpc GetManifest(GetManifestRequest) returns (FileManifest);
   rpc DownloadChunks(DownloadChunksRequest) returns (stream ChunkData);
 }
@@ -57,11 +57,11 @@ message UploadChunksResponse {
   int64 bytes_received = 2;  // Compressed bytes received.
 }
 
-message CommitFilesRequest {
+message SubmitFilesRequest {
   repeated FileManifest manifests = 1;
 }
 
-message CommitFilesResponse {
+message SubmitFilesResponse {
   repeated string file_ids = 1;  // Server-computed id of each manifest, in request order.
 }
 

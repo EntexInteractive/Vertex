@@ -31,15 +31,16 @@ namespace Vertex.Server.Server
         public async Task<ActionResult<InfoResponse>> GetVersionAsync()
         {
             _monitor.Refresh();
+            Assembly assembly = Assembly.GetExecutingAssembly();
+            AssemblyName assemblyName = assembly.GetName();
             
-            AssemblyName assemblyName = Assembly.GetExecutingAssembly().GetName();
             return Ok(new InfoResponse
             {
                 Address = HttpContext.Connection.LocalIpAddress?.ToString(),
-                CpuUsage = Convert.ToInt32(_monitor.CpuUsage),
+                BuildDate = assembly.GetCustomAttributes<AssemblyMetadataAttribute>().FirstOrDefault(x => x.Key == "BuildDate")?.Value,
                 Date = DateTime.UtcNow,
                 ProcessMs = await _diagnostics.GetProcessTimeAsync(),
-                RamUsage = _monitor.RamUsage,
+                StartTime = _monitor.StartTime,
                 Uptime = _monitor.Uptime,
                 Version = assemblyName.Version?.ToString()
             });

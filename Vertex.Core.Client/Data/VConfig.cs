@@ -1,11 +1,9 @@
 ﻿// Copyright 2026 Entex Interactive
 
-namespace Vertex.Core.Data
+namespace Vertex.Core.Client.Data
 {
     public class VConfig
     {
-        private static string? Get(Dictionary<string, string> values, string key) => values.TryGetValue(key, out var v) && v.Length > 0 ? v : null;
-        
         public string? Address { get; init; }
         public string? Project { get; init; }
         public string? Branch { get; init; }
@@ -15,27 +13,27 @@ namespace Vertex.Core.Data
         public static VConfig? Parse(string path)
         {
             ArgumentException.ThrowIfNullOrEmpty(path);
-            if(!File.Exists(path)) return null;
-            
+            if (!File.Exists(path)) return null;
+
             IEnumerable<string> lines = File.ReadAllLines(path);
-            var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
- 
-            foreach (var rawLine in lines)
+            Dictionary<string, string> values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (string rawLine in lines)
             {
-                var line = rawLine.Trim();
- 
+                string line = rawLine.Trim();
+
                 // Skip blank lines and comments
                 if (line.Length == 0 || line.StartsWith('#') || line.StartsWith(';'))
                     continue;
- 
+
                 // Split on the FIRST '=' only, so values like URLs with '=' in them survive
                 int eq = line.IndexOf('=');
                 if (eq <= 0)
                     continue; // no '=' or empty key -> ignore (or throw if you prefer strict)
- 
-                var key = line[..eq].Trim();
-                var value = line[(eq + 1)..].Trim();
- 
+
+                string key = line[..eq].Trim();
+                string value = line[(eq + 1)..].Trim();
+
                 // Strip optional surrounding quotes: Project="My Project"
                 if (value.Length >= 2 &&
                     ((value[0] == '"' && value[^1] == '"') ||
@@ -43,16 +41,16 @@ namespace Vertex.Core.Data
                 {
                     value = value[1..^1];
                 }
- 
+
                 values[key] = value; // last one wins if duplicated
             }
- 
+
             return new VConfig
             {
                 Address = Get(values, "Address"),
                 Project = Get(values, "Project"),
-                Branch  = Get(values, "Branch"),
-                User    = Get(values, "User"),
+                Branch = Get(values, "Branch"),
+                User = Get(values, "User"),
             };
         }
 
@@ -64,6 +62,11 @@ namespace Vertex.Core.Data
         public static VConfig? ParseFromRoot(string relativePath)
         {
             return Parse(Path.Combine(relativePath, ".vxconfig"));
+        }
+
+        private static string? Get(Dictionary<string, string> values, string key)
+        {
+            return values.TryGetValue(key, out string? v) && v.Length > 0 ? v : null;
         }
     }
 }

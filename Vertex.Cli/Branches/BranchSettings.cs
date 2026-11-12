@@ -13,6 +13,6 @@ namespace Vertex.Cli.Branches
 
         [CommandOption("--path")]
         [Description("The path to a file or directory.")]
-        public string? Path { get; set; }
+        public string? Path { get; set; } = Directory.GetCurrentDirectory();
     }
 }

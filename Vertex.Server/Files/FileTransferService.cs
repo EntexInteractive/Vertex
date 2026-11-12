@@ -124,7 +124,7 @@ namespace Vertex.Server.FileServices
             return new UploadChunksResponse { ChunksStored = stored, BytesReceived = received };
         }
 
-        public override async Task<CommitFilesResponse> CommitFiles(CommitFilesRequest request, ServerCallContext context)
+        public override async Task<SubmitFilesResponse> SubmitFiles(SubmitFilesRequest request, ServerCallContext context)
         {
             CancellationToken ct = context.CancellationToken;
             if (request.Manifests.Sum(m => m.Chunks.Count) > FileTransferLimits.MaximumChunksPerCommit) throw TooMany("chunks");
@@ -167,7 +167,7 @@ namespace Vertex.Server.FileServices
             });
 
             _logger.LogInformation("Committed {Files} file(s) referencing {Chunks} distinct chunk(s)", fileIds.Length, referenced.Length);
-            CommitFilesResponse response = new();
+            SubmitFilesResponse response = new();
             response.FileIds.AddRange(fileIds);
             return response;
         }

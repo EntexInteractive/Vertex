@@ -28,7 +28,7 @@ namespace Vertex.Core.Net
         public const int MaximumIdsPerRequest = 16_384;
 
         /// <summary>
-        /// Most chunk refs across manifests in one CommitFiles request (~40 bytes each).
+        /// Most chunk refs across manifests in one SubmitFiles request (~40 bytes each).
         /// </summary>
         public const int MaximumChunksPerCommit = 50_000;
 

@@ -63,4 +63,8 @@
         <Protobuf Include="..\Vertex.Server\Protos\Greeter.proto" Link="Protos\Greeter.proto" GrpcServices="Client"/>
     </ItemGroup>
 
+    <ItemGroup>
+        <Folder Include="Commands\"/>
+    </ItemGroup>
+
 </Project>

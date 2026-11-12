@@ -8,10 +8,10 @@ namespace Vertex.Core.Net.Responses
     public sealed class InfoResponse
     {
         public string? Address { get; set; }
-        public int CpuUsage { get; set; }
+        public string? BuildDate { get; set; }
         public DateTime Date { get; set; }
         public double ProcessMs { get; set; }
-        public double RamUsage { get; set; }
+        public DateTime StartTime { get; set; }
         public TimeSpan Uptime { get; set; }
         public string? Version { get; set; }
     }

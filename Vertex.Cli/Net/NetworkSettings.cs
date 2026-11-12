@@ -9,7 +9,7 @@ namespace Vertex.Cli.Net
     {
         [CommandOption("--server|-s")]
         [Description("The server address to use.")]
-        public string? ServerAddress { get; set; } = "http://127.0.0.1:5000";
+        public string ServerAddress { get; set; } = "http://127.0.0.1:5000";
 
         [CommandOption("--verbose|-v")]
         [Description("Displays verbose output.")]
