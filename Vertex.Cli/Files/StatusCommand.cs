@@ -27,10 +27,10 @@ namespace Vertex.Cli.Files
                 string path = Markup.Escape(change.Path);
                 AnsiConsole.MarkupLine(change.Type switch
                 {
-                    ChangeType.Created => $"[green]  added     {path}[/]",
-                    ChangeType.Modified => $"[yellow]  modified  {path}[/]",
-                    ChangeType.Deleted => $"[red]  deleted   {path}[/]",
-                    ChangeType.Renamed => $"[cyan]  renamed     {Markup.Escape(change.PreviousPath!)} -> {path}[/]",
+                    ChangeType.Created => $"[green]  Added     {path}[/]",
+                    ChangeType.Modified => $"[yellow]  Modified  {path}[/]",
+                    ChangeType.Deleted => $"[red]  Deleted   {path}[/]",
+                    ChangeType.Renamed => $"[cyan]  Renamed     {Markup.Escape(change.PreviousPath!)} -> {path}[/]",
                     _ => throw new ArgumentOutOfRangeException(nameof(change.Type), change.Type, null)
                 });
             }

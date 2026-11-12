@@ -84,8 +84,8 @@ namespace Vertex.Cli.Workspaces
 
             AnsiConsole.MarkupLine($"Linked [purple]{Markup.Escape(workspace.Root)}[/] to [purple]{Markup.Escape(project.Name)}/{Markup.Escape(branch.Name)}[/].");
 
-            // TODO: download the branch's files once the server tracks changesets.
-            AnsiConsole.MarkupLine("[grey]Files aren't downloaded yet; that needs changesets on the server.[/]");
+            // TODO: download the branch's files once the server tracks revisions.
+            AnsiConsole.MarkupLine("[grey]Files aren't downloaded yet; that needs revisions on the server.[/]");
             return 0;
         }
     }

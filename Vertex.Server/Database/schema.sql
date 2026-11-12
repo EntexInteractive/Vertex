@@ -1,8 +1,41 @@
-﻿CREATE SCHEMA branches;
-CREATE TABLE branches.branches
+﻿-- Vertex database schema. Safe to run more than once: everything is created only if missing.
+-- Tables are created in dependency order (branches reference projects).
+
+CREATE SCHEMA IF NOT EXISTS projects;
+CREATE TABLE IF NOT EXISTS projects.projects
+(
+    id
+    UUID
+    PRIMARY
+    KEY,
+    created_at
+    BIGINT
+    NOT
+    NULL,
+    name
+    VARCHAR
+(
+    255
+) NOT NULL,
+    permission INTEGER NOT NULL DEFAULT 0,
+    owner_id UUID NOT NULL,
+    CONSTRAINT uq_projects_name UNIQUE
+(
+    name
+)
+    );
+
+CREATE INDEX IF NOT EXISTS idx_projects_owner_id ON projects.projects (owner_id);
+
+
+CREATE SCHEMA IF NOT EXISTS branches;
+CREATE TABLE IF NOT EXISTS branches.branches
 (
     id         UUID PRIMARY KEY,
-    created_at BIGINT NOT NULL,
+    created_at
+    BIGINT
+    NOT
+    NULL,
     name       VARCHAR(255) NOT NULL,
     project_id UUID         NOT NULL,
     owner_id   UUID         NOT NULL,
@@ -15,27 +48,12 @@ CREATE TABLE branches.branches
     CONSTRAINT chk_branches_not_self_parent CHECK (parent_id IS NULL OR parent_id <> id)
 );
 
-CREATE INDEX idx_branches_owner_id ON branches.branches (owner_id);
-CREATE INDEX idx_branches_parent_id ON branches.branches (parent_id);
+CREATE INDEX IF NOT EXISTS idx_branches_owner_id ON branches.branches (owner_id);
+CREATE INDEX IF NOT EXISTS idx_branches_parent_id ON branches.branches (parent_id);
 
 
-CREATE SCHEMA projects;
-CREATE TABLE projects.projects
-(
-    id         UUID PRIMARY KEY,
-    created_at BIGINT NOT NULL,
-    name       VARCHAR(255) NOT NULL,
-    permission INTEGER      NOT NULL DEFAULT 0,
-    owner_id   UUID         NOT NULL,
-
-    CONSTRAINT uq_projects_name UNIQUE (name)
-);
-
-CREATE INDEX idx_projects_owner_id ON projects.projects (owner_id);
-
-
-CREATE SCHEMA diagnostics;
-CREATE TABLE diagnostics.reports
+CREATE SCHEMA IF NOT EXISTS diagnostics;
+CREATE TABLE IF NOT EXISTS diagnostics.reports
 (
     id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -53,6 +71,6 @@ CREATE TABLE diagnostics.reports
     CONSTRAINT chk_request_logs_length CHECK (length >= 0)
 );
 
-CREATE INDEX idx_request_logs_received_at ON diagnostics.reports (received_at DESC);
-CREATE INDEX idx_request_logs_uuid_received_at ON diagnostics.reports (uuid, received_at DESC);
-CREATE INDEX idx_request_logs_endpoint ON diagnostics.reports (endpoint);
+CREATE INDEX IF NOT EXISTS idx_request_logs_received_at ON diagnostics.reports (received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_request_logs_uuid_received_at ON diagnostics.reports (uuid, received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_request_logs_endpoint ON diagnostics.reports (endpoint);

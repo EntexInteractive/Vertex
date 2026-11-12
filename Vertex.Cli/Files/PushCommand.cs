@@ -13,7 +13,7 @@ namespace Vertex.Cli.Files
     /// </summary>
     /// <remarks>
     /// The server only stores content for now. Deletions and moves are recorded in the local index but not sent
-    /// anywhere until the server tracks changesets.
+    /// anywhere until the server tracks revisions.
     /// </remarks>
     public sealed class PushCommand : AsyncCommand<FilesSettings>
     {

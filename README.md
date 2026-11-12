@@ -14,16 +14,18 @@ You install the Vertex Agent on your computers and connect them to your Vertex a
 The server is configured entirely through environment variables. It checks them at startup and exits with a list of
 every missing or invalid setting.
 
-| Variable                     | Required | Default                    | Description                                                                                              |
-|------------------------------|----------|----------------------------|----------------------------------------------------------------------------------------------------------|
-| `VERTEX_HTTP_PORT`           | No       | `5000`                     | Port the server listens on (HTTP/2 without TLS; terminate TLS at your ingress or proxy).                 |
-| `VERTEX_POSTGRES_CONNECTION` | **Yes**  | —                          | Npgsql connection string, e.g. `Host=postgres;Port=5432;Database=vertex;Username=...;Password=...`.      |
-| `VERTEX_REDIS_CONNECTION`    | No       | `redis:6379`               | StackExchange.Redis connection string. The server runs with a memory-only cache if Redis is unreachable. |
-| `VERTEX_S3_ENDPOINT`         | No       | `https://s3.amazonaws.com` | S3 or S3-compatible endpoint URL (e.g. MinIO). Path-style addressing is used.                            |
-| `VERTEX_S3_REGION`           | No       | `us-east-1`                | S3 region.                                                                                               |
-| `VERTEX_S3_BUCKET`           | No       | `vertex-storage`           | Bucket for file chunks and manifests.                                                                    |
-| `VERTEX_S3_ACCESS_KEY`       | No       | —                          | Static S3 access key. Set together with `VERTEX_S3_SECRET_KEY`, or leave both unset.                     |
-| `VERTEX_S3_SECRET_KEY`       | No       | —                          | Static S3 secret key.                                                                                    |
+| Variable                 | Required | Default                    | Description                                                                                              |
+|--------------------------|----------|----------------------------|----------------------------------------------------------------------------------------------------------|
+| `VX_HTTP_PORT`           | No       | `5000`                     | Port the server listens on. Clear-text HTTP/2 only, unless TLS is configured below.                      |
+| `VX_POSTGRES_CONNECTION` | **Yes**  | —                          | Npgsql connection string, e.g. `Host=postgres;Port=5432;Database=vertex;Username=...;Password=...`.      |
+| `VX_REDIS_CONNECTION`    | No       | `redis:6379`               | StackExchange.Redis connection string. The server runs with a memory-only cache if Redis is unreachable. |
+| `VX_S3_ENDPOINT`         | No       | `https://s3.amazonaws.com` | S3 or S3-compatible endpoint URL (e.g. MinIO, RustFS). Path-style addressing is used.                    |
+| `VX_S3_REGION`           | No       | `us-east-1`                | S3 region.                                                                                               |
+| `VX_S3_BUCKET`           | No       | `vertex-storage`           | Bucket for file chunks and manifests.                                                                    |
+| `VX_S3_ACCESS_KEY`       | No       | —                          | Static S3 access key. Set together with `VX_S3_SECRET_KEY`, or leave both unset.                         |
+| `VX_S3_SECRET_KEY`       | No       | —                          | Static S3 secret key.                                                                                    |
+| `VX_TLS_CERT`            | No       | —                          | PEM certificate file. With `VX_TLS_KEY`, enables TLS and serves both HTTP/1.1 and HTTP/2 on the port.    |
+| `VX_TLS_KEY`             | No       | —                          | PEM private key file for `VX_TLS_CERT`.                                                                  |
 
 When the S3 keys are unset, the AWS SDK default credential chain is used (`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`,
 EKS IRSA or pod identity, instance profile). In Kubernetes, prefer workload identity, or load the keys from a Secret.

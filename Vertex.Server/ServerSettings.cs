@@ -21,9 +21,23 @@ namespace Vertex.Server
         public const string S3BucketVariable = "VX_S3_BUCKET";
         public const string S3AccessKeyVariable = "VX_S3_ACCESS_KEY";
         public const string S3SecretKeyVariable = "VX_S3_SECRET_KEY";
+        public const string TlsCertificateVariable = "VX_TLS_CERT";
+        public const string TlsKeyVariable = "VX_TLS_KEY";
 
-        /// <summary>Port Kestrel listens on (clear-text HTTP/2). Default 5000.</summary>
+        /// <summary>Port Kestrel listens on. Default 5000.</summary>
         public required int HttpPort { get; init; }
+
+        /// <summary>
+        /// PEM certificate and private key files. When set, the port uses TLS and serves both HTTP/1.1 and HTTP/2
+        /// (negotiated with ALPN), which proxies such as Cloudflare need. When unset, the port serves clear-text
+        /// HTTP/2 only, for local development and traffic inside a cluster.
+        /// </summary>
+        public string? TlsCertificatePath { get; init; }
+
+        /// <inheritdoc cref="TlsCertificatePath"/>
+        public string? TlsKeyPath { get; init; }
+
+        public bool UseTls => TlsCertificatePath is not null;
 
         /// <summary>Npgsql connection string. Required.</summary>
         public required string PostgresConnectionString { get; init; }
@@ -58,12 +72,25 @@ namespace Vertex.Server
             if (accessKey is null != secretKey is null)
                 errors.Add($"{S3AccessKeyVariable} and {S3SecretKeyVariable} must either both be set or both be unset.");
 
+            string? tlsCertificate = Read(TlsCertificateVariable);
+            string? tlsKey = Read(TlsKeyVariable);
+            if (tlsCertificate is null != tlsKey is null)
+                errors.Add($"{TlsCertificateVariable} and {TlsKeyVariable} must either both be set or both be unset.");
+
+            if (tlsCertificate is not null && !File.Exists(tlsCertificate))
+                errors.Add($"{TlsCertificateVariable} points to '{tlsCertificate}', which does not exist.");
+
+            if (tlsKey is not null && !File.Exists(tlsKey))
+                errors.Add($"{TlsKeyVariable} points to '{tlsKey}', which does not exist.");
+
             if (errors.Count > 0)
                 throw new InvalidOperationException("Invalid server configuration:" + Environment.NewLine + string.Join(Environment.NewLine, errors.Select(e => "  - " + e)));
 
             return new ServerSettings
             {
                 HttpPort = port,
+                TlsCertificatePath = tlsCertificate,
+                TlsKeyPath = tlsKey,
                 PostgresConnectionString = postgres!,
                 RedisConnectionString = Read(RedisVariable) ?? "redis:6379",
                 Storage = new StorageSettings

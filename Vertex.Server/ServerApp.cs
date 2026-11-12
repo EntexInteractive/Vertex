@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Security.Cryptography.X509Certificates;
 using Amazon;
 using Amazon.Runtime;
 using Amazon.S3;
@@ -72,10 +73,19 @@ namespace Vertex.Server
 
                 options.ListenAnyIP(settings.HttpPort, listenOptions =>
                 {
-                    // ALPN selects HTTP/1.1 for regular HTTP requests and HTTP/2 for gRPC.
-                    // TLS is required because both protocols cannot be negotiated over one
-                    // clear-text endpoint.
-                    listenOptions.Protocols = HttpProtocols.Http2;
+                    if (settings.UseTls)
+                    {
+                        // With TLS, ALPN picks HTTP/1.1 or HTTP/2 per connection, so proxies that reach the origin
+                        // over HTTP/1.1 (Cloudflare's default) work alongside gRPC over HTTP/2.
+                        listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
+                        listenOptions.UseHttps(LoadCertificate(settings.TlsCertificatePath!, settings.TlsKeyPath!));
+                    }
+                    else
+                    {
+                        // Without TLS there is no way to negotiate, and Kestrel answers HTTP/2 requests with
+                        // HTTP_1_1_REQUIRED if HTTP/1.1 is also enabled. gRPC needs HTTP/2, so serve only that.
+                        listenOptions.Protocols = HttpProtocols.Http2;
+                    }
                 });
             });
 
@@ -188,6 +198,17 @@ namespace Vertex.Server
             app.UseAuthorization();
             app.MapControllers();
             await app.RunAsync();
+        }
+
+        /// <summary>
+        /// Loads a PEM certificate and key, e.g. a Cloudflare Origin CA certificate.
+        /// </summary>
+        private static X509Certificate2 LoadCertificate(string certificatePath, string keyPath)
+        {
+            // A key loaded from PEM is ephemeral, which Windows' TLS stack can't use; round-tripping through PKCS#12
+            // gives it a persisted key. Harmless on Linux.
+            using X509Certificate2 pem = X509Certificate2.CreateFromPemFile(certificatePath, keyPath);
+            return X509CertificateLoader.LoadPkcs12(pem.Export(X509ContentType.Pkcs12), null);
         }
     }
 }
