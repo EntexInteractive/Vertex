@@ -30,7 +30,7 @@ namespace Vertex.Cli.Files
                     ChangeType.Created => $"[green]  added     {path}[/]",
                     ChangeType.Modified => $"[yellow]  modified  {path}[/]",
                     ChangeType.Deleted => $"[red]  deleted   {path}[/]",
-                    ChangeType.Moved => $"[cyan]  moved     {Markup.Escape(change.PreviousPath!)} -> {path}[/]",
+                    ChangeType.Renamed => $"[cyan]  renamed     {Markup.Escape(change.PreviousPath!)} -> {path}[/]",
                     _ => throw new ArgumentOutOfRangeException(nameof(change.Type), change.Type, null)
                 });
             }
@@ -49,7 +49,7 @@ namespace Vertex.Cli.Files
             AnsiConsole.WriteLine();
 
             AnsiConsole.MarkupLine($"[grey]Scanned {status.FilesScanned:N0} files, hashed {status.FilesHashed:N0} ({status.BytesHashed / (1024.0 * 1024):N1} MB) in {sw.Elapsed.TotalSeconds:N2}s.[/]");
-            AnsiConsole.MarkupLine($"[grey]{Count(ChangeType.Created):N0} added, {Count(ChangeType.Modified):N0} modified, {Count(ChangeType.Deleted):N0} deleted, {Count(ChangeType.Moved):N0} moved.[/]");
+            AnsiConsole.MarkupLine($"[grey]{Count(ChangeType.Created):N0} added, {Count(ChangeType.Modified):N0} modified, {Count(ChangeType.Deleted):N0} deleted, {Count(ChangeType.Renamed):N0} renamed.[/]");
             return 0;
         }
     }

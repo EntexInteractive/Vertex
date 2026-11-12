@@ -1,6 +1,8 @@
 ﻿// Copyright 2026 Entex Interactive
 
 using System.Data;
+using Dapper;
+using Npgsql;
 using Vertex.Core.Data;
 using Vertex.Server.Database;
 
@@ -17,11 +19,39 @@ namespace Vertex.Server.Projects
             _dapper = dapper;
         }
 
-        public async Task<bool> AddProjectAsync(VProject project, CancellationToken cancellationToken)
+        /// <summary>
+        /// Creates a project and its default branch in one transaction, so a project never exists without a branch.
+        /// </summary>
+        /// <returns>False when a project with the same name already exists; nothing is created.</returns>
+        public async Task<bool> CreateProjectAsync(VProject project, VBranch defaultBranch, CancellationToken cancellationToken)
         {
-            Func<IDbConnection> conn = () => _database.CreateConnection();
-            const string sql = "INSERT INTO projects.projects (id, created_at, name, permission, owner_id) VALUES(@Id, @CreatedAt, @Name, @Permission, @OwnerId);";
-            return await _dapper.ExecuteAsync(conn, sql, new { project.Id, CreatedAt = project.CreatedAt.TotalMilliseconds, project.Name, project.Permission, project.OwnerId });
+            await using NpgsqlConnection connection = (NpgsqlConnection)_database.CreateConnection();
+            await connection.OpenAsync(cancellationToken);
+            await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+            try
+            {
+                const string projectSql = "INSERT INTO projects.projects (id, created_at, name, permission, owner_id) " +
+                                          "VALUES (@Id, @CreatedAt, @Name, @Permission, @OwnerId);";
+
+                await connection.ExecuteAsync(new CommandDefinition(projectSql,
+                    new { project.Id, CreatedAt = (long)project.CreatedAt.TotalMilliseconds, project.Name, project.Permission, project.OwnerId },
+                    transaction, cancellationToken: cancellationToken));
+
+                const string branchSql = "INSERT INTO branches.branches (id, created_at, name, project_id, owner_id, parent_id) " +
+                                         "VALUES (@Id, @CreatedAt, @Name, @ProjectId, @OwnerId, NULL);";
+
+                await connection.ExecuteAsync(new CommandDefinition(branchSql,
+                    new { defaultBranch.Id, CreatedAt = (long)defaultBranch.CreatedAt.TotalMilliseconds, defaultBranch.Name, defaultBranch.ProjectId, defaultBranch.OwnerId },
+                    transaction, cancellationToken: cancellationToken));
+
+                await transaction.CommitAsync(cancellationToken);
+                return true;
+            }
+            catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
+            {
+                return false;
+            }
         }
 
         public async Task<IReadOnlyList<VProject>> ListProjectsAsync(CancellationToken cancellationToken)

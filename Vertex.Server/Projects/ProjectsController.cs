@@ -2,6 +2,7 @@
 
 using Microsoft.AspNetCore.Mvc;
 using Vertex.Core.Data;
+using Vertex.Core.Net.Responses;
 
 namespace Vertex.Server.Projects
 {
@@ -16,19 +17,27 @@ namespace Vertex.Server.Projects
         }
 
         /// <summary>
-        /// Creates a new project with the specified name and returns the created project with a 201 Created response.
+        /// Creates a project together with its default branch.
         /// </summary>
         /// <param name="name">The name of the project to create.</param>
+        /// <param name="defaultBranch">The default branch's name. Defaults to <c>main</c>.</param>
         /// <param name="cancellationToken">A token that can be used to cancel the operation.</param>
-        /// <return>A task that represents the asynchronous operation. The task result contains the created project wrapped in an <see cref="ActionResult{TValue}"/>.</return>
+        /// <return>201 with the project and branch, 400 for a missing name, or 409 when the name is taken.</return>
         [HttpPost]
         [ProducesResponseType(StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public async Task<ActionResult<VProject>> CreateProjectAsync([FromQuery] string name, CancellationToken cancellationToken)
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        public async Task<ActionResult<CreateProjectResponse>> CreateProjectAsync([FromQuery] string name, [FromQuery] string? defaultBranch, CancellationToken cancellationToken)
         {
-            VProject project = new VProject(name, Guid.NewGuid());
-            if (!await _projects.AddProjectAsync(project, cancellationToken)) return BadRequest();
-            return StatusCode(StatusCodes.Status201Created, project);
+            if (string.IsNullOrWhiteSpace(name)) return BadRequest("A project name is required.");
+
+            // TODO: use the authenticated user once authentication exists.
+            Guid ownerId = Guid.NewGuid();
+            VProject project = new(name.Trim(), ownerId);
+            VBranch branch = new(string.IsNullOrWhiteSpace(defaultBranch) ? "main" : defaultBranch.Trim(), project.Id, ownerId);
+
+            if (!await _projects.CreateProjectAsync(project, branch, cancellationToken)) return Conflict($"A project named '{project.Name}' already exists.");
+            return StatusCode(StatusCodes.Status201Created, new CreateProjectResponse(project, branch));
         }
 
         /// <summary>

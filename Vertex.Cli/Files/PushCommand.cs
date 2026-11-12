@@ -61,7 +61,7 @@ namespace Vertex.Cli.Files
 
             foreach (WorkspaceChange change in status.Changes)
             {
-                if (change.Type == ChangeType.Moved)
+                if (change.Type == ChangeType.Renamed)
                 {
                     upserts.Add(status.Entries[change.Path] with { BaseId = change.FileId });
                     deletes.Add(change.PreviousPath!);
@@ -74,7 +74,7 @@ namespace Vertex.Cli.Files
 
             index.Apply(upserts, deletes);
 
-            int moved = status.Changes.Count(c => c.Type == ChangeType.Moved);
+            int moved = status.Changes.Count(c => c.Type == ChangeType.Renamed);
             int deleted = status.Changes.Count(c => c.Type == ChangeType.Deleted);
             Terminal.WriteLine($"{uploads.Length:N0} file(s) pushed, {moved:N0} moved, {deleted:N0} deleted.", ConsoleColor.Gray);
             if (result is not null)

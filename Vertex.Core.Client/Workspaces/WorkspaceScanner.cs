@@ -212,9 +212,13 @@ namespace Vertex.Core.Client.Workspaces
             foreach (WorkspaceChange change in created.OrderBy(c => c.Path, StringComparer.Ordinal))
             {
                 if (deletedByContent.TryGetValue(change.FileId, out Queue<WorkspaceChange>? queue) && queue.TryDequeue(out WorkspaceChange? source))
-                    result.Add(change with { Type = ChangeType.Moved, PreviousPath = source.Path });
+                {
+                    result.Add(change with { Type = ChangeType.Renamed, PreviousPath = source.Path });
+                }
                 else
+                {
                     result.Add(change);
+                }
             }
 
             result.AddRange(deletedByContent.Values.SelectMany(q => q));

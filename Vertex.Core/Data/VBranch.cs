@@ -4,6 +4,9 @@ using EntexInteractive.Extensions;
 
 namespace Vertex.Core.Data
 {
+    /// <summary>
+    /// Represents a version control branch.
+    /// </summary>
     public class VBranch
     {
         /// <summary>
@@ -38,6 +41,17 @@ namespace Vertex.Core.Data
 
         public VBranch(string name, Guid projectId, Guid ownerId, Guid? parentId = null)
         {
+            Name = name;
+            ProjectId = projectId;
+            OwnerId = ownerId;
+            ParentId = parentId;
+        }
+
+        [JsonConstructor]
+        public VBranch(Guid id, long createdAt, string name, Guid projectId, Guid ownerId, Guid? parentId)
+        {
+            Id = id;
+            CreatedAt = UnixTime.FromMilliseconds(createdAt);
             Name = name;
             ProjectId = projectId;
             OwnerId = ownerId;

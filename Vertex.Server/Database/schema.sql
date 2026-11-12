@@ -2,7 +2,7 @@
 CREATE TABLE branches.branches
 (
     id         UUID PRIMARY KEY,
-    created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    created_at BIGINT NOT NULL,
     name       VARCHAR(255) NOT NULL,
     project_id UUID         NOT NULL,
     owner_id   UUID         NOT NULL,
@@ -23,7 +23,7 @@ CREATE SCHEMA projects;
 CREATE TABLE projects.projects
 (
     id         UUID PRIMARY KEY,
-    created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    created_at BIGINT NOT NULL,
     name       VARCHAR(255) NOT NULL,
     permission INTEGER      NOT NULL DEFAULT 0,
     owner_id   UUID         NOT NULL,

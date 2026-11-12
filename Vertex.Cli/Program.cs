@@ -47,7 +47,7 @@ namespace Vertex.Cli
                 if (args.Length > 0) return await app.RunAsync(args);
 
                 // Run as if full application.
-                AnsiConsole.Write(new FigletText("Vertex").Color(Color.Violet));
+                AnsiConsole.Write(new FigletText("Vertex").Color(Color.Purple));
                 AnsiConsole.MarkupLine("[grey]Run '--help' to see available commands.[/]");
                 AnsiConsole.WriteLine();
 

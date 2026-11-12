@@ -18,7 +18,8 @@ namespace Vertex.Cli
             config.AddCommand<ClearCommand>("clear").WithDescription("Clears the console window.");
             config.AddCommand<ClearCommand>("cls").WithDescription("Clears the console window.");
 
-            config.AddCommand<InitCommand>("init").WithDescription("Creates a Vertex workspace in the current folder.");
+            config.AddCommand<InitCommand>("init").WithDescription("Creates a project on the server and makes this folder its workspace.");
+            config.AddCommand<FetchCommand>("fetch").WithDescription("Links a folder to an existing project.");
 
             config.AddCommand<InfoCommand>("info").WithDescription("Displays server information.");
             config.AddCommand<PushCommand>("push");
@@ -36,11 +37,11 @@ namespace Vertex.Cli
                 branch.AddCommand<CreateProjectCommand>("create").WithDescription("Creates a new project.");
             });
 
-            config.AddBranch("branch", branch =>
-            {
-                branch.AddCommand<CreateBranchCommand>("create").WithDescription("Creates a new branch.");
-                branch.AddCommand<DeleteBranchCommand>("delete").WithDescription("Deletes an existing branch.");
-            });
+            config.AddCommand<BranchCommand>("branch").WithDescription("Shows, lists, creates or deletes branches.")
+                .WithExample("branch")
+                .WithExample("branch", "list")
+                .WithExample("branch", "feature-x")
+                .WithExample("branch", "-d", "feature-x");
         }
     }
 }

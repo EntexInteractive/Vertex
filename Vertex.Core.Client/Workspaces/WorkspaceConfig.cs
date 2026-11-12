@@ -9,7 +9,9 @@ namespace Vertex.Core.Client.Workspaces
     {
         public string? Address { get; init; }
         public string? Project { get; init; }
+        public Guid? ProjectId { get; init; }
         public string? Branch { get; init; }
+        public Guid? BranchId { get; init; }
         public string? User { get; init; }
 
         /// <summary>
@@ -44,7 +46,9 @@ namespace Vertex.Core.Client.Workspaces
             {
                 Address = Get(values, "Address"),
                 Project = Get(values, "Project"),
+                ProjectId = Guid.TryParse(Get(values, "ProjectId"), out Guid projectId) ? projectId : null,
                 Branch = Get(values, "Branch"),
+                BranchId = Guid.TryParse(Get(values, "BranchId"), out Guid branchId) ? branchId : null,
                 User = Get(values, "User")
             };
         }
@@ -57,7 +61,9 @@ namespace Vertex.Core.Client.Workspaces
             List<string> lines = ["# Vertex workspace configuration"];
             if (Address is not null) lines.Add($"Address={Address}");
             if (Project is not null) lines.Add($"Project={Project}");
+            if (ProjectId is not null) lines.Add($"ProjectId={ProjectId}");
             if (Branch is not null) lines.Add($"Branch={Branch}");
+            if (BranchId is not null) lines.Add($"BranchId={BranchId}");
             if (User is not null) lines.Add($"User={User}");
             File.WriteAllLines(path, lines);
         }

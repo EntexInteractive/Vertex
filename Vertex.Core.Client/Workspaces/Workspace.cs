@@ -66,7 +66,7 @@ namespace Vertex.Core.Client.Workspaces
         {
             root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
             Workspace? existing = Find(root);
-            if (existing is not null) throw new InvalidOperationException($"'{root}' is already a Vertex workspace.");
+            if (existing is not null) throw new InvalidOperationException($"'{existing.Root}' is already a Vertex workspace.");
 
             DirectoryInfo metadata = Directory.CreateDirectory(Path.Combine(root, MetadataDirectoryName));
             if (OperatingSystem.IsWindows()) metadata.Attributes |= FileAttributes.Hidden;
