@@ -1,11 +1,14 @@
 // Copyright 2026 Entex Interactive
 
+using System.ComponentModel;
 using Vertex.Cli.Net;
 
-namespace Vertex.Cli.Projects;
-
-public class ProjectSettings : NetworkSettings
+namespace Vertex.Cli.Projects
 {
-    [Spectre.Console.Cli.CommandOption("--project|-p")]
-    public string? Project { get; set; }
+    public class ProjectSettings : NetworkSettings
+    {
+        [CommandOption("--project|-p")]
+        [Description("The name of the project to use.")]
+        public string? Project { get; set; }
+    }
 }

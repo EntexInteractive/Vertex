@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Security.Cryptography.X509Certificates;
 using Amazon;
 using Amazon.Runtime;
 using Amazon.S3;
@@ -10,6 +11,7 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.OpenApi.Models;
 using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Serialization;
+using Vertex.Core.Net;
 using Vertex.Server.Branches;
 using Vertex.Server.Database;
 using Vertex.Server.Diagnostics;
@@ -33,9 +35,9 @@ namespace Vertex.Server
         public static async Task Main(string[] args)
         {
             CommandLineArguments arguments = new(args);
-            
-            
-            ServerSettings settings = ServerSettingsManager.Load();
+
+
+            ServerSettings settings = ServerSettings.FromEnvironment();
             AssemblyName assembly = Assembly.GetExecutingAssembly().GetName();
 
             WebApplicationBuilder builder = WebApplication.CreateBuilder(new WebApplicationOptions
@@ -47,12 +49,6 @@ namespace Vertex.Server
             builder.Host.UseSerilog((context, services, configuration) => configuration.ReadFrom.Configuration(context.Configuration));
             Log.Information($"{assembly.Name} [Version {assembly.Version}]");
             
-            if (string.IsNullOrWhiteSpace(settings.Storage.Bucket))
-                throw new InvalidOperationException("storage.bucket must be set in server.yml.");
-
-            if (string.IsNullOrWhiteSpace(settings.Storage.AccessKey) != string.IsNullOrWhiteSpace(settings.Storage.SecretKey))
-                throw new InvalidDataException("storage.accessKey and storage.secretKey must either both be set or both be empty.");
-
             string region = settings.Storage.Region;
             string serviceUrl = settings.Storage.Endpoint;
             builder.Services.AddSingleton<IAmazonS3>(_ =>
@@ -61,21 +57,35 @@ namespace Vertex.Server
                 s3Config.ServiceURL = serviceUrl;
                 s3Config.ForcePathStyle = true;
 
-                AWSCredentials? credentials = string.IsNullOrWhiteSpace(settings.Storage.AccessKey) ? null : new BasicAWSCredentials(settings.Storage.AccessKey, settings.Storage.SecretKey);
+                AWSCredentials? credentials = settings.Storage.AccessKey is null ? null : new BasicAWSCredentials(settings.Storage.AccessKey, settings.Storage.SecretKey);
                 return credentials is null ? new AmazonS3Client(s3Config) : new AmazonS3Client(credentials, s3Config);
             });
 
             builder.Services.AddSingleton(settings);
-            builder.Services.AddSingleton<IFileStorage, S3FileStorage>();
+            builder.Services.AddSingleton<IContentStore, S3ContentStore>();
+            builder.Services.AddSingleton<TransferBudget>();
             builder.WebHost.ConfigureKestrel(options =>
             {
-                int httpPort = Convert.ToInt32(Environment.GetEnvironmentVariable("Http_Port") ?? "5000");
-                options.ListenAnyIP(httpPort, listenOptions =>
+                // Larger HTTP/2 flow-control windows let a single upload stream fill high-latency links;
+                // per-stream throughput is bounded by window size / round-trip time.
+                options.Limits.Http2.InitialStreamWindowSize = FileTransferLimits.StreamWindowSize;
+                options.Limits.Http2.InitialConnectionWindowSize = FileTransferLimits.ConnectionWindowSize;
+
+                options.ListenAnyIP(settings.HttpPort, listenOptions =>
                 {
-                    // ALPN selects HTTP/1.1 for regular HTTP requests and HTTP/2 for gRPC.
-                    // TLS is required because both protocols cannot be negotiated over one
-                    // clear-text endpoint.
-                    listenOptions.Protocols = HttpProtocols.Http2;
+                    if (settings.UseTls)
+                    {
+                        // With TLS, ALPN picks HTTP/1.1 or HTTP/2 per connection, so proxies that reach the origin
+                        // over HTTP/1.1 (Cloudflare's default) work alongside gRPC over HTTP/2.
+                        listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
+                        listenOptions.UseHttps(LoadCertificate(settings.TlsCertificatePath!, settings.TlsKeyPath!));
+                    }
+                    else
+                    {
+                        // Without TLS there is no way to negotiate, and Kestrel answers HTTP/2 requests with
+                        // HTTP_1_1_REQUIRED if HTTP/1.1 is also enabled. gRPC needs HTTP/2, so serve only that.
+                        listenOptions.Protocols = HttpProtocols.Http2;
+                    }
                 });
             });
 
@@ -93,7 +103,7 @@ namespace Vertex.Server
             builder.Services.AddHostedService<RedisSubscriber>();
             builder.Services.AddStackExchangeRedisCache(options =>
             {
-                options.Configuration = Environment.GetEnvironmentVariable("RedisConnectionString") ?? "redis:6379";
+                options.Configuration = settings.RedisConnectionString;
             });
 
             builder.Services.AddMemoryCache();
@@ -114,8 +124,8 @@ namespace Vertex.Server
             builder.Services.AddGrpc(options =>
             {
                 // Transfers are streamed in bounded messages; file size is not tied to a gRPC message limit.
-                options.MaxReceiveMessageSize = 1024 * 1024;
-                options.MaxSendMessageSize = 1024 * 1024;
+                options.MaxReceiveMessageSize = FileTransferLimits.MaximumMessageSize;
+                options.MaxSendMessageSize = FileTransferLimits.MaximumMessageSize;
             });
             
             builder.Services.AddGrpcReflection();
@@ -188,6 +198,17 @@ namespace Vertex.Server
             app.UseAuthorization();
             app.MapControllers();
             await app.RunAsync();
+        }
+
+        /// <summary>
+        /// Loads a PEM certificate and key, e.g. a Cloudflare Origin CA certificate.
+        /// </summary>
+        private static X509Certificate2 LoadCertificate(string certificatePath, string keyPath)
+        {
+            // A key loaded from PEM is ephemeral, which Windows' TLS stack can't use; round-tripping through PKCS#12
+            // gives it a persisted key. Harmless on Linux.
+            using X509Certificate2 pem = X509Certificate2.CreateFromPemFile(certificatePath, keyPath);
+            return X509CertificateLoader.LoadPkcs12(pem.Export(X509ContentType.Pkcs12), null);
         }
     }
 }

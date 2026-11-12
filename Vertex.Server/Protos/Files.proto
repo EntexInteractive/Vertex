@@ -2,38 +2,73 @@ syntax = "proto3";
 option csharp_namespace = "Vertex.Server";
 package files;
 
+// Content-addressed, chunk-deduplicated file storage.
+//
+// Files are split with content-defined chunking (FastCDC), so an edit only changes the chunks around it.
+// Each chunk is identified by the SHA-256 of its raw bytes and stored zstd-compressed. A file is a
+// manifest (ordered list of chunk refs) whose id is a hash over that list, so both chunk ids and file ids
+// can be recomputed and verified by the server and by clients.
+//
+// Push: FindMissingFiles -> FindMissingChunks -> UploadChunks -> SubmitFiles.
+// Pull: GetManifest -> DownloadChunks (only for chunks not already available locally).
 service Files {
-  rpc UploadAsync(stream UploadFileRequest) returns (UploadFileResponse);
-  rpc DownloadAsync(DownloadFileRequest) returns (stream DownloadFileResponse);
+  rpc FindMissingFiles(FindMissingFilesRequest) returns (FindMissingFilesResponse);
+  rpc FindMissingChunks(FindMissingChunksRequest) returns (FindMissingChunksResponse);
+  rpc UploadChunks(stream ChunkData) returns (UploadChunksResponse);
+  rpc SubmitFiles(SubmitFilesRequest) returns (SubmitFilesResponse);
+  rpc GetManifest(GetManifestRequest) returns (FileManifest);
+  rpc DownloadChunks(DownloadChunksRequest) returns (stream ChunkData);
 }
 
-message UploadFileRequest {
-  oneof data {
-    FileMetadata metadata = 1;
-    bytes chunk = 2;
-  }
+message ChunkRef {
+  bytes id = 1;    // SHA-256 of the raw chunk bytes.
+  int64 size = 2;  // Raw (uncompressed) length in bytes.
 }
 
-message FileMetadata {
-  string file_name = 1;
-  string content_type = 2;
-  int64 file_size = 3;
-  string file_id = 4;
+message FileManifest {
+  int64 size = 1;
+  repeated ChunkRef chunks = 2;
 }
 
-message UploadFileResponse {
+message ChunkData {
+  bytes id = 1;
+  int64 size = 2;  // Raw length; the server and clients verify it after decompressing.
+  bytes data = 3;  // zstd-compressed chunk bytes.
+}
+
+message FindMissingFilesRequest {
+  repeated string file_ids = 1;
+}
+
+message FindMissingFilesResponse {
+  repeated string file_ids = 1;
+}
+
+message FindMissingChunksRequest {
+  repeated bytes ids = 1;
+}
+
+message FindMissingChunksResponse {
+  repeated bytes ids = 1;
+}
+
+message UploadChunksResponse {
+  int32 chunks_stored = 1;
+  int64 bytes_received = 2;  // Compressed bytes received.
+}
+
+message SubmitFilesRequest {
+  repeated FileManifest manifests = 1;
+}
+
+message SubmitFilesResponse {
+  repeated string file_ids = 1;  // Server-computed id of each manifest, in request order.
+}
+
+message GetManifestRequest {
   string file_id = 1;
-  string file_name = 2;
-  int64 bytes_received = 3;
 }
 
-message DownloadFileRequest {
-  string file_id = 1;
-}
-
-message DownloadFileResponse {
-  oneof data {
-    FileMetadata metadata = 1;
-    bytes chunk = 2;
-  }
+message DownloadChunksRequest {
+  repeated bytes ids = 1;
 }

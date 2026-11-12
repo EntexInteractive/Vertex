@@ -6,9 +6,9 @@ permissions:
 
 on:
   push:
-    branches: [ main ]
+    branches: [ develop ]
   pull_request:
-    branches: [ main ]
+    branches: [ develop ]
 
 jobs:
   build:
@@ -32,13 +32,13 @@ jobs:
       - name: Set up .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 9.0.x
+          dotnet-version: 10.0.x
 
       - name: Restore dependencies
         run: dotnet restore
 
       - name: Build Release
-        run: dotnet build --configuration Release --no-restore
+        run: dotnet build --no-restore
 
   docker:
     name: Build Vertex Server
@@ -64,16 +64,16 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /tmp/.buildx-cache
-          key: vertex-server-${{ runner.os }}-${{ github.sha }}
+          key: ${{ runner.os }}-vertex-server
           restore-keys: |
-            vertex-server-${{ runner.os }}-
+            ${{ runner.os }}-vertex-server
 
       - name: Build and push Vertex Server
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Vertex.Server/Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/vertex-server:latest

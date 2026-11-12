@@ -1,9 +1,8 @@
 ﻿// Copyright 2026 Entex Interactive
 
-using System.Security.Cryptography;
 using EntexInteractive.Extensions;
 using Vertex.Core.IO;
-using ZstdSharp;
+using Vertex.Core.Storage;
 
 namespace Vertex.Core.Data
 {
@@ -20,9 +19,14 @@ namespace Vertex.Core.Data
         public string Name { get; set; }
 
         /// <summary>
-        /// The universal path of the file.
+        /// The relative path of the file.
         /// </summary>
-        public string Fullname { get; set; }
+        public string RelativePath { get; set; }
+
+        /// <summary>
+        /// The full path of the file.
+        /// </summary>
+        public string FullPath { get; set; }
 
         /// <summary>
         /// The time the file was last written to.
@@ -48,18 +52,29 @@ namespace Vertex.Core.Data
         /// The user that currently has the file locked. Null if unlocked.
         /// </summary>
         public Guid? LockedBy { get; set; }
+
+        /// <summary>
+        /// Content-addressed file id (see <see cref="ContentId"/>). Identical content always has the same id.
+        /// </summary>
         public string? CheckSum { get; set; }
+
+        /// <summary>
+        /// The file's chunk layout, populated by <see cref="TryChunkFile"/>. Local-only; not serialized.
+        /// </summary>
+        [JsonIgnore]
+        public ChunkedFile? Chunks { get; private set; }
         
         /// <summary>
         /// Initializes a new instance of the <see cref="LocalFile"/> class with default properties.
         /// </summary>
-        public VFile(string path, Guid branch)
+        public VFile(string rootPath, string fullPath, Guid branch)
         {
-            Name = Path.GetFileName(path);
-            Fullname = Path.GetFullPath(path);
-            if (!File.Exists(path)) return;
-            
-            FileInfo fi = new(path);
+            Name = Path.GetFileName(fullPath);
+            RelativePath = fullPath.ToRelativePath(rootPath);
+            FullPath = fullPath;
+
+            if (!File.Exists(FullPath)) return;
+            FileInfo fi = new(FullPath);
             PhysicalSize = fi.Length;
             LastWrite = new UnixTime(fi.LastWriteTimeUtc);
             Branch = branch;
@@ -71,28 +86,23 @@ namespace Vertex.Core.Data
         /// <return>
         /// <see langword="true"/> if a checksum already exists or is generated successfully; otherwise, <see langword="false"/> if the file does not exist or an error occurs during generation.
         /// </return>
-        public bool TryGenerateCheckSum()
+        public bool TryChunkFile()
         {
-            if (!string.IsNullOrEmpty(CheckSum)) return true;
+            if (Chunks is not null) return true;
 
             try
             {
-                if (!File.Exists(Fullname)) return false;
+                if (!File.Exists(FullPath)) return false;
 
-                using SHA256 sha256 = SHA256.Create();
-                using FileStream fs = File.OpenRead(Fullname);
-                using HashStream hs = new(Stream.Null, reportBytes => CompressedSize = reportBytes);
-                using (ZstdStream zstd = new(hs, ZstdStreamMode.Compress))
-                {
-                    fs.CopyTo(zstd);
-                }
-
-                CheckSum = hs.GetHashHexString();
-                return !string.IsNullOrEmpty(CheckSum);
+                // The checksum is the content-addressed file id: a hash over the file's content-defined chunks.
+                Chunks = ContentChunker.ChunkFile(FullPath);
+                PhysicalSize = Chunks.Size;
+                CheckSum = Chunks.FileId;
+                return true;
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "Error while generating checksum");
+                Log.Error(ex, "Error while generating chunks");
                 return false;
             }
         }

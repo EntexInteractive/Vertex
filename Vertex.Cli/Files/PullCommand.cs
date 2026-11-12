@@ -19,9 +19,10 @@ public sealed class PullCommand : AsyncCommand<PullSettings>
     {
         string fileId = settings.FileId ?? throw new ArgumentException("--file-id is required.");
         string destination = Path.GetFullPath(settings.Destination ?? fileId);
-        using FilesInterface client = new(settings.Server ?? "https://localhost:5000");
-        long bytesReceived = await client.DownloadAsync(fileId, destination, cancellationToken);
-        AnsiConsole.MarkupLine($"Downloaded {bytesReceived:N0} bytes to {Markup.Escape(destination)}");
+        using FilesInterface client = new(settings.ServerAddress);
+        DownloadResult result = await client.DownloadAsync(fileId, destination, cancellationToken);
+        AnsiConsole.MarkupLine($"Wrote {result.Size:N0} bytes to {Markup.Escape(destination)}: " +
+                               $"{result.CompressedBytesDownloaded:N0} downloaded, {result.BytesReused:N0} reused from the local copy.");
         return 0;
     }
 }

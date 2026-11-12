@@ -22,8 +22,23 @@ namespace Vertex.Core.Net.Interfaces
                 DefaultVersionPolicy = HttpVersionPolicy.RequestVersionExact,
                 DefaultRequestVersion = HttpVersion.Version20
             };
-            
-            GrpcChannel = GrpcChannel.ForAddress(url);
+
+            GrpcChannel = GrpcChannel.ForAddress(url, new GrpcChannelOptions
+            {
+                HttpHandler = new SocketsHttpHandler
+                {
+                    // Lets concurrent transfers open extra connections instead of sharing one connection's window.
+                    EnableMultipleHttp2Connections = true,
+                    // Start with a large window rather than waiting for dynamic window scaling to ramp up.
+                    InitialHttp2StreamWindowSize = FileTransferLimits.StreamWindowSize,
+                    PooledConnectionIdleTimeout = Timeout.InfiniteTimeSpan,
+                    KeepAlivePingDelay = TimeSpan.FromSeconds(60),
+                    KeepAlivePingTimeout = TimeSpan.FromSeconds(30),
+                    KeepAlivePingPolicy = HttpKeepAlivePingPolicy.WithActiveRequests
+                },
+                MaxSendMessageSize = FileTransferLimits.MaximumMessageSize,
+                MaxReceiveMessageSize = FileTransferLimits.MaximumMessageSize
+            });
         }
 
         protected virtual async Task<ServerResult<TResult>> SendAsync<TResult>(HttpMethod method, string endpoint, object? body = null, CancellationToken cancellationToken = default)

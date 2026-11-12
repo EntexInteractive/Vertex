@@ -9,7 +9,6 @@ namespace Vertex.Server.Database
     /// </summary>
     public class RedisSubscriber : IHostedService
     {
-        private const string CacheInvalidateChannel = "cache:invalidate";
         private readonly ILogger<RedisSubscriber> _logger;
         private readonly CacheContext _cache;
         private readonly HybridCache _hybrid;
@@ -30,8 +29,8 @@ namespace Vertex.Server.Database
         /// <inheritdoc />
         public async Task StartAsync(CancellationToken cancellationToken)
         {
-            _logger.LogInformation("Subscribed to channel: {Channel}", CacheInvalidateChannel);
-            await _cache.SubscribeAsync(CacheInvalidateChannel, (key) =>
+            _logger.LogInformation("Subscribed to channel: {Channel}", _cache.CacheInvalidateChannel);
+            await _cache.SubscribeAsync(_cache.CacheInvalidateChannel, (key) =>
             {
                 _hybrid.RemoveAsync(key, cancellationToken);
             });
@@ -40,7 +39,7 @@ namespace Vertex.Server.Database
         /// <inheritdoc />
         public Task StopAsync(CancellationToken cancellationToken)
         {
-            _logger.LogInformation("Unsubscribed from channel: {Channel}", CacheInvalidateChannel);
+            _logger.LogInformation("Unsubscribed from channel: {Channel}", _cache.CacheInvalidateChannel);
             return Task.CompletedTask;
         }
     }

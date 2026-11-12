@@ -31,10 +31,10 @@ namespace Vertex.Cli
             CommandApp app = new CommandApp();
             app.Configure(config =>
             {
-                config.SetApplicationName("Vertex CLI");
+                config.SetApplicationName("vx");
                 config.SetExceptionHandler((ex, resolver) =>
                 {
-                    AnsiConsole.MarkupLine($"[red]Command execution failed: {Markup.Escape(ex?.Message ?? "Unknown error")}[/]");
+                    AnsiConsole.MarkupLine($"[red]{Markup.Escape(ex?.Message ?? "Unknown error")}[/]");
                     Log.Error(ex, "Command execution failed");
                 });
 
@@ -47,7 +47,7 @@ namespace Vertex.Cli
                 if (args.Length > 0) return await app.RunAsync(args);
 
                 // Run as if full application.
-                AnsiConsole.Write(new FigletText("Vertex").Color(Color.Violet));
+                AnsiConsole.Write(new FigletText("Vertex").Color(Color.Purple));
                 AnsiConsole.MarkupLine("[grey]Run '--help' to see available commands.[/]");
                 AnsiConsole.WriteLine();
 

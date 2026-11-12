@@ -11,6 +11,8 @@ namespace Vertex.Server.Database
     /// </summary>
     public class CacheContext : IHealthCheck
     {
+        public string CacheInvalidateChannel = "cache:invalidate";
+        
         private readonly ILogger<CacheContext> _logger;
         private readonly IConnectionMultiplexer? _redis;
         private readonly HybridCache _cache;
@@ -18,15 +20,14 @@ namespace Vertex.Server.Database
         /// <summary>
         /// Initializes a new instance of the <see cref="CacheContext"/> class.
         /// </summary>
-        public CacheContext(ILogger<CacheContext> logger, HybridCache cache, IConfiguration configuration)
+        public CacheContext(ILogger<CacheContext> logger, HybridCache cache, ServerSettings settings)
         {
             _logger = logger;
             _cache = cache;
 
             try
             {
-                string config = Environment.GetEnvironmentVariable("RedisConnectionString") ?? "redis:6379";
-                _redis = ConnectionMultiplexer.Connect(config);
+                _redis = ConnectionMultiplexer.Connect(settings.RedisConnectionString);
 
                 _logger.LogInformation("Connected to redis at '{FirstOrDefault}'. Caching will be enabled.", _redis.GetEndPoints().FirstOrDefault());
             }
@@ -75,8 +76,8 @@ namespace Vertex.Server.Database
             _logger.LogDebug("Remove redis key: {CacheKey}", cacheKey);
 
             await (_redis?.GetDatabase().KeyDeleteAsync(new RedisKey(cacheKey)) ?? Task.CompletedTask);
+            await PublishAsync(CacheInvalidateChannel, cacheKey.ToLowerInvariant());
             await _cache.RemoveAsync(cacheKey);
-            await PublishAsync("cache:invalidate", cacheKey.ToLowerInvariant());
         }
 
         /// <inheritdoc />
@@ -100,7 +101,6 @@ namespace Vertex.Server.Database
         /// <param name="callback"></param>
         public Task SubscribeAsync(string channel, Action<string> callback)
         {
-            _logger.LogInformation("Subscribed to channel: '{Channel}'", channel);
             Task subscribeAsync = _redis?.GetSubscriber().SubscribeAsync(RedisChannel.Literal(channel), (_, value) =>
             {
                 if (!value.HasValue) return;

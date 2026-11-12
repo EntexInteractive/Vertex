@@ -1,106 +1,278 @@
 // Copyright 2026 Entex Interactive
 
+using System.Buffers;
 using Grpc.Core;
-using Vertex.Core.Net.Interfaces;
+using Vertex.Core.Net;
+using Vertex.Core.Storage;
 using Vertex.Server.Storage;
 
 namespace Vertex.Server.FileServices
 {
+    /// <summary>
+    /// gRPC endpoint for chunk-deduplicated file transfer. See Files.proto for the push/pull flow.
+    /// </summary>
     public class FileTransferService : Files.FilesBase
     {
-        private const int MaximumChunkSize = 256 * 1024;
-        private readonly ILogger<FileTransferService> _logger;
-        private readonly IFileStorage _storage;
+        /// <summary>Chunks one upload or download call may process at once (also bounded pod-wide).</summary>
+        private const int ChunksPerCall = 8;
 
-        public FileTransferService(ILogger<FileTransferService> logger, IFileStorage storage)
+        /// <summary>Concurrent S3 existence checks per request.</summary>
+        private const int LookupConcurrency = 32;
+
+        private readonly ILogger<FileTransferService> _logger;
+        private readonly IContentStore _store;
+        private readonly TransferBudget _budget;
+
+        public FileTransferService(ILogger<FileTransferService> logger, IContentStore store, TransferBudget budget)
         {
             _logger = logger;
-            _storage = storage;
+            _store = store;
+            _budget = budget;
         }
 
-        public override async Task<UploadFileResponse> UploadAsync(IAsyncStreamReader<UploadFileRequest> requestStream, ServerCallContext context)
+        public override async Task<FindMissingFilesResponse> FindMissingFiles(FindMissingFilesRequest request, ServerCallContext context)
         {
-            if (!await requestStream.MoveNext(context.CancellationToken))
-                throw new RpcException(new Status(StatusCode.InvalidArgument, "Upload did not contain file metadata."));
+            if (request.FileIds.Count > FileTransferLimits.MaximumIdsPerRequest) throw TooMany("file ids");
+            string[] ids = request.FileIds.Select(id => ContentId.IsValidFileId(id) ? id.ToLowerInvariant() : throw Invalid("Invalid file id.")).Distinct().ToArray();
 
-            UploadFileRequest first = requestStream.Current;
-            if (first.DataCase != UploadFileRequest.DataOneofCase.Metadata)
-                throw new RpcException(new Status(StatusCode.InvalidArgument, "File metadata must be the first upload message."));
+            bool[] exists = new bool[ids.Length];
+            await Parallel.ForAsync(0, ids.Length, Lookup(context), async (i, ct) => exists[i] = await _store.ManifestExistsAsync(ids[i], ct));
 
-            FileMetadata metadata = first.Metadata;
-            if (metadata.FileSize < 0 || string.IsNullOrWhiteSpace(metadata.FileName))
-                throw new RpcException(new Status(StatusCode.InvalidArgument, "A file name and nonnegative file size are required."));
+            FindMissingFilesResponse response = new();
+            response.FileIds.AddRange(ids.Where((_, i) => !exists[i]));
+            return response;
+        }
 
-            string fileId = first.Metadata.FileId;
-            if (!IsValidFileId(fileId)) throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid file id."));
-            string fileName = Path.GetFileName(metadata.FileName);
-            string contentType = string.IsNullOrWhiteSpace(metadata.ContentType) ? "application/octet-stream" : metadata.ContentType;
-            _logger.LogInformation("Receiving {FileName} ({FileSize} bytes) as {FileId}", fileName, metadata.FileSize, fileId);
+        public override async Task<FindMissingChunksResponse> FindMissingChunks(FindMissingChunksRequest request, ServerCallContext context)
+        {
+            if (request.Ids.Count > FileTransferLimits.MaximumIdsPerRequest) throw TooMany("chunk ids");
+            byte[][] ids = request.Ids.Select(ToChunkId).DistinctBy(id => ContentId.ToHex(id)).ToArray();
+
+            bool[] exists = new bool[ids.Length];
+            await Parallel.ForAsync(0, ids.Length, Lookup(context), async (i, ct) => exists[i] = await _store.GetChunkSizeAsync(ids[i], ct) is not null);
+
+            FindMissingChunksResponse response = new();
+            for (int i = 0; i < ids.Length; i++)
+                if (!exists[i])
+                    response.Ids.Add(Google.Protobuf.UnsafeByteOperations.UnsafeWrap(ids[i]));
+
+            return response;
+        }
+
+        public override async Task<UploadChunksResponse> UploadChunks(IAsyncStreamReader<ChunkData> requestStream, ServerCallContext context)
+        {
+            using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(context.CancellationToken);
+            using SemaphoreSlim callSlots = new(ChunksPerCall);
+            List<Task> inFlight = new();
+            int stored = 0;
+            long received = 0;
 
             try
             {
-                await _storage.WriteAsync(fileId, contentType, metadata.FileSize,
-                    ReadChunksAsync(requestStream, context.CancellationToken), context.CancellationToken);
-            }
-            catch (InvalidDataException exception)
-            {
-                throw new RpcException(new Status(StatusCode.DataLoss, exception.Message));
-            }
-
-            return new UploadFileResponse { FileId = fileId, FileName = fileName, BytesReceived = metadata.FileSize };
-        }
-
-        public override async Task DownloadAsync(DownloadFileRequest request, IServerStreamWriter<DownloadFileResponse> responseStream, ServerCallContext context)
-        {
-            if (!IsValidFileId(request.FileId)) throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid file id."));
-
-            StoredFile stored;
-            try
-            {
-                stored = await _storage.OpenReadAsync(request.FileId, context.CancellationToken);
-            }
-            catch (FileNotFoundException)
-            {
-                throw new RpcException(new Status(StatusCode.NotFound, "File not found."));
-            }
-
-            await using (stored)
-            {
-                await responseStream.WriteAsync(new DownloadFileResponse
+                while (true)
                 {
-                    Metadata = new FileMetadata { FileName = request.FileId, ContentType = "application/octet-stream", FileSize = stored.Length }
-                });
-
-                byte[] buffer = new byte[MaximumChunkSize];
-                int bytesRead;
-                while ((bytesRead = await stored.Content.ReadAsync(buffer, context.CancellationToken)) > 0)
-                {
-                    await responseStream.WriteAsync(new DownloadFileResponse
+                    // Take both slots before reading the next message: while the server is saturated it stops
+                    // reading, and HTTP/2 flow control slows the client instead of buffering in memory.
+                    await callSlots.WaitAsync(cts.Token);
+                    IDisposable? lease = null;
+                    bool handedOff = false;
+                    try
                     {
-                        Chunk = Google.Protobuf.ByteString.CopyFrom(buffer, 0, bytesRead)
-                    });
+                        lease = await _budget.AcquireAsync(cts.Token);
+                        if (!await requestStream.MoveNext(cts.Token)) break;
+
+                        ChunkData chunk = requestStream.Current;
+                        byte[] id = ToChunkId(chunk.Id);
+                        if (chunk.Size is < 1 or > ContentChunker.MaximumChunkSize) throw Invalid("Chunk size is out of range.");
+                        if (chunk.Data.IsEmpty || chunk.Data.Length > ChunkCodec.MaximumCompressedSize) throw Invalid("Chunk data is out of range.");
+                        ThrowIfAnyFailed(inFlight);
+
+                        received += chunk.Data.Length;
+                        inFlight.Add(StoreChunkAsync(id, chunk, lease, callSlots, () => Interlocked.Increment(ref stored), cts.Token));
+                        handedOff = true;
+                        inFlight.RemoveAll(t => t.IsCompletedSuccessfully);
+                    }
+                    finally
+                    {
+                        if (!handedOff)
+                        {
+                            lease?.Dispose();
+                            callSlots.Release();
+                        }
+                    }
                 }
+
+                await Task.WhenAll(inFlight);
             }
-        }
-
-        private static bool IsValidFileId(string fileId)
-        {
-            return (fileId.Length == 32 && Guid.TryParseExact(fileId, "N", out _)) ||
-                   (fileId.Length == 64 && fileId.All(Uri.IsHexDigit));
-        }
-
-        private static async IAsyncEnumerable<ReadOnlyMemory<byte>> ReadChunksAsync(
-            IAsyncStreamReader<UploadFileRequest> requestStream,
-            [System.Runtime.CompilerServices.EnumeratorCancellation]
-            CancellationToken cancellationToken)
-        {
-            while (await requestStream.MoveNext(cancellationToken))
+            catch
             {
-                UploadFileRequest request = requestStream.Current;
-                if (request.DataCase != UploadFileRequest.DataOneofCase.Chunk) throw new InvalidDataException("Upload may contain metadata only as its first message.");
-                if (request.Chunk.Length > MaximumChunkSize) throw new InvalidDataException("Upload chunk exceeds the server chunk limit.");
-                yield return request.Chunk.Memory;
+                // Stop and drain background work before the semaphores are disposed.
+                await cts.CancelAsync();
+                try
+                {
+                    await Task.WhenAll(inFlight);
+                }
+                catch
+                {
+                    /* Preserve the original error. */
+                }
+
+                throw;
             }
+
+            _logger.LogDebug("Stored {Chunks} chunks ({Bytes} compressed bytes)", stored, received);
+            return new UploadChunksResponse { ChunksStored = stored, BytesReceived = received };
+        }
+
+        public override async Task<SubmitFilesResponse> SubmitFiles(SubmitFilesRequest request, ServerCallContext context)
+        {
+            CancellationToken ct = context.CancellationToken;
+            if (request.Manifests.Sum(m => m.Chunks.Count) > FileTransferLimits.MaximumChunksPerCommit) throw TooMany("chunks");
+
+            // Validate every manifest and compute its id server-side; clients never assign ids.
+            string[] fileIds = new string[request.Manifests.Count];
+            Dictionary<string, (byte[] Id, long Size)> chunks = new(StringComparer.Ordinal);
+            for (int i = 0; i < request.Manifests.Count; i++)
+            {
+                FileManifest manifest = request.Manifests[i];
+                long total = 0;
+                foreach (ChunkRef chunk in manifest.Chunks)
+                {
+                    if (chunk.Size is < 1 or > ContentChunker.MaximumChunkSize) throw Invalid("Manifest contains an invalid chunk size.");
+                    byte[] id = ToChunkId(chunk.Id);
+                    if (chunks.TryGetValue(ContentId.ToHex(id), out (byte[] Id, long Size) seen) && seen.Size != chunk.Size)
+                        throw Invalid("Manifest lists one chunk with two sizes.");
+
+                    chunks[ContentId.ToHex(id)] = (id, chunk.Size);
+                    total += chunk.Size;
+                }
+
+                if (total != manifest.Size) throw Invalid("Manifest chunk sizes do not add up to the file size.");
+                fileIds[i] = ContentId.ComputeFileId(manifest);
+            }
+
+            // Every referenced chunk must be stored with the declared size before a manifest can point at it.
+            (byte[] Id, long Size)[] referenced = chunks.Values.ToArray();
+            await Parallel.ForAsync(0, referenced.Length, Lookup(context), async (i, token) =>
+            {
+                long? stored = await _store.GetChunkSizeAsync(referenced[i].Id, token);
+                if (stored != referenced[i].Size)
+                    throw new RpcException(new Status(StatusCode.FailedPrecondition, $"Chunk {ContentId.ToHex(referenced[i].Id)} is not stored; upload it before committing."));
+            });
+
+            await Parallel.ForAsync(0, fileIds.Length, Lookup(context), async (i, token) =>
+            {
+                if (!await _store.ManifestExistsAsync(fileIds[i], token))
+                    await _store.PutManifestAsync(fileIds[i], request.Manifests[i], token);
+            });
+
+            _logger.LogInformation("Committed {Files} file(s) referencing {Chunks} distinct chunk(s)", fileIds.Length, referenced.Length);
+            SubmitFilesResponse response = new();
+            response.FileIds.AddRange(fileIds);
+            return response;
+        }
+
+        public override async Task<FileManifest> GetManifest(GetManifestRequest request, ServerCallContext context)
+        {
+            if (!ContentId.IsValidFileId(request.FileId)) throw Invalid("Invalid file id.");
+            return await _store.GetManifestAsync(request.FileId.ToLowerInvariant(), context.CancellationToken)
+                   ?? throw new RpcException(new Status(StatusCode.NotFound, "File not found."));
+        }
+
+        public override async Task DownloadChunks(DownloadChunksRequest request, IServerStreamWriter<ChunkData> responseStream, ServerCallContext context)
+        {
+            if (request.Ids.Count > FileTransferLimits.MaximumChunksPerDownload) throw TooMany("chunk ids");
+            byte[][] ids = request.Ids.Select(ToChunkId).DistinctBy(id => ContentId.ToHex(id)).ToArray();
+
+            // Fetch several chunks from S3 at once; writes to the response stream must be serialized.
+            using SemaphoreSlim writeLock = new(1);
+            await Parallel.ForEachAsync(ids, new ParallelOptions { MaxDegreeOfParallelism = ChunksPerCall, CancellationToken = context.CancellationToken }, async (id, ct) =>
+            {
+                using IDisposable lease = await _budget.AcquireAsync(ct);
+                StoredChunk chunk;
+                try
+                {
+                    chunk = await _store.GetChunkAsync(id, ct);
+                }
+                catch (FileNotFoundException)
+                {
+                    throw new RpcException(new Status(StatusCode.NotFound, $"Chunk {ContentId.ToHex(id)} not found."));
+                }
+
+                await writeLock.WaitAsync(ct);
+                try
+                {
+                    await responseStream.WriteAsync(new ChunkData
+                    {
+                        Id = Google.Protobuf.UnsafeByteOperations.UnsafeWrap(id),
+                        Size = chunk.Size,
+                        Data = Google.Protobuf.UnsafeByteOperations.UnsafeWrap(chunk.CompressedData)
+                    }, ct);
+                }
+                finally
+                {
+                    writeLock.Release();
+                }
+            });
+        }
+
+        /// <summary>
+        /// Verifies a chunk's content against its id (so no client can store bytes under someone else's hash),
+        /// then writes it to storage. Releases the call and budget slots when done.
+        /// </summary>
+        private async Task StoreChunkAsync(byte[] id, ChunkData chunk, IDisposable lease, SemaphoreSlim callSlots, Action onStored, CancellationToken ct)
+        {
+            byte[] buffer = ArrayPool<byte>.Shared.Rent((int)chunk.Size);
+            try
+            {
+                await Task.Run(() =>
+                {
+                    try
+                    {
+                        ChunkCodec.DecompressAndVerify(id, chunk.Data.Span, buffer.AsSpan(0, (int)chunk.Size));
+                    }
+                    catch (InvalidDataException exception)
+                    {
+                        throw new RpcException(new Status(StatusCode.DataLoss, $"Chunk {ContentId.ToHex(id)}: {exception.Message}"));
+                    }
+                }, ct);
+
+                await _store.PutChunkAsync(id, chunk.Size, chunk.Data.Memory, ct);
+                onStored();
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+                lease.Dispose();
+                callSlots.Release();
+            }
+        }
+
+        private static void ThrowIfAnyFailed(List<Task> tasks)
+        {
+            foreach (Task task in tasks)
+                if (task.IsFaulted || task.IsCanceled)
+                    task.GetAwaiter().GetResult();
+        }
+
+        private static ParallelOptions Lookup(ServerCallContext context)
+        {
+            return new ParallelOptions { MaxDegreeOfParallelism = LookupConcurrency, CancellationToken = context.CancellationToken };
+        }
+
+        private static byte[] ToChunkId(Google.Protobuf.ByteString id)
+        {
+            return id.Length == ContentId.HashSize ? id.ToByteArray() : throw Invalid("Chunk id must be a SHA-256 hash.");
+        }
+
+        private static RpcException Invalid(string message)
+        {
+            return new RpcException(new Status(StatusCode.InvalidArgument, message));
+        }
+
+        private static RpcException TooMany(string what)
+        {
+            return new RpcException(new Status(StatusCode.InvalidArgument, $"Too many {what} in one request."));
         }
     }
 }

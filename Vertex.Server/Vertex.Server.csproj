@@ -31,6 +31,14 @@
         <DebugType>Full</DebugType>
     </PropertyGroup>
 
+    <PropertyGroup>
+        <BuildDate>$([System.DateTime]::UtcNow.ToString("MM/dd/yyyy"))</BuildDate>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <AssemblyMetadata Include="BuildDate" Value="$(BuildDate)"/>
+    </ItemGroup>
+
     <ItemGroup>
         <PackageReference Include="AWSSDK.S3" Version="4.0.104.10"/>
         <PackageReference Include="Dapper" Version="2.1.89"/>
@@ -51,7 +59,6 @@
         <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
         <PackageReference Include="StackExchange.Redis" Version="3.1.13" />
         <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
-        <PackageReference Include="YamlDotNet" Version="18.1.0"/>
     </ItemGroup>
 
     <ItemGroup>
@@ -61,7 +68,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\Vertex.Core\Vertex.Core.csproj" AdditionalProperties="VertexTarget=Server"/>
+        <ProjectReference Include="..\Vertex.Core\Vertex.Core.csproj"/>
     </ItemGroup>
 
     <ItemGroup>

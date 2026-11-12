@@ -1,13 +1,23 @@
 ﻿// Copyright 2026 Entex Interactive
 
+using System.IO.Enumeration;
+using Vertex.Core.Client.Workspaces;
+
 namespace Vertex.Core.Client.IO
 {
+    /// <summary>
+    /// A file found on disk, with the size and timestamp the directory listing reported for it.
+    /// </summary>
+    /// <param name="RelativePath">Path relative to the workspace root, with <c>/</c> separators.</param>
+    /// <param name="Size">Length in bytes.</param>
+    /// <param name="LastWriteTicks">Last write time, in UTC ticks.</param>
+    public readonly record struct WorkingFile(string RelativePath, long Size, long LastWriteTicks);
+
     public static class FileSystemUtility
     {
         /// <summary>
         /// Checks if the given path is a directory.
         /// </summary>
-        /// <param name="path"></param>
         /// <returns>True if path is a directory, otherwise false.</returns>
         public static bool IsDirectory(string path)
         {
@@ -17,116 +27,54 @@ namespace Vertex.Core.Client.IO
         /// <summary>
         /// Checks if the given path is a file.
         /// </summary>
-        /// <param name="path"></param>
         /// <returns>True if path is a file, otherwise false.</returns>
         public static bool IsFile(string path)
         {
             return !Directory.Exists(path) && File.Exists(path);
         }
 
-        public static IEnumerable<string> GetFiles(string root, string searchPattern)
+        /// <summary>
+        /// Lists every file under <paramref name="root"/>, skipping ignored directories, <c>.vx</c> folders and
+        /// directory links (which could loop).
+        /// </summary>
+        /// <remarks>
+        /// Size and timestamp come from the directory listing itself, so this makes one file system call per
+        /// directory rather than one per file. Ignore patterns are only applied to directories here; whether an
+        /// individual file is ignored depends on whether it is tracked, which the caller decides.
+        /// </remarks>
+        public static IEnumerable<WorkingFile> EnumerateFiles(string root, IgnoreRules ignore)
         {
-            return GetFiles(root, [], searchPattern);
-        }
-
-        public static IEnumerable<string> GetFiles(string root, string[] exempt, string searchPattern = "*", bool recursive = true)
-        {
-            Stack<string> pending = new();
-            pending.Push(root);
-
-            while (pending.Count > 0)
+            string prefix = Path.EndsInDirectorySeparator(root) ? root : root + Path.DirectorySeparatorChar;
+            EnumerationOptions options = new()
             {
-                string current = pending.Pop();
-                if (IsIgnored(current, exempt))
-                {
-                    Log.Debug($"Ignored -> {current}");
-                    continue;
-                }
+                RecurseSubdirectories = true,
+                IgnoreInaccessible = true,
+                AttributesToSkip = 0, // The default skips hidden and system files, which still need versioning.
+                ReturnSpecialDirectories = false
+            };
 
-                // Get files in current directory
-                IEnumerable<string> files;
-                try
+            return new FileSystemEnumerable<WorkingFile>(root,
+                (ref FileSystemEntry entry) => new WorkingFile(ToRelativePath(prefix, entry.ToFullPath()), entry.Length, entry.LastWriteTimeUtc.UtcTicks),
+                options)
+            {
+                ShouldIncludePredicate = (ref FileSystemEntry entry) => !entry.IsDirectory,
+                ShouldRecursePredicate = (ref FileSystemEntry entry) =>
                 {
-                    files = Directory.EnumerateFiles(current, searchPattern);
+                    if ((entry.Attributes & FileAttributes.ReparsePoint) != 0) return false;
+                    if (entry.FileName.Equals(Workspace.MetadataDirectoryName, StringComparison.OrdinalIgnoreCase)) return false;
+                    return !ignore.IsIgnored(ToRelativePath(prefix, entry.ToFullPath()), isDirectory: true);
                 }
-                catch
-                {
-                    Log.Warning($"No file access -> {current}");
-                    continue;
-                }
-
-                foreach (string file in files)
-                {
-                    // This is a better system. However, if a user adds something to ignore, with this code it will never mark it for deletion.
-                    // if (IsIgnored(file, exempt))
-                    // {
-                    //     Log.Debug($"Ignored -> {file}");
-                    //     continue;
-                    // }
-
-                    yield return file;
-                }
-
-                if (!recursive) continue;
-                IEnumerable<string> subDirs;
-                try
-                {
-                    subDirs = Directory.EnumerateDirectories(current);
-                }
-                catch
-                {
-                    Log.Warning($"No directory access -> {current}");
-                    continue;
-                }
-
-                foreach (string dir in subDirs) pending.Push(dir);
-            }
+            };
         }
 
         /// <summary>
-        /// Checks if the given path is set to be ignored.
+        /// Converts a full path under <paramref name="rootPrefix"/> (the root ending in a separator) to a relative
+        /// path with <c>/</c> separators.
         /// </summary>
-        /// <param name="path"></param>
-        /// <param name="exempt"></param>
-        /// <returns>True if ignored, otherwise false.</returns>
-        public static bool IsIgnored(string path, string[] exempt)
+        public static string ToRelativePath(string rootPrefix, string fullPath)
         {
-            string[] dirs = path.Split(Path.DirectorySeparatorChar);
-            string fileName = Path.GetFileName(path);
-            string extension = Path.GetExtension(path);
-
-            foreach (string entry in exempt)
-            {
-                if (path.StartsWith(entry, StringComparison.OrdinalIgnoreCase))
-                {
-                    return true;
-                }
-
-                if (entry.EndsWith('/'))
-                {
-                    string dirName = entry.TrimEnd('/');
-                    if (dirs.Any(d => d.Equals(dirName, StringComparison.OrdinalIgnoreCase))) return true;
-                }
-                else if (entry.StartsWith("*"))
-                {
-                    if (extension.Equals(entry.Substring(1), StringComparison.OrdinalIgnoreCase)) return true;
-                }
-                else
-                {
-                    if (fileName.Equals(entry, StringComparison.OrdinalIgnoreCase)) return true;
-                }
-            }
-
-            return false;
-        }
-
-        public static string[] GetIgnoredEntries(string path)
-        {
-            string ignoreFile = Path.Combine(path, ".vxignore");
-            if (!File.Exists(ignoreFile)) return [];
-            
-            string[] ignoredEntries = File.ReadAllLines(ignoreFile).Select(line => line.Trim()).Where(line => !string.IsNullOrWhiteSpace(line) && !line.StartsWith('#')).ToArray();
-            return File.Exists(ignoreFile) ? ignoredEntries : [];
+            string relative = fullPath[rootPrefix.Length..];
+            return Path.DirectorySeparatorChar == '/' ? relative : relative.Replace(Path.DirectorySeparatorChar, '/');
         }
     }
 }

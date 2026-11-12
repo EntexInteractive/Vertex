@@ -16,14 +16,5 @@ namespace Vertex.Core.Client.Settings
                 return path;
             }
         }
-
-        public static string DatabaseConnectionString
-        {
-            get
-            {
-                string path = Path.Combine(RoamingDirectory, "VertexClient.db");
-                return $"Data Source={path};Cache=Shared;Mode=ReadWriteCreate;Pooling=true;";
-            }
-        }
     }
 }

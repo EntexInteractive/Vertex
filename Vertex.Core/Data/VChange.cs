@@ -5,13 +5,20 @@ namespace Vertex.Core.Data
     public enum ChangeType
     {
         Created,
-        Changed,
-        Deleted
+        Modified,
+        Deleted,
+        Renamed
     }
 
     public class VChange
     {
-        public VFile File { get; }
         public ChangeType Type { get; }
+        public VFile File { get; }
+
+        public VChange(ChangeType type, VFile file)
+        {
+            Type = type;
+            File = file;
+        }
     }
 }
