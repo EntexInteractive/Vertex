@@ -1,8 +1,7 @@
 ﻿FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
 USER $APP_UID
 WORKDIR /app
-EXPOSE 8080
-EXPOSE 8081
+EXPOSE 5000
 
 # The SDK stage runs on the build machine's own architecture and cross-compiles for the target (amd64 or arm64),
 # so multi-platform builds don't run the compiler under emulation.
@@ -20,4 +19,4 @@ RUN dotnet publish "./Vertex.Server.csproj" -c $BUILD_CONFIGURATION -a $TARGETAR
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
-ENTRYPOINT ["dotnet", "Vertex.Server.dll"]
+ENTRYPOINT ["dotnet", "VertexServer.dll"]
