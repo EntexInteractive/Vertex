@@ -1,5 +1,6 @@
 ﻿// Copyright 2026 Entex Interactive
 
+using System.Collections.Concurrent;
 using Vertex.Core.Client.Database;
 using Vertex.Core.Client.Settings;
 using Vertex.Core.Data;
@@ -152,16 +153,49 @@ namespace Vertex.Core.Client.IO
 
         //private readonly SqliteDatabase _database = new SqliteDatabase();
 
-        public static async Task<IReadOnlyList<VChange>> GetChanges(string path, int maxConcurrency, bool force = false)
+        public static async Task<IReadOnlyList<VChange>> GetChangesAsync(string path, Guid branchId, int maxConcurrency, bool force = false)
         {
-            /*HashSet<string> localFiles = IsDirectory(path) ? [.. GetFiles(path, GetIgnoredEntries(path))] : [path];
-            IReadOnlyList<VFile> cachedFiles = await _database.GetFilesAsync(path);
-            Parallel.ForEach(cachedFiles, new ParallelOptions { MaxDegreeOfParallelism = maxConcurrency }, file =>
-            {
-                if(File.Exists())
-            });*/
+            ConcurrentBag<string> scannedFiles = new();
+            ConcurrentBag<VChange> changedFiles = new();
 
-            throw new NotImplementedException();
+            HashSet<string> localFiles = IsDirectory(path) ? [.. GetFiles(path, GetIgnoredEntries(path))] : [path];
+            IReadOnlyList<VFile> cachedFiles = await new SqliteDatabase().GetFilesAsync(path);
+
+            Parallel.ForEach(cachedFiles, new ParallelOptions { MaxDegreeOfParallelism = maxConcurrency }, cachedFile =>
+            {
+                if (File.Exists(cachedFile.FullPath))
+                {
+                    VFile vxFile = new(path, cachedFile.FullPath, branchId);
+                    if (IsIgnored(vxFile.FullPath, GetIgnoredEntries(path)))
+                    {
+                        //Log.Debug("Ignored: {VxFileRelativePath}", vxFile.RelativePath);
+                        changedFiles.Add(new VChange(ChangeType.Deleted, vxFile));
+                    }
+                    else if (HasChanged(vxFile, cachedFile) || force)
+                    {
+                        //Log.Debug($"Changed -> {localFile.Fullname}");
+                        changedFiles.Add(new VChange(ChangeType.Modified, vxFile));
+                    }
+
+                    scannedFiles.Add(cachedFile.FullPath);
+                }
+                else
+                {
+                    //Log.Debug($"Deleted -> {remoteFile.Fullname}");
+                    changedFiles.Add(new VChange(ChangeType.Deleted, cachedFile));
+                }
+            });
+
+            // Adds the remaining files as created
+            IEnumerable<string> remainingFiles = localFiles.Except(scannedFiles);
+            Parallel.ForEach(remainingFiles, new ParallelOptions { MaxDegreeOfParallelism = maxConcurrency }, remainingFile =>
+            {
+                if (IsIgnored(remainingFile, GetIgnoredEntries(path))) return;
+                //Log.Debug($"Created -> {remainingFile}");
+                changedFiles.Add(new VChange(ChangeType.Created, new VFile(path, remainingFile, branchId)));
+            });
+
+            return [.. changedFiles.OrderBy(x => x.File.RelativePath)];
         }
     }
 }

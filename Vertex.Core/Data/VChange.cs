@@ -5,7 +5,7 @@ namespace Vertex.Core.Data
     public enum ChangeType
     {
         Created,
-        Changed,
+        Modified,
         Deleted
     }
 
