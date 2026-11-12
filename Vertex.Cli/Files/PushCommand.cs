@@ -11,19 +11,17 @@ namespace Vertex.Cli.Files
     {
         public override async Task<int> ExecuteAsync(CommandContext context, FilesSettings settings, CancellationToken cancellationToken)
         {
-            string rootPath = Path.GetFullPath(settings.Path ?? Directory.GetCurrentDirectory());
+            string rootPath = Path.GetFullPath(settings.RootPath);
             string address = settings.ServerAddress;
-            IEnumerable<string> localFiles = FileSystemUtility.IsDirectory(rootPath) ? FileSystemUtility.GetFiles(rootPath, FileSystemUtility.GetIgnoredEntries(rootPath)) : [rootPath];
+            IEnumerable<string> localFiles = FileSystemUtility.GetFiles(rootPath);
 
             // Chunking hashes every byte, so scan files in parallel across cores.
             VFile[] files = localFiles.AsParallel().WithCancellation(cancellationToken)
-                .Select(path => new VFile(path, Guid.Empty))
-                .Where(file => file.TryGenerateCheckSum())
-                .ToArray();
+                .Select(path => new VFile(rootPath, path, Guid.Empty)).Where(file => file.TryChunkFile()).ToArray();
 
-            Dictionary<string, VFile> byPath = files.ToDictionary(f => f.Fullname, StringComparer.OrdinalIgnoreCase);
-            using FilesInterface client = new(address) { MaxConcurrency = settings.DegreeOfParallelism };
-            PushResult result = await client.PushAsync(files.Select(f => f.Chunks!).ToArray(), chunked =>
+            Dictionary<string, VFile> byPath = files.ToDictionary(f => f.RelativePath, StringComparer.OrdinalIgnoreCase);
+            using FilesInterface client = new(address) { MaxConcurrency = settings.MaxConcurrency };
+            UploadResult result = await client.UploadAsync(files.Select(f => f.Chunks!).ToArray(), chunked =>
             {
                 Terminal.WriteLine($"Stored {byPath[chunked.Path].Name} ({chunked.Size:N0} bytes), id {chunked.FileId}", ConsoleColor.Green);
             }, cancellationToken);

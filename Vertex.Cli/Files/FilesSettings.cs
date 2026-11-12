@@ -13,6 +13,6 @@ namespace Vertex.Cli.Files
 
         [CommandOption("--parallel")]
         [Description("The number of parallel operations to perform.")]
-        public int DegreeOfParallelism { get; set; } = Environment.ProcessorCount;
+        public int MaxConcurrency { get; set; } = Environment.ProcessorCount;
     }
 }

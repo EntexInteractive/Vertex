@@ -1,6 +1,7 @@
 ﻿// Copyright 2026 Entex Interactive
 
 using EntexInteractive.Extensions;
+using Vertex.Core.IO;
 using Vertex.Core.Storage;
 
 namespace Vertex.Core.Data
@@ -18,9 +19,14 @@ namespace Vertex.Core.Data
         public string Name { get; set; }
 
         /// <summary>
-        /// The universal path of the file.
+        /// The relative path of the file.
         /// </summary>
-        public string Fullname { get; set; }
+        public string RelativePath { get; set; }
+
+        /// <summary>
+        /// The full path of the file.
+        /// </summary>
+        public string FullPath { get; set; }
 
         /// <summary>
         /// The time the file was last written to.
@@ -61,13 +67,14 @@ namespace Vertex.Core.Data
         /// <summary>
         /// Initializes a new instance of the <see cref="LocalFile"/> class with default properties.
         /// </summary>
-        public VFile(string path, Guid branch)
+        public VFile(string rootPath, string fullPath, Guid branch)
         {
-            Name = Path.GetFileName(path);
-            Fullname = Path.GetFullPath(path);
-            if (!File.Exists(path)) return;
-            
-            FileInfo fi = new(path);
+            Name = Path.GetFileName(fullPath);
+            RelativePath = fullPath.ToRelativePath(rootPath);
+            FullPath = fullPath;
+
+            if (!File.Exists(FullPath)) return;
+            FileInfo fi = new(FullPath);
             PhysicalSize = fi.Length;
             LastWrite = new UnixTime(fi.LastWriteTimeUtc);
             Branch = branch;
@@ -79,23 +86,23 @@ namespace Vertex.Core.Data
         /// <return>
         /// <see langword="true"/> if a checksum already exists or is generated successfully; otherwise, <see langword="false"/> if the file does not exist or an error occurs during generation.
         /// </return>
-        public bool TryGenerateCheckSum()
+        public bool TryChunkFile()
         {
-            if (!string.IsNullOrEmpty(CheckSum)) return true;
+            if (!string.IsNullOrEmpty(FullPath)) return true;
 
             try
             {
-                if (!File.Exists(Fullname)) return false;
+                if (!File.Exists(FullPath)) return false;
 
                 // The checksum is the content-addressed file id: a hash over the file's content-defined chunks.
-                Chunks = ContentChunker.ChunkFile(Fullname);
+                Chunks = ContentChunker.ChunkFile(FullPath);
                 PhysicalSize = Chunks.Size;
                 CheckSum = Chunks.FileId;
                 return true;
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "Error while generating checksum");
+                Log.Error(ex, "Error while generating chunks");
                 return false;
             }
         }

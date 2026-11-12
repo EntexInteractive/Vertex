@@ -1,9 +1,8 @@
 // Copyright 2026 Entex Interactive
 
-using Spectre.Console;
-using Spectre.Console.Cli;
+using EntexInteractive.Extensions;
 using Vertex.Core.Client.IO;
-using Vertex.Core.IO;
+using Vertex.Core.Data;
 
 namespace Vertex.Cli.Files
 {
@@ -11,11 +10,17 @@ namespace Vertex.Cli.Files
     {
         public override int Execute(CommandContext context, FilesSettings settings, CancellationToken cancellationToken)
         {
-            string path = settings.Path ?? Directory.GetCurrentDirectory();
-            IEnumerable<string> localFiles = FileSystemUtility.IsDirectory(path) ? FileSystemUtility.GetFiles(path, FileSystemUtility.GetIgnoredEntries(path)) : [path];
+            string rootPath = Path.GetFullPath(settings.RootPath);
 
-            foreach (string file in localFiles) Markup.Escape(file);
-            //AnsiConsole.Write(table);
+            IEnumerable<string> files = FileSystemUtility.GetFiles(rootPath, FileSystemUtility.GetIgnoredEntries(rootPath));
+            foreach (string file in files)
+            {
+                VFile vf = new(rootPath, file, Guid.Empty);
+                Console.WriteLine(vf.RelativePath);
+            }
+
+            //IReadOnlyList<VChange> changedFiles = FileSystemUtility.GetChanges(settings.Path, settings.MaxConcurrency);
+            //Terminal.WriteLine($"Found {changedFiles.Count} changed files.");
             return 0;
         }
     }

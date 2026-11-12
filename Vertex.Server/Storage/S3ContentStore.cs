@@ -171,14 +171,12 @@ namespace Vertex.Server.Storage
 
         private static string ChunkKey(byte[] id)
         {
-            if (id.Length != ContentId.HashSize) throw new ArgumentException("Chunk id must be a SHA-256 hash.", nameof(id));
-            return ShardedKey("chunks", ContentId.ToHex(id));
+            return id.Length != ContentId.HashSize ? throw new ArgumentException("Chunk id must be a SHA-256 hash.", nameof(id)) : ShardedKey("chunks", ContentId.ToHex(id));
         }
 
         private static string ManifestKey(string fileId)
         {
-            if (!ContentId.IsValidFileId(fileId)) throw new ArgumentException("File id must be a SHA-256 hex string.", nameof(fileId));
-            return ShardedKey("manifests", fileId.ToLowerInvariant());
+            return !ContentId.IsValidFileId(fileId) ? throw new ArgumentException("File id must be a SHA-256 hex string.", nameof(fileId)) : ShardedKey("manifests", fileId.ToLowerInvariant());
         }
 
         private static string ShardedKey(string prefix, string hex)

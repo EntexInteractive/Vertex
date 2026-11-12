@@ -13,7 +13,7 @@ namespace Vertex.Cli.Branches
         public override async Task<int> ExecuteAsync(CommandContext context, BranchSettings settings, CancellationToken cancellationToken)
         {
             string server = settings.ServerAddress;
-            string relativePath = settings.Path ?? Directory.GetCurrentDirectory();
+            string relativePath = settings.RootPath;
             VConfig? config = VConfig.ParseFromRoot(relativePath);
             
             string? projectName = settings.Project ?? config?.Project;

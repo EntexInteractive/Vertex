@@ -1,11 +1,19 @@
 ﻿// Copyright 2026 Entex Interactive
 
+using Vertex.Core.Client.Settings;
+
 namespace Vertex.Core.Client.Database
 {
     public class SqliteDatabase
     {
         private readonly DapperContext _dapper;
 
+        public SqliteDatabase()
+        {
+            string path = Path.Combine(ClientSettings.RoamingDirectory, "VertexClient.sqlite");
+            _dapper = new DapperContext($"Data Source={path};Cache=Shared;Mode=ReadWriteCreate);");
+        }
+        
         public SqliteDatabase(string path)
         {
             _dapper = new DapperContext($"Data Source={path};Cache=Shared;Mode=ReadWriteCreate);");

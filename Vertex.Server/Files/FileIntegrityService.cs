@@ -28,10 +28,10 @@ namespace Vertex.Server.FileServices
                 // Only 1 instance can cache the key allowing syncing on only 1 machine in the cluster.
                 if (await _cache.TrySetKeyAsync("file_integrity_check", interval))
                 {
-                    _logger.LogDebug("Starting file checks...");
+                    _logger.LogDebug("Starting file integrity checks...");
                 }
 
-                _logger.LogDebug("File checks complete");
+                _logger.LogDebug("File integrity checks complete");
                 await Task.Delay(interval, stoppingToken);
             }
         }

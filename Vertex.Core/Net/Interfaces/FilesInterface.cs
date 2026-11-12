@@ -13,12 +13,12 @@ namespace Vertex.Core.Net.Interfaces
     /// <summary>
     /// Outcome of a push: how much was actually sent versus deduplicated.
     /// </summary>
-    public sealed record PushResult(int FilesCommitted, int FilesAlreadyStored, int ChunksUploaded, int ChunksDeduplicated, long RawBytesUploaded, long CompressedBytesUploaded);
+    public sealed record UploadResult(int FilesCommitted, int FilesAlreadyStored, int ChunksUploaded, int ChunksDeduplicated, long RawBytesUploaded, long CompressedBytesUploaded);
 
     /// <summary>
     /// Outcome of a pull: how much was downloaded versus reused from the existing local file.
     /// </summary>
-    public sealed record PullResult(long Size, long RawBytesDownloaded, long CompressedBytesDownloaded, long BytesReused);
+    public sealed record DownloadResult(long Size, long RawBytesDownloaded, long CompressedBytesDownloaded, long BytesReused);
 
     public class FilesInterface : BaseInterface
     {
@@ -75,7 +75,7 @@ namespace Vertex.Core.Net.Interfaces
         /// <param name="files">Files chunked with <see cref="ContentChunker.ChunkFile"/>.</param>
         /// <param name="onCommitted">Invoked for each newly stored file.</param>
         /// <param name="ct">Cancels the push.</param>
-        public async Task<PushResult> PushAsync(IReadOnlyCollection<ChunkedFile> files, Action<ChunkedFile>? onCommitted = null, CancellationToken ct = default)
+        public async Task<UploadResult> UploadAsync(IReadOnlyCollection<ChunkedFile> files, Action<ChunkedFile>? onCommitted = null, CancellationToken ct = default)
         {
             ArgumentNullException.ThrowIfNull(files);
             List<ChunkedFile> unique = files.DistinctBy(f => f.FileId).ToList();
@@ -113,7 +113,7 @@ namespace Vertex.Core.Net.Interfaces
                 }
             }
 
-            return new PushResult(pending.Count, unique.Count - pending.Count, toUpload.Count, sources.Count - toUpload.Count, rawBytes, compressedBytes);
+            return new UploadResult(pending.Count, unique.Count - pending.Count, toUpload.Count, sources.Count - toUpload.Count, rawBytes, compressedBytes);
         }
 
         /// <summary>
@@ -121,7 +121,7 @@ namespace Vertex.Core.Net.Interfaces
         /// are reused, so pulling a new version of a file only transfers the changed chunks. The file is published
         /// only after every chunk has been verified.
         /// </summary>
-        public async Task<PullResult> DownloadAsync(string fileId, string destinationPath, CancellationToken ct = default)
+        public async Task<DownloadResult> DownloadAsync(string fileId, string destinationPath, CancellationToken ct = default)
         {
             if (!ContentId.IsValidFileId(fileId)) throw new ArgumentException("File id must be a 64-character hex string.", nameof(fileId));
             ArgumentException.ThrowIfNullOrWhiteSpace(destinationPath);
@@ -152,7 +152,7 @@ namespace Vertex.Core.Net.Interfaces
                 }
 
                 File.Move(temporaryPath, destination, true);
-                return new PullResult(manifest.Size, rawDownloaded, compressedDownloaded, reused);
+                return new DownloadResult(manifest.Size, rawDownloaded, compressedDownloaded, reused);
             }
             finally
             {

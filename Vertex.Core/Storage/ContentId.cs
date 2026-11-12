@@ -15,7 +15,7 @@ namespace Vertex.Core.Storage
     public static class ContentId
     {
         public const int HashSize = 32;
-        private static ReadOnlySpan<byte> FileIdDomain => "vertex-file-v1\0"u8;
+        private static ReadOnlySpan<byte> FileIdDomain => "vx-file-v1\0"u8;
 
         public static string ComputeFileId(IEnumerable<(byte[] Id, long Size)> chunks)
         {

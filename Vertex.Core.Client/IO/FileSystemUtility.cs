@@ -1,9 +1,15 @@
 ﻿// Copyright 2026 Entex Interactive
 
+using Vertex.Core.Client.Database;
+using Vertex.Core.Client.Settings;
+using Vertex.Core.Data;
+
 namespace Vertex.Core.Client.IO
 {
     public static class FileSystemUtility
     {
+        #region Statics
+        
         /// <summary>
         /// Checks if the given path is a directory.
         /// </summary>
@@ -24,9 +30,9 @@ namespace Vertex.Core.Client.IO
             return !Directory.Exists(path) && File.Exists(path);
         }
 
-        public static IEnumerable<string> GetFiles(string root, string searchPattern)
+        public static IEnumerable<string> GetFiles(string root)
         {
-            return GetFiles(root, [], searchPattern);
+            return IsDirectory(root) ? GetFiles(root, GetIgnoredEntries(root)) : [root];
         }
 
         public static IEnumerable<string> GetFiles(string root, string[] exempt, string searchPattern = "*", bool recursive = true)
@@ -127,6 +133,35 @@ namespace Vertex.Core.Client.IO
             
             string[] ignoredEntries = File.ReadAllLines(ignoreFile).Select(line => line.Trim()).Where(line => !string.IsNullOrWhiteSpace(line) && !line.StartsWith('#')).ToArray();
             return File.Exists(ignoreFile) ? ignoredEntries : [];
+        }
+
+        /// <summary>
+        /// Gets if a file has changed.
+        /// </summary>
+        /// <param name="source">The source file to compare.</param>
+        /// <param name="target">The target file to compare to.</param>
+        /// <returns>True is success, otherwise false.</returns>
+        public static bool HasChanged(VFile source, VFile? target)
+        {
+            if (target is null || source.LastWrite.TotalMilliseconds <= target.LastWrite.TotalMilliseconds) return false;
+            if (!source.TryChunkFile() || !target.TryChunkFile()) return false;
+            return source.CheckSum != target.CheckSum;
+        }
+
+        #endregion
+
+        //private readonly SqliteDatabase _database = new SqliteDatabase();
+
+        public static async Task<IReadOnlyList<VChange>> GetChanges(string path, int maxConcurrency, bool force = false)
+        {
+            /*HashSet<string> localFiles = IsDirectory(path) ? [.. GetFiles(path, GetIgnoredEntries(path))] : [path];
+            IReadOnlyList<VFile> cachedFiles = await _database.GetFilesAsync(path);
+            Parallel.ForEach(cachedFiles, new ParallelOptions { MaxDegreeOfParallelism = maxConcurrency }, file =>
+            {
+                if(File.Exists())
+            });*/
+
+            throw new NotImplementedException();
         }
     }
 }
