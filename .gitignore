@@ -149,7 +149,9 @@ lcov-report/
 .yarn-integrity
 
 # Misc
+.vx/
 .node_repl_history
+.vxignore
 
 # Electron temporary
 pids/

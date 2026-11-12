@@ -14,5 +14,27 @@ namespace Vertex.Core.Net.Interfaces
 
             return await SendAsync<VBranch>(HttpMethod.Post, query, null, cancellationToken);
         }
+
+        /// <summary>
+        /// Deletes a branch by name. Fails with 404 when it doesn't exist and 409 when other branches were
+        /// created from it.
+        /// </summary>
+        public async Task<ServerResult<VBranch>> DeleteBranchAsync(Guid projectId, string branchName, CancellationToken cancellationToken = default)
+        {
+            return await SendAsync<VBranch>(HttpMethod.Delete, $"/api/v1/branches?projectId={projectId}&name={Uri.EscapeDataString(branchName)}", null, cancellationToken);
+        }
+
+        /// <summary>
+        /// Lists a project's branches, ordered by name.
+        /// </summary>
+        public async Task<ServerResult<IReadOnlyList<VBranch>>> ListBranchesAsync(Guid projectId, CancellationToken cancellationToken = default)
+        {
+            return await SendAsync<IReadOnlyList<VBranch>>(HttpMethod.Get, $"/api/v1/branches?projectId={projectId}", null, cancellationToken);
+        }
+
+        public async Task<ServerResult<VBranch>> GetBranchByNameAsync(Guid projectId, string branchName, CancellationToken cancellationToken = default)
+        {
+            return await SendAsync<VBranch>(HttpMethod.Get, $"/api/v1/branches/by-name?projectId={projectId}&name={Uri.EscapeDataString(branchName)}", null, cancellationToken);
+        }
     }
 }

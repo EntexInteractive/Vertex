@@ -5,7 +5,7 @@ namespace Vertex.Core.Net.Responses
     /// <summary>
     /// Version information returned by GET /api/v1/server/info.
     /// </summary>
-    public sealed class InfoResponse
+    public sealed record InfoResponse
     {
         public string? Address { get; set; }
         public string? BuildDate { get; set; }

@@ -1,54 +1,55 @@
 // Copyright 2026 Entex Interactive
 
 using System.Diagnostics;
-using EntexInteractive.Extensions;
-using Vertex.Core.Client.IO;
+using Vertex.Core.Client.Workspaces;
 using Vertex.Core.Data;
 
 namespace Vertex.Cli.Files
 {
-    public sealed class StatusCommand : AsyncCommand<FilesSettings>
+    public sealed class StatusCommand : Command<FilesSettings>
     {
-        public override async Task<int> ExecuteAsync(CommandContext context, FilesSettings settings, CancellationToken cancellationToken)
+        private const int MaximumDisplayed = 50;
+
+        public override int Execute(CommandContext context, FilesSettings settings, CancellationToken cancellationToken)
         {
             Stopwatch sw = Stopwatch.StartNew();
-            IReadOnlyList<VChange> changedFiles = [];
-            await AnsiConsole.Status().Start("Scanning for changes...", async _ =>
+            Workspace workspace = Workspace.FindRequired(settings.RootPath);
+            using WorkspaceIndex index = workspace.OpenIndex();
+
+            WorkspaceStatus status = null!;
+            AnsiConsole.Status().Start("Scanning for changes...", _ =>
             {
-                changedFiles = await FileSystemUtility.GetChangesAsync(settings.RootPath, Guid.Empty, settings.MaxConcurrency, settings.Force);
+                status = WorkspaceScanner.Scan(workspace, index, new ScanOptions { MaxConcurrency = settings.MaxConcurrency, Force = settings.Force }, cancellationToken);
             });
 
-            // Displays only 50 changes.
-            int display = Math.Min(50, changedFiles.Count);
-            for (int i = 0; i < display; i++)
+            foreach (WorkspaceChange change in status.Changes.Take(MaximumDisplayed))
             {
-                VChange change = changedFiles[i];
-                switch (change.Type)
+                string path = Markup.Escape(change.Path);
+                AnsiConsole.MarkupLine(change.Type switch
                 {
-                    case ChangeType.Created:
-                        AnsiConsole.MarkupLine($"[green]{Markup.Escape(change.File.RelativePath)}[/]");
-                        break;
-
-                    case ChangeType.Modified:
-                        AnsiConsole.MarkupLine($"[yellow]{Markup.Escape(change.File.RelativePath)}[/]");
-                        break;
-
-                    case ChangeType.Deleted:
-                        AnsiConsole.MarkupLine($"[red]{Markup.Escape(change.File.RelativePath)}[/]");
-                        break;
-
-                    default:
-                        throw new ArgumentOutOfRangeException();
-                }
+                    ChangeType.Created => $"[green]  added     {path}[/]",
+                    ChangeType.Modified => $"[yellow]  modified  {path}[/]",
+                    ChangeType.Deleted => $"[red]  deleted   {path}[/]",
+                    ChangeType.Renamed => $"[cyan]  renamed     {Markup.Escape(change.PreviousPath!)} -> {path}[/]",
+                    _ => throw new ArgumentOutOfRangeException(nameof(change.Type), change.Type, null)
+                });
             }
 
-            int remaining = changedFiles.Count - display;
-            if (remaining > 0)
+            int remaining = status.Changes.Count - MaximumDisplayed;
+            if (remaining > 0) AnsiConsole.MarkupLine($"[grey]  ...and {remaining:N0} more[/]");
+
+            foreach (string path in status.Unreadable.Take(10)) AnsiConsole.MarkupLine($"[red]  unreadable {Markup.Escape(path)}[/]");
+            if (status.Changes.Count == 0) AnsiConsole.MarkupLine("[grey]No changes.[/]");
+
+            int Count(ChangeType type)
             {
-                AnsiConsole.MarkupLine($"[red]{remaining:N0} change{(remaining == 1 ? "" : "s")} remaining...[/]");
+                return status.Changes.Count(c => c.Type == type);
             }
 
-            AnsiConsole.MarkupLine(Markup.Escape($"\r\nFound {changedFiles.Count} changes in {sw.Elapsed}"));
+            AnsiConsole.WriteLine();
+
+            AnsiConsole.MarkupLine($"[grey]Scanned {status.FilesScanned:N0} files, hashed {status.FilesHashed:N0} ({status.BytesHashed / (1024.0 * 1024):N1} MB) in {sw.Elapsed.TotalSeconds:N2}s.[/]");
+            AnsiConsole.MarkupLine($"[grey]{Count(ChangeType.Created):N0} added, {Count(ChangeType.Modified):N0} modified, {Count(ChangeType.Deleted):N0} deleted, {Count(ChangeType.Renamed):N0} renamed.[/]");
             return 0;
         }
     }

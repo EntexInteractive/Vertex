@@ -56,15 +56,11 @@
 
     <ItemGroup>
         <ProjectReference Include="..\Vertex.Core.Client\Vertex.Core.Client.csproj"/>
-        <ProjectReference Include="..\Vertex.Core\Vertex.Core.csproj" AdditionalProperties="VertexTarget=Client"/>
+        <ProjectReference Include="..\Vertex.Core\Vertex.Core.csproj"/>
     </ItemGroup>
 
     <ItemGroup>
         <Protobuf Include="..\Vertex.Server\Protos\Greeter.proto" Link="Protos\Greeter.proto" GrpcServices="Client"/>
-    </ItemGroup>
-
-    <ItemGroup>
-        <Folder Include="Commands\"/>
     </ItemGroup>
 
 </Project>
