@@ -13,14 +13,14 @@ namespace Vertex.Server
     /// </remarks>
     public sealed class ServerSettings
     {
-        public const string HttpPortVariable = "VERTEX_HTTP_PORT";
-        public const string PostgresVariable = "VERTEX_POSTGRES_CONNECTION";
-        public const string RedisVariable = "VERTEX_REDIS_CONNECTION";
-        public const string S3EndpointVariable = "VERTEX_S3_ENDPOINT";
-        public const string S3RegionVariable = "VERTEX_S3_REGION";
-        public const string S3BucketVariable = "VERTEX_S3_BUCKET";
-        public const string S3AccessKeyVariable = "VERTEX_S3_ACCESS_KEY";
-        public const string S3SecretKeyVariable = "VERTEX_S3_SECRET_KEY";
+        public const string HttpPortVariable = "VX_HTTP_PORT";
+        public const string PostgresVariable = "VX_POSTGRES_CONNECTION";
+        public const string RedisVariable = "VX_REDIS_CONNECTION";
+        public const string S3EndpointVariable = "VX_S3_ENDPOINT";
+        public const string S3RegionVariable = "VX_S3_REGION";
+        public const string S3BucketVariable = "VX_S3_BUCKET";
+        public const string S3AccessKeyVariable = "VX_S3_ACCESS_KEY";
+        public const string S3SecretKeyVariable = "VX_S3_SECRET_KEY";
 
         /// <summary>Port Kestrel listens on (clear-text HTTP/2). Default 5000.</summary>
         public required int HttpPort { get; init; }
