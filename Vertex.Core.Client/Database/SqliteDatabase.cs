@@ -12,12 +12,12 @@ namespace Vertex.Core.Client.Database
         public SqliteDatabase()
         {
             string path = Path.Combine(ClientSettings.RoamingDirectory, "VertexClient.sqlite");
-            _dapper = new DapperContext($"Data Source={path};Cache=Shared;Mode=ReadWriteCreate);");
+            _dapper = new DapperContext($"Data Source={path};Mode=ReadWriteCreate;");
         }
         
         public SqliteDatabase(string path)
         {
-            _dapper = new DapperContext($"Data Source={path};Cache=Shared;Mode=ReadWriteCreate);");
+            _dapper = new DapperContext($"Data Source={path};Mode=ReadWriteCreate;");
         }
 
         public async Task InitializeAsync()

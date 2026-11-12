@@ -1,7 +1,7 @@
 ﻿// Copyright 2026 Entex Interactive
 
 using Vertex.Cli.Net;
-using Vertex.Core.Client.Data;
+using Vertex.Core.Client.Workspaces;
 using Vertex.Core.Data;
 using Vertex.Core.Net.Interfaces;
 using Vertex.Core.Net.Results;
@@ -13,10 +13,7 @@ namespace Vertex.Cli.Branches
         public override async Task<int> ExecuteAsync(CommandContext context, BranchSettings settings, CancellationToken cancellationToken)
         {
             string server = settings.ServerAddress;
-            string relativePath = settings.RootPath;
-            VConfig? config = VConfig.ParseFromRoot(relativePath);
-            
-            string? projectName = settings.Project ?? config?.Project;
+            string? projectName = settings.Project ?? Workspace.Find(settings.RootPath)?.Config.Project;
             if (string.IsNullOrWhiteSpace(projectName))
             {
                 AnsiConsole.MarkupLine("[red]Project name is required.[/]");

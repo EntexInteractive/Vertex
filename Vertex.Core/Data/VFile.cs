@@ -59,7 +59,7 @@ namespace Vertex.Core.Data
         public string? CheckSum { get; set; }
 
         /// <summary>
-        /// The file's chunk layout, populated by <see cref="TryGenerateCheckSum"/>. Local-only; not serialized.
+        /// The file's chunk layout, populated by <see cref="TryChunkFile"/>. Local-only; not serialized.
         /// </summary>
         [JsonIgnore]
         public ChunkedFile? Chunks { get; private set; }
@@ -88,7 +88,7 @@ namespace Vertex.Core.Data
         /// </return>
         public bool TryChunkFile()
         {
-            if (!string.IsNullOrEmpty(FullPath)) return true;
+            if (Chunks is not null) return true;
 
             try
             {

@@ -6,7 +6,8 @@ namespace Vertex.Core.Data
     {
         Created,
         Modified,
-        Deleted
+        Deleted,
+        Moved
     }
 
     public class VChange

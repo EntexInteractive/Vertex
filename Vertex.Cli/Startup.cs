@@ -7,6 +7,7 @@ using Vertex.Cli.Net;
 using Vertex.Cli.Profiles;
 using Vertex.Cli.Projects;
 using Vertex.Cli.Utils;
+using Vertex.Cli.Workspaces;
 
 namespace Vertex.Cli
 {
@@ -17,11 +18,13 @@ namespace Vertex.Cli
             config.AddCommand<ClearCommand>("clear").WithDescription("Clears the console window.");
             config.AddCommand<ClearCommand>("cls").WithDescription("Clears the console window.");
 
+            config.AddCommand<InitCommand>("init").WithDescription("Creates a Vertex workspace in the current folder.");
+
             config.AddCommand<InfoCommand>("info").WithDescription("Displays server information.");
             config.AddCommand<PushCommand>("push");
             config.AddCommand<PullCommand>("pull");
 
-            config.AddCommand<StatusCommand>("status").WithDescription("Displays the status of the local files.");
+            config.AddCommand<StatusCommand>("status").WithDescription("Shows files changed since the last push.");
 
             config.AddBranch("profile", branch =>
             {
