@@ -64,9 +64,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /tmp/.buildx-cache
-          key: vertex-server-${{ runner.os }}-${{ github.sha }}
+          key: ${{ runner.os }}-vertex-server
           restore-keys: |
-            vertex-server-${{ runner.os }}-
+            ${{ runner.os }}-vertex-server
 
       - name: Build and push Vertex Server
         uses: docker/build-push-action@v6
