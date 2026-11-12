@@ -38,7 +38,7 @@ jobs:
         run: dotnet restore
 
       - name: Build Release
-        run: dotnet build --configuration Release --no-restore
+        run: dotnet build --no-restore
 
   docker:
     name: Build Vertex Server
