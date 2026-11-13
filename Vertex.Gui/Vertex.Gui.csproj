@@ -19,11 +19,11 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="EntexInteractive.Extensions" Version="10.0.5"/>
-        <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="8.0.10"/>
+        <PackageReference Include="EntexInteractive.Extensions" Version="10.0.6"/>
+        <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="8.0.34"/>
         <PackageReference Include="Photino.NET" Version="3.2.3"/>
         <PackageReference Include="Photino.NET.Server" Version="3.0.11"/>
-        <PackageReference Include="System.Runtime.CompilerServices.Unsafe" Version="6.0.0"/>
+        <PackageReference Include="System.Runtime.CompilerServices.Unsafe" Version="6.1.2"/>
     </ItemGroup>
 
     <ItemGroup>
