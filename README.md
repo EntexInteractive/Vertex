@@ -1,12 +1,9 @@
-<h1>
-  <img src="Vertex.Web/src/assets/vertex-icon.svg" alt="" width="32" height="32"> Vertex
-</h1>
+# [<img src="https://raw.githubusercontent.com/EntexInteractive/Vertex/master/Vertex.Cli/vertex-icon.ico" alt="Vertex Icon" width="32" height="32">](https://github.com/EntexInteractive/Vertex) Vertex
 
-[![Build](https://img.shields.io/github/actions/workflow/status/EntexInteractive/Vertex/build-latest.yml?branch=develop&label=build&style=for-the-badge)](https://github.com/EntexInteractive/Vertex/actions/workflows/build-latest.yml)
-[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge)](LICENSE)
-[![Latest release](https://img.shields.io/github/v/release/EntexInteractive/Vertex?label=release&style=for-the-badge)](https://github.com/EntexInteractive/Vertex/releases/latest)
+[![.NET](https://img.shields.io/github/actions/workflow/status/EntexInteractive/Vertex/build-latest.yml?label=Main%20build&style=for-the-badge)](https://github.com/EntexInteractive/Vertex/actions/workflows/build-latest.yml) [![latest version](https://img.shields.io/github/v/release/EntexInteractive/Vertex?label=Latest%20release&style=for-the-badge)](https://github.com/EntexInteractive/Vertex/releases/latest) [![GitHub Downloads](https://img.shields.io/github/downloads/EntexInteractive/Vertex/total?style=for-the-badge)](https://github.com/EntexInteractive/Vertex/releases/latest) [![Docker Pulls](https://img.shields.io/docker/pulls/EntexInteractive/Vertex?style=for-the-badge)
+]()
 
-**Source control for games and other big-file projects. Perforce's model, git's ease of use, and storage that scales.**
+**Version control without the hassle.**
 
 Vertex keeps one central history on a server, so huge binary assets don't live in every clone, while the command
 line feels like git: `vx init`, `vx status`, `vx push`. The server is stateless and keeps file content in S3, so you
