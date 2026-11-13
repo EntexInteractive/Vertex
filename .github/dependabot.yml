@@ -1,42 +1,54 @@
+# Dependency updates, batched to keep the noise down: once a week, minor and patch updates for each ecosystem arrive
+# as one grouped pull request, and .github/workflows/dependabot-auto-merge.yml merges it once CI passes. Major updates
+# still arrive one per pull request and wait for a human, because they can break things.
+
 version: 2
+
 updates:
-
   - package-ecosystem: "nuget"
-    directory: "/Vertex.Agent"
+    directories:
+      - "/Vertex.Agent"
+      - "/Vertex.Cli"
+      - "/Vertex.Core"
+      - "/Vertex.Core.Client"
+      - "/Vertex.Gui"
+      - "/Vertex.Server"
     schedule:
-      interval: "daily"
-
-  - package-ecosystem: "nuget"
-    directory: "/Vertex.Cli"
-    schedule:
-      interval: "daily"
-
-  - package-ecosystem: "nuget"
-    directory: "/Vertex.Core"
-    schedule:
-      interval: "daily"
-
-  - package-ecosystem: "nuget"
-    directory: "/Vertex.Server"
-    schedule:
-      interval: "daily"
+      interval: "weekly"
+      day: "monday"
+    groups:
+      # gRPC and Protobuf packages must move together, including major versions.
+      grpc:
+        patterns: [ "Grpc.*", "Google.Protobuf" ]
+      nuget-minor-and-patch:
+        update-types: [ "minor", "patch" ]
 
   - package-ecosystem: "npm"
     directory: "/Vertex.Web"
     schedule:
-      interval: "daily"
-
-  - package-ecosystem: "nuget"
-    directory: "/Vertex.Core.Client"
-    schedule:
-      interval: "daily"
-
-  - package-ecosystem: "nuget"
-    directory: "/Vertex.Gui"
-    schedule:
-      interval: "daily"
+      interval: "weekly"
+      day: "monday"
+    groups:
+      npm-minor-and-patch:
+        update-types: [ "minor", "patch" ]
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "monday"
+    groups:
+      actions:
+        patterns: [ "*" ]
+
+  - package-ecosystem: "docker"
+    directory: "/Vertex.Server"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"

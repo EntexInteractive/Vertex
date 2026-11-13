@@ -1,0 +1,28 @@
+name: Branch Name
+
+# Pull requests into main must come from a branch named feature/<name>, patch/<name> or release/<version>
+# (Dependabot's own branches are allowed too). Add this check to main's required status checks to enforce it.
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [ opened, reopened, synchronize, edited ]
+
+permissions: {}
+
+jobs:
+  check:
+    name: Branch name
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check branch name
+        env:
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          if [[ "$BRANCH" =~ ^(feature|patch)/[a-z0-9][a-z0-9._-]*$ || "$BRANCH" =~ ^release/ || "$BRANCH" == dependabot/* ]]; then
+            echo "Branch '$BRANCH' is fine."
+          else
+            echo "::error::Branch '$BRANCH' doesn't follow the naming rules. Use feature/<name> for new functionality or patch/<name> for fixes (lowercase, e.g. feature/vx-sync). Rename it with: git branch -m <new-name> && git push origin -u <new-name>, then open a new pull request."
+            exit 1
+          fi
