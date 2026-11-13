@@ -43,7 +43,7 @@
         <PackageReference Include="AWSSDK.S3" Version="4.0.104.10"/>
         <PackageReference Include="Dapper" Version="2.1.89"/>
         <PackageReference Include="EntexInteractive.Extensions.Diagnostics" Version="10.0.6"/>
-        <PackageReference Include="Grpc.AspNetCore" Version="2.83.0" />
+        <PackageReference Include="Grpc.AspNetCore" Version="2.85.0" />
         <PackageReference Include="Grpc.AspNetCore.Web" Version="2.83.0"/>
         <PackageReference Include="Grpc.AspNetCore.Server.Reflection" Version="2.83.0" />
         <PackageReference Include="Grpc.HealthCheck" Version="2.83.0" />
