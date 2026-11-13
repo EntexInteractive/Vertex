@@ -32,11 +32,11 @@
     </PropertyGroup>
 
     <PropertyGroup>
-        <BuildDate>$([System.DateTime]::UtcNow.ToString("MM/dd/yyyy"))</BuildDate>
+        <BuildTimeUtc>$([System.DateTime]::UtcNow.ToString("o"))</BuildTimeUtc>
     </PropertyGroup>
 
     <ItemGroup>
-        <AssemblyMetadata Include="BuildDate" Value="$(BuildDate)"/>
+        <AssemblyMetadata Include="BuildTimeUtc" Value="$(BuildTimeUtc)"/>
     </ItemGroup>
 
     <ItemGroup>

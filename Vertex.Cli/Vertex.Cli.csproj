@@ -33,6 +33,14 @@
         <GenerateDocumentationFile>True</GenerateDocumentationFile>
     </PropertyGroup>
 
+    <PropertyGroup>
+        <BuildTimeUtc>$([System.DateTime]::UtcNow.ToString("o"))</BuildTimeUtc>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <AssemblyMetadata Include="BuildTimeUtc" Value="$(BuildTimeUtc)"/>
+    </ItemGroup>
+
     <ItemGroup>
         <PackageReference Include="EntexInteractive.Extensions" Version="10.0.5"/>
         <PackageReference Include="Google.Protobuf" Version="3.35.1"/>
