@@ -40,48 +40,17 @@ jobs:
         run: dotnet build --no-restore
 
   docker:
-    name: Build Vertex Server
+    name: Server image
     needs: build
     # Pull requests (including from forks) only build; images are published from pushes to this repository.
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Cache Docker layers
-        uses: actions/cache@v4
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-vertex-server
-          restore-keys: |
-            ${{ runner.os }}-vertex-server
-
-      - name: Build and push Vertex Server
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Vertex.Server/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/vertex-server:latest
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
-
-      - name: Move Docker cache
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/server-image.yml
+    with:
+      ref: ${{ github.sha }}
+      tags: |
+        type=raw,value=latest
+        type=sha
+    secrets: inherit

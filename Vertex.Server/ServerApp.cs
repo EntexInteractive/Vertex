@@ -41,8 +41,11 @@ namespace Vertex.Server
             ServerSettings settings = ServerSettings.FromEnvironment();
             AssemblyName assembly = Assembly.GetExecutingAssembly().GetName();
 
+            // Resolve appsettings.json and wwwroot next to the executable rather than the working directory, so a
+            // standalone server logs and serves the UI correctly no matter where it's started from.
             WebApplicationBuilder builder = WebApplication.CreateBuilder(new WebApplicationOptions
             {
+                ContentRootPath = AppContext.BaseDirectory,
                 WebRootPath = Path.Combine(AppContext.BaseDirectory, "wwwroot")
             });
             

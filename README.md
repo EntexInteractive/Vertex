@@ -81,6 +81,25 @@ The client always talks gRPC-Web, so Vertex works behind proxies that strip HTTP
 
 ## Running the server
 
+Server images for `linux/amd64` and `linux/arm64` are published to the GitHub Container Registry and Docker Hub:
+
+| Tag                 | What it is                                              |
+|---------------------|---------------------------------------------------------|
+| `stable`            | The latest release. Use this for real deployments.      |
+| `1.2.0`, `1.2`      | A specific release, or the latest patch of a minor line. |
+| `latest`            | The latest build of `main`. May be unstable.           |
+| `sha-<commit>`      | One exact build.                                        |
+
+```sh
+docker pull ghcr.io/entexinteractive/vertex-server:stable
+```
+
+### Without Docker
+
+Every [release](https://github.com/EntexInteractive/Vertex/releases/latest) also includes a self-contained server
+for Windows, Linux and macOS (`VertexServer-<platform>`, e.g. `VertexServer-linux-x64.tar.gz`), with no .NET install needed. Extract it, set the environment
+variables below, and run `VertexServer`. You still need PostgreSQL and S3-compatible storage; Redis is optional.
+
 `docker-compose.yml` starts a complete local stack with development credentials. To change them, copy `.env.example` to `.env`. To run the server from your IDE instead, start only the dependencies:
 
 ```sh
