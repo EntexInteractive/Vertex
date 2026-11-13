@@ -16,7 +16,12 @@ on:
         type: string
         required: true
       version:
-        description: Version label for the image (org.opencontainers.image.version). Defaults to the commit.
+        description: Version built into the server and its image label (e.g. 1.3.0-beta.1). Empty keeps the .csproj default.
+        type: string
+        required: false
+        default: ''
+      assembly_version:
+        description: Numeric assembly and file version (e.g. 1.3.0.0). Empty keeps the .csproj default.
         type: string
         required: false
         default: ''
@@ -87,6 +92,9 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ inputs.version }}
+            ASSEMBLY_VERSION=${{ inputs.assembly_version }}
           # Layer cache shared between Build Latest and Release runs.
           cache-from: type=gha,scope=vertex-server
           cache-to: type=gha,scope=vertex-server,mode=max
