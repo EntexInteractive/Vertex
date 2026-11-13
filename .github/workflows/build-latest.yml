@@ -9,6 +9,11 @@ on:
   pull_request:
     branches: [ main ]
 
+# A new push to a pull request cancels its previous run; runs on main always finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     name: Build .NET (${{ matrix.os }})
@@ -39,49 +44,45 @@ jobs:
       - name: Build Release
         run: dotnet build --no-restore
 
-  docker:
-    name: Build Vertex Server
-    needs: build
-    # Pull requests (including from forks) only build; images are published from pushes to this repository.
-    if: github.event_name == 'push'
+  web:
+    name: Web UI
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Vertex.Web
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          submodules: recursive
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Vertex.Web/package-lock.json
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Lint
+        run: npm run lint
 
-      - name: Cache Docker layers
-        uses: actions/cache@v4
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-vertex-server
-          restore-keys: |
-            ${{ runner.os }}-vertex-server
+      - name: Type-check and build
+        run: npm run build
 
-      - name: Build and push Vertex Server
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Vertex.Server/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/vertex-server:latest
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
-
-      - name: Move Docker cache
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+  docker:
+    name: Server image
+    needs: [ build, web ]
+    # Pull requests (including from forks) only build; images are published from pushes to this repository.
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/server-image.yml
+    with:
+      ref: ${{ github.sha }}
+      tags: |
+        type=raw,value=latest
+        type=sha
+    secrets: inherit

@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Vertex is pre-alpha. Only the latest commit on `develop` and the latest release receive security fixes.
+Vertex is pre-alpha. Only the latest commit on `main` and the latest release receive security fixes.
 
 ## Reporting a vulnerability
 
