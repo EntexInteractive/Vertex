@@ -77,8 +77,9 @@ whole solution after changing it.
 
 ## Making changes
 
-1. Fork the repository and create a branch from **`develop`**. `main` holds stable releases; pull requests go to
-   `develop`.
+1. Create a branch from **`main`** named `feature/<name>` for new functionality or `patch/<name>` for fixes (e.g.
+   `feature/vx-sync`, `patch/status-crash`). If you don't have write access, fork the repository first. `main` is
+   protected: every change reaches it through a pull request, and nobody pushes to it directly.
 2. Keep each pull request focused on one change. Separate refactors from behavior changes.
 3. Follow the existing style:
     - C#: block-scoped namespaces, braces on new lines, `PascalCase` public members, `_camelCase` private fields,

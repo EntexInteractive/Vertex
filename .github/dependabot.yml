@@ -5,46 +5,38 @@ updates:
     directory: "/Vertex.Agent"
     schedule:
       interval: "daily"
-    target-branch: "develop"
 
   - package-ecosystem: "nuget"
     directory: "/Vertex.Cli"
     schedule:
       interval: "daily"
-    target-branch: "develop"
 
   - package-ecosystem: "nuget"
     directory: "/Vertex.Core"
     schedule:
       interval: "daily"
-    target-branch: "develop"
 
   - package-ecosystem: "nuget"
     directory: "/Vertex.Server"
     schedule:
       interval: "daily"
-    target-branch: "develop"
 
   - package-ecosystem: "npm"
     directory: "/Vertex.Web"
     schedule:
       interval: "daily"
-    target-branch: "develop"
 
   - package-ecosystem: "nuget"
     directory: "/Vertex.Core.Client"
     schedule:
       interval: "daily"
-    target-branch: "develop"
 
   - package-ecosystem: "nuget"
     directory: "/Vertex.Gui"
     schedule:
       interval: "daily"
-    target-branch: "develop"
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
-    target-branch: "develop"

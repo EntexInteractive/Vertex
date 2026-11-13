@@ -61,6 +61,8 @@ building and by running the affected `vx` commands against the local compose sta
   `.env.example` are throwaway development defaults.
 - **Style:** C# uses block-scoped namespaces, braces on new lines, explicit types, `_camelCase` private fields and a
   `// Copyright 2026 Entex Interactive` header on every file. Match the surrounding code.
-- **Branches:** work targets `develop`; `main` is stable. Dependabot also targets `develop`.
+- **Branches:** `main` is protected; never commit or push to it directly. Do work on a branch from `main` named
+  `feature/<name>` (new functionality) or `patch/<name>` (fixes), and merge it through a pull request into `main`.
+  Dependabot opens its pull requests against `main` too.
 - **License:** the project is AGPL-3.0. Don't add dependencies with incompatible licenses (e.g. proprietary or
   SSPL); MIT, BSD, Apache-2.0, LGPL and (A)GPL are fine.
