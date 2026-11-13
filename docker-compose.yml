@@ -88,7 +88,7 @@ services:
 
   # Creates the bucket the server stores chunks in, then exits. Safe to rerun.
   rustfs-init:
-    image: amazon/aws-cli:2.38.6
+    image: amazon/aws-cli:2.39.7
     depends_on:
       - rustfs
     environment:
