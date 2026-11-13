@@ -87,7 +87,6 @@ Server images for `linux/amd64` and `linux/arm64` are published to the GitHub Co
 | `stable`            | The latest release. Use this for real deployments.      |
 | `1.2.0`, `1.2`      | A specific release, or the latest patch of a minor line. |
 | `latest`            | The latest build of `main`. May be unstable.           |
-| `sha-<commit>`      | One exact build.                                        |
 
 ```sh
 docker pull ghcr.io/entexinteractive/vertex-server:stable

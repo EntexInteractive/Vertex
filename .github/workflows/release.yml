@@ -7,7 +7,7 @@ name: Release
 #   3. The server image is pushed to GHCR and Docker Hub, tagged <version>, plus <major>.<minor> and stable for
 #      non-pre-release versions.
 #   4. A GitHub release v<version> is created on the pushed commit, with one archive per app and platform
-#      (vx-win-x64.zip, VertexServer-linux-arm64.tar.gz, ...) and SHA256SUMS.txt. It is published only after every
+#      (vx-win-x64.zip, VertexServer-linux-arm64.tar.gz, ...); GitHub shows each file's SHA-256. It is published only after every
 #      build and the image succeed.
 # Versions with a suffix (-beta.1) are marked as pre-releases. Re-running the workflow replaces the release's files;
 # pushing new commits after a release fails instead, so each version always matches exactly one commit. Release a new
@@ -47,7 +47,6 @@ jobs:
       series: ${{ steps.parse.outputs.series }}
       prerelease: ${{ steps.parse.outputs.prerelease }}
       sha: ${{ github.sha }}
-      short_sha: ${{ steps.parse.outputs.short_sha }}
 
     steps:
       - name: Read version from branch name
@@ -65,7 +64,6 @@ jobs:
           echo "numeric=$numeric"       >> "$GITHUB_OUTPUT"
           echo "series=${BASH_REMATCH[1]}.${BASH_REMATCH[2]}" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
-          echo "short_sha=${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
           # AssemblyVersion/FileVersion must be numeric (1.2.0.0); Version carries the full version (1.3.0-beta.1).
           echo "Releasing $version (assembly version $numeric, pre-release: $prerelease) from ${GITHUB_SHA:0:7}"
 
@@ -160,7 +158,6 @@ jobs:
         type=raw,value=${{ needs.version.outputs.version }}
         type=raw,value=${{ needs.version.outputs.series }},enable=${{ needs.version.outputs.prerelease != 'true' }}
         type=raw,value=stable,enable=${{ needs.version.outputs.prerelease != 'true' }}
-        type=raw,value=sha-${{ needs.version.outputs.short_sha }}
     secrets: inherit
 
   release:
@@ -179,12 +176,6 @@ jobs:
           pattern: release-*
           path: dist
           merge-multiple: true
-
-      - name: Checksums
-        run: |
-          cd dist
-          sha256sum * > SHA256SUMS.txt
-          cat SHA256SUMS.txt
 
       - name: Create or update release
         env:
