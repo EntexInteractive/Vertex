@@ -7,17 +7,19 @@ namespace Vertex.Core.Client.Workspaces
     /// <summary>
     /// A local folder linked to a Vertex project, marked by a <c>.vx</c> directory at its root (like <c>.git</c>).
     /// The workspace holds no history: the server does. Locally it only stores which project and branch it
-    /// follows (<c>.vx/config</c>) and an index of the files it has seen (<c>.vx/index.db</c>).
+    /// follows (<c>.vx/config</c>) and an index of the files it has seen (<c>.vx/index</c>).
     /// </summary>
     public sealed class VWorkspace
     {
         public const string MetadataDirectoryName = ".vx";
         private const string ConfigFileName = "config";
-        private const string IndexFileName = "index.db";
+        private const string IndexFileName = "index";
 
         private readonly string _rootPrefix;
 
-        /// <summary>Full path of the workspace root.</summary>
+        /// <summary>
+        /// Full path of the workspace root.
+        /// </summary>
         public string Root { get; }
 
         public string MetadataDirectory => Path.Combine(Root, MetadataDirectoryName);
@@ -40,7 +42,6 @@ namespace Vertex.Core.Client.Workspaces
         {
             string? current = Path.GetFullPath(path);
             if (File.Exists(current)) current = Path.GetDirectoryName(current);
-
             while (current is not null)
             {
                 if (Directory.Exists(Path.Combine(current, MetadataDirectoryName))) return Open(current);
@@ -66,6 +67,7 @@ namespace Vertex.Core.Client.Workspaces
         {
             root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
             VWorkspace? existing = Find(root);
+            
             if (existing is not null) throw new InvalidOperationException($"'{existing.Root}' is already a Vertex workspace.");
 
             DirectoryInfo metadata = Directory.CreateDirectory(Path.Combine(root, MetadataDirectoryName));

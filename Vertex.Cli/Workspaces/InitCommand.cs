@@ -33,7 +33,7 @@ namespace Vertex.Cli.Workspaces
             VWorkspace? existing = VWorkspace.Find(root);
             if (existing is not null)
             {
-                string linkedTo = existing.Config.Project is null ? "" : $" (linked to {existing.Config.Project}/{existing.Config.Branch})";
+                string linkedTo = existing.Config.Project is null ? "" : $" (linked to {existing.Config.Root})";
                 AnsiConsole.MarkupLine($"[red]'{Markup.Escape(existing.Root)}' is already a Vertex workspace{Markup.Escape(linkedTo)}.[/]");
                 return 1;
             }

@@ -68,7 +68,7 @@ namespace Vertex.Cli.Workspaces
                     return 0;
                 }
 
-                string linkedTo = existing.Config.Project is null ? "" : $" (linked to {existing.Config.Project}/{existing.Config.Branch})";
+                string linkedTo = existing.Config.Project is null ? "" : $" (linked to {existing.Config.Root})";
                 AnsiConsole.MarkupLine($"[red]'{Markup.Escape(existing.Root)}' is already a Vertex workspace{Markup.Escape(linkedTo)}.[/]");
                 return 1;
             }
@@ -83,9 +83,6 @@ namespace Vertex.Cli.Workspaces
             });
 
             AnsiConsole.MarkupLine($"Linked [purple]{Markup.Escape(workspace.Root)}[/] to [purple]{Markup.Escape(project.Name)}/{Markup.Escape(branch.Name)}[/].");
-
-            // TODO: download the branch's files once the server tracks revisions.
-            AnsiConsole.MarkupLine("[grey]Files aren't downloaded yet; that needs revisions on the server.[/]");
             return 0;
         }
     }

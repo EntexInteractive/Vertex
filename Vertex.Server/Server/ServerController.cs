@@ -37,7 +37,7 @@ namespace Vertex.Server.Server
             return Ok(new InfoResponse
             {
                 Address = HttpContext.Connection.LocalIpAddress?.ToString(),
-                BuildDate = assembly.GetCustomAttributes<AssemblyMetadataAttribute>().FirstOrDefault(x => x.Key == "BuildDate")?.Value,
+                BuildTimeUtc = assembly.GetCustomAttributes<AssemblyMetadataAttribute>().FirstOrDefault(x => x.Key == "BuildTimeUtc")?.Value,
                 Date = DateTime.UtcNow,
                 ProcessMs = await _diagnostics.GetProcessTimeAsync(),
                 StartTime = _monitor.StartTime,
