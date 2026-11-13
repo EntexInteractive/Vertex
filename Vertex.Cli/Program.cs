@@ -34,7 +34,11 @@ namespace Vertex.Cli
                 config.SetApplicationName("vx");
                 config.SetExceptionHandler((ex, resolver) =>
                 {
-                    AnsiConsole.MarkupLine($"[red]{Markup.Escape(ex?.Message ?? "Unknown error")}[/]");
+                    // Some exceptions (e.g. a missing assembly in a single-file build) have an empty message; never
+                    // fail silently.
+                    string message = string.IsNullOrWhiteSpace(ex?.Message) ? ex?.GetType().Name ?? "Unknown error" : ex.Message;
+                    AnsiConsole.MarkupLine($"[red]{Markup.Escape(message)}[/]");
+                    if (!Terminal.IsDebugging) AnsiConsole.MarkupLine("[grey]Run the command again with -log for details.[/]");
                     Log.Error(ex, "Command execution failed");
                 });
 
