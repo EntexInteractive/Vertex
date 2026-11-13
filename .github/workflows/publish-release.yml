@@ -1,4 +1,4 @@
-name: Release
+name: Publish Release
 
 # Push a branch named release/<version> (e.g. release/1.2.0 or release/1.3.0-beta.1) to publish a release:
 #   1. The version is taken from the branch name and passed to every build (-p:Version / -p:AssemblyVersion). Nothing
