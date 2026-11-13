@@ -42,12 +42,10 @@ namespace Vertex.Cli.Branches
     /// </remarks>
     public sealed class BranchCommand : AsyncCommand<BranchCommandSettings>
     {
-        private const string ListKeyword = "list";
-
         public override async Task<int> ExecuteAsync(CommandContext context, BranchCommandSettings settings, CancellationToken cancellationToken)
         {
             string? name = settings.Name?.Trim();
-            Workspace? workspace = Workspace.Find(Directory.GetCurrentDirectory());
+            VWorkspace? workspace = VWorkspace.Find(Directory.GetCurrentDirectory());
 
             if (string.IsNullOrEmpty(name))
             {
@@ -60,10 +58,10 @@ namespace Vertex.Cli.Branches
                 return ShowCurrent(workspace);
             }
 
-            bool list = name.Equals(ListKeyword, StringComparison.OrdinalIgnoreCase);
+            bool list = name.Equals("list", StringComparison.OrdinalIgnoreCase);
             if (list && settings.Delete)
             {
-                AnsiConsole.MarkupLine($"[red]'{ListKeyword}' is a command, not a branch name.[/]");
+                AnsiConsole.MarkupLine($"[red]'list' is a command, not a branch name.[/]");
                 return 1;
             }
 
@@ -79,7 +77,7 @@ namespace Vertex.Cli.Branches
             return settings.Delete ? await DeleteAsync(branches, projectId.Value, name, currentBranch, settings.Force, cancellationToken) : await CreateAsync(branches, projectId.Value, name, currentBranchId, currentBranch, cancellationToken);
         }
 
-        private static int ShowCurrent(Workspace? workspace)
+        private static int ShowCurrent(VWorkspace? workspace)
         {
             if (workspace?.Config.Branch is not string branch)
             {
@@ -180,7 +178,7 @@ namespace Vertex.Cli.Branches
         /// <summary>
         /// Uses <c>--project</c> when given (one server lookup), otherwise the workspace's project id (no lookup).
         /// </summary>
-        private static async Task<Guid?> ResolveProjectAsync(BranchCommandSettings settings, Workspace? workspace, CancellationToken cancellationToken)
+        private static async Task<Guid?> ResolveProjectAsync(BranchCommandSettings settings, VWorkspace? workspace, CancellationToken cancellationToken)
         {
             if (settings.Project is null)
             {

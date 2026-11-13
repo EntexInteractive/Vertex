@@ -32,20 +32,21 @@
     </PropertyGroup>
 
     <PropertyGroup>
-        <BuildDate>$([System.DateTime]::UtcNow.ToString("MM/dd/yyyy"))</BuildDate>
+        <BuildTimeUtc>$([System.DateTime]::UtcNow.ToString("o"))</BuildTimeUtc>
     </PropertyGroup>
 
     <ItemGroup>
-        <AssemblyMetadata Include="BuildDate" Value="$(BuildDate)"/>
+        <AssemblyMetadata Include="BuildTimeUtc" Value="$(BuildTimeUtc)"/>
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="AWSSDK.S3" Version="4.0.104.10"/>
+        <PackageReference Include="AWSSDK.S3" Version="4.1.0"/>
         <PackageReference Include="Dapper" Version="2.1.89"/>
         <PackageReference Include="EntexInteractive.Extensions.Diagnostics" Version="10.0.6"/>
-        <PackageReference Include="Grpc.AspNetCore" Version="2.83.0" />
+        <PackageReference Include="Grpc.AspNetCore" Version="2.85.0" />
+        <PackageReference Include="Grpc.AspNetCore.Web" Version="2.83.0"/>
         <PackageReference Include="Grpc.AspNetCore.Server.Reflection" Version="2.83.0" />
-        <PackageReference Include="Grpc.HealthCheck" Version="2.83.0" />
+        <PackageReference Include="Grpc.HealthCheck" Version="2.85.0" />
         <PackageReference Include="Grpc.Reflection" Version="2.83.0" />
         <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" Version="9.0.19" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.17"/>

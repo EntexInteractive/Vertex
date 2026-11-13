@@ -1,0 +1,113 @@
+# Local Vertex stack: the server plus Postgres, Redis and RustFS (S3-compatible storage).
+#
+#   docker compose up -d --build      start everything; the CLI's default http://127.0.0.1:5000 reaches the server
+#   docker compose up -d postgres redis rustfs rustfs-init
+#                                     only the dependencies, to run the server from your IDE (see README)
+#   docker compose down               stop; add -v to also delete all data
+#
+# Credentials default to development values. Override them in a .env file next to this one (it is git-ignored);
+# see .env.example. Infrastructure ports are bound to 127.0.0.1 so they aren't reachable from your network.
+
+name: vertex
+
+x-s3-credentials: &s3-credentials
+  RUSTFS_ACCESS_KEY: ${VX_S3_ACCESS_KEY:-vertexadmin}
+  RUSTFS_SECRET_KEY: ${VX_S3_SECRET_KEY:-vertexadmin}
+
+services:
+  vertex:
+    build:
+      context: .
+      dockerfile: Vertex.Server/Dockerfile
+    image: vertex-server:local
+    restart: unless-stopped
+    ports:
+      - "5000:8080"
+    environment:
+      VX_HTTP_PORT: "8080"
+      VX_POSTGRES_CONNECTION: Host=postgres;Port=5432;Database=vertex;Username=vertex;Password=${VX_POSTGRES_PASSWORD:-vertex}
+      VX_REDIS_CONNECTION: redis:6379
+      VX_S3_ENDPOINT: http://rustfs:9000
+      VX_S3_REGION: us-east-1
+      VX_S3_BUCKET: ${VX_S3_BUCKET:-vertex-storage}
+      VX_S3_ACCESS_KEY: ${VX_S3_ACCESS_KEY:-vertexadmin}
+      VX_S3_SECRET_KEY: ${VX_S3_SECRET_KEY:-vertexadmin}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rustfs-init:
+        condition: service_completed_successfully
+
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_DB: vertex
+      POSTGRES_USER: vertex
+      POSTGRES_PASSWORD: ${VX_POSTGRES_PASSWORD:-vertex}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      # Runs once, when the data volume is first created.
+      - ./Vertex.Server/Database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U vertex -d vertex" ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  rustfs:
+    image: rustfs/rustfs:1.0.4
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9000:9000"   # S3 API
+      - "127.0.0.1:9001:9001"   # Web console
+    environment:
+      <<: *s3-credentials
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: ":9000"
+      RUSTFS_CONSOLE_ENABLE: "true"
+    volumes:
+      - rustfs-data:/data
+
+  # Creates the bucket the server stores chunks in, then exits. Safe to rerun.
+  rustfs-init:
+    image: amazon/aws-cli:2.38.6
+    depends_on:
+      - rustfs
+    environment:
+      AWS_ACCESS_KEY_ID: ${VX_S3_ACCESS_KEY:-vertexadmin}
+      AWS_SECRET_ACCESS_KEY: ${VX_S3_SECRET_KEY:-vertexadmin}
+      AWS_DEFAULT_REGION: us-east-1
+      BUCKET: ${VX_S3_BUCKET:-vertex-storage}
+    entrypoint: [ "/bin/sh", "-c" ]
+    command:
+      - |
+        for i in $$(seq 1 30); do
+          aws --endpoint-url http://rustfs:9000 s3api head-bucket --bucket "$$BUCKET" 2>/dev/null && { echo "Bucket $$BUCKET exists"; exit 0; }
+          aws --endpoint-url http://rustfs:9000 s3api create-bucket --bucket "$$BUCKET" 2>/dev/null && { echo "Created bucket $$BUCKET"; exit 0; }
+          sleep 2
+        done
+        echo "RustFS did not become ready" >&2
+        exit 1
+
+volumes:
+  postgres-data:
+  redis-data:
+  rustfs-data:

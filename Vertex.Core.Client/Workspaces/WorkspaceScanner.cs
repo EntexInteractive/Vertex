@@ -70,7 +70,7 @@ namespace Vertex.Core.Client.Workspaces
         /// <summary>Path comparison matching the platform's file system.</summary>
         public static StringComparer PathComparer { get; } = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
-        public static WorkspaceStatus Scan(Workspace workspace, WorkspaceIndex index, ScanOptions? options = null, CancellationToken cancellationToken = default)
+        public static WorkspaceStatus Scan(VWorkspace workspace, WorkspaceIndex index, ScanOptions? options = null, CancellationToken cancellationToken = default)
         {
             options ??= new ScanOptions();
             IgnoreRules ignore = IgnoreRules.Load(workspace.Root);

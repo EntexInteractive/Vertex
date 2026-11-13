@@ -1,0 +1,56 @@
+name: Bug report
+description: Something in Vertex doesn't work the way it should.
+labels: [ "bug" ]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! For security vulnerabilities, don't open an issue. See SECURITY.md instead.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected to happen, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The exact commands you ran. Run them with `-log` for debug output.
+      placeholder: |
+        1. vx init
+        2. vx push
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - CLI (vx)
+        - Server
+        - Agent
+        - Web UI
+        - Desktop app
+        - Docker / deployment
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Vertex version
+      description: Shown by `vx info`, or the commit you built from.
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: Windows 11, Ubuntu 24.04, macOS 15, ...
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant output. Remove passwords, keys and connection strings first.
+      render: text

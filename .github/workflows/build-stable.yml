@@ -1,8 +1,7 @@
-name: Build Latest
+name: Build Stable
 
 permissions:
   contents: read
-  packages: write
 
 on:
   push:
@@ -43,6 +42,8 @@ jobs:
   docker:
     name: Build Vertex Server
     needs: build
+    # Pull requests (including from forks) only build; images are published from pushes to this repository.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
 
     steps:

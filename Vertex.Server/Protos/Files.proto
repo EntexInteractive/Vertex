@@ -9,12 +9,15 @@ package files;
 // manifest (ordered list of chunk refs) whose id is a hash over that list, so both chunk ids and file ids
 // can be recomputed and verified by the server and by clients.
 //
-// Push: FindMissingFiles -> FindMissingChunks -> UploadChunks -> SubmitFiles.
+// Push: FindMissingFiles -> FindMissingChunks -> UploadChunks (many, in parallel) -> SubmitFiles.
 // Pull: GetManifest -> DownloadChunks (only for chunks not already available locally).
+//
+// Clients call this service over gRPC-Web so it works through proxies that drop HTTP/2 trailers, such as
+// Cloudflare Tunnel. gRPC-Web can't stream from client to server, so uploads are unary batches.
 service Files {
   rpc FindMissingFiles(FindMissingFilesRequest) returns (FindMissingFilesResponse);
   rpc FindMissingChunks(FindMissingChunksRequest) returns (FindMissingChunksResponse);
-  rpc UploadChunks(stream ChunkData) returns (UploadChunksResponse);
+  rpc UploadChunks(UploadChunksRequest) returns (UploadChunksResponse);
   rpc SubmitFiles(SubmitFilesRequest) returns (SubmitFilesResponse);
   rpc GetManifest(GetManifestRequest) returns (FileManifest);
   rpc DownloadChunks(DownloadChunksRequest) returns (stream ChunkData);
@@ -50,6 +53,10 @@ message FindMissingChunksRequest {
 
 message FindMissingChunksResponse {
   repeated bytes ids = 1;
+}
+
+message UploadChunksRequest {
+  repeated ChunkData chunks = 1;  // Total stays under the gRPC message limit (about one maximum-size chunk).
 }
 
 message UploadChunksResponse {

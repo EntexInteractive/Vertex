@@ -8,7 +8,7 @@ namespace Vertex.Core.Net.Responses
     public sealed record InfoResponse
     {
         public string? Address { get; set; }
-        public string? BuildDate { get; set; }
+        public string? BuildTimeUtc { get; set; }
         public DateTime Date { get; set; }
         public double ProcessMs { get; set; }
         public DateTime StartTime { get; set; }

@@ -16,11 +16,16 @@ namespace Vertex.Core.Net
         public const int MaximumMessageSize = ContentChunker.MaximumChunkSize + 256 * 1024;
 
         /// <summary>
-        /// Raw bytes sent in one UploadChunks stream before the client starts a new one. Keeps each HTTP request
-        /// under proxy body limits (Cloudflare caps a request at 100 MB on Free/Pro) and limits lost work if a
-        /// stream fails.
+        /// Raw bytes packed into one UploadChunks request. Small chunks share a request; a maximum-size chunk goes
+        /// alone. Compressed data plus framing then always fits in <see cref="MaximumMessageSize"/>, and each
+        /// request stays far below proxy body limits (Cloudflare: 100 MB on Free/Pro).
         /// </summary>
-        public const long MaximumUploadStreamBytes = 64L * 1024 * 1024;
+        public const long MaximumUploadRequestBytes = ContentChunker.MaximumChunkSize;
+
+        /// <summary>
+        /// Raw bytes per DownloadChunks response stream, so one call can't run past proxy response timeouts.
+        /// </summary>
+        public const long MaximumDownloadStreamBytes = 64L * 1024 * 1024;
 
         /// <summary>
         /// Most ids in one FindMissing request (64 bytes per hex file id, 32 per chunk id).

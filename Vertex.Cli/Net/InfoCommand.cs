@@ -1,5 +1,8 @@
 // Copyright 2026 Entex Interactive
 
+using System.Diagnostics;
+using System.Globalization;
+using System.Reflection;
 using Spectre.Console;
 using Vertex.Core.Net.Interfaces;
 using Vertex.Core.Net.Responses;
@@ -11,8 +14,11 @@ namespace Vertex.Cli.Net
     {
         public override async Task<int> ExecuteAsync(CommandContext context, NetworkSettings settings, CancellationToken cancellationToken)
         {
+            Stopwatch sw = Stopwatch.StartNew();
             using ServerInterface server = new(settings.ServerAddress);
             ServerResult<InfoResponse> result = await server.GetInfoAsync(cancellationToken);
+            sw.Stop();
+            
             if (!result.IsSuccessStatusCode)
             {
                 AnsiConsole.MarkupLine($"[red]{Markup.Escape(result.Exception?.Message ?? "Unknown error")}[/]");
@@ -20,16 +26,20 @@ namespace Vertex.Cli.Net
             }
 
             InfoResponse info = result.Data!;
-            Table table = new Table().Border(TableBorder.Rounded).AddColumn("Property").AddColumn("Value");
-            table.AddRow("Current directory", Directory.GetCurrentDirectory());
-            table.AddRow("Client version", typeof(Program).Assembly.GetName().Version?.ToString() ?? "");
-            table.AddRow("Client address", info.Address ?? "");
-            table.AddRow("Server address", settings.ServerAddress);
-            table.AddRow("Server date", info.Date.ToLocalTime().ToString("MM/dd/yyyy HH:mm:ss zzz"));
-            table.AddRow("Server uptime", info.Uptime.ToString());
-            table.AddRow("Server response", $"{info.ProcessMs}ms");
-            table.AddRow("Server version", $"{info.Version} ({info.BuildDate})");
-            AnsiConsole.Write(table);
+            string? clientBuildTimeUtc = typeof(Program).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>().FirstOrDefault(x => x.Key == "BuildTimeUtc")?.Value;
+            DateTime? clientBuild = DateTime.TryParse(clientBuildTimeUtc, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out DateTime parsedClient) ? parsedClient : null;
+            DateTime? serverBuild = DateTime.TryParse(info.BuildTimeUtc, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out DateTime parsedServer) ? parsedServer : null;
+            
+            AnsiConsole.WriteLine($"Current directory: {Directory.GetCurrentDirectory()}");
+            AnsiConsole.WriteLine($"Client address:    {info.Address}");
+            AnsiConsole.WriteLine($"Client latency:    {sw.ElapsedMilliseconds}ms");
+            AnsiConsole.WriteLine($"Client version:    {typeof(Program).Assembly.GetName().Version?.ToString() ?? ""} {(clientBuild?.ToLocalTime().ToString("(MM/dd/yyyy)") ?? "")}");
+
+            AnsiConsole.WriteLine($"Server address:    {settings.ServerAddress}");
+            AnsiConsole.WriteLine($"Server date:       {info.Date.ToLocalTime():MM/dd/yyyy HH:mm:ss zzz}");
+            AnsiConsole.WriteLine($"Server uptime:     {info.Uptime:g}");
+            AnsiConsole.WriteLine($"Server response:   {info.ProcessMs}ms");
+            AnsiConsole.WriteLine($"Server version:    {info.Version} {(serverBuild?.ToLocalTime().ToString("(MM/dd/yyyy)") ?? "")}");
             return 0;
         }
     }

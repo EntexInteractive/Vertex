@@ -58,7 +58,7 @@ namespace Vertex.Cli.Workspaces
             string root = System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(settings.Path ?? Directory.GetCurrentDirectory()));
 
             // Fetching again into a folder already linked to this project and branch is a no-op, not an error.
-            Workspace? existing = Workspace.Find(root);
+            VWorkspace? existing = VWorkspace.Find(root);
             if (existing is not null)
             {
                 bool sameRoot = string.Equals(existing.Root, root, OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase);
@@ -68,12 +68,12 @@ namespace Vertex.Cli.Workspaces
                     return 0;
                 }
 
-                string linkedTo = existing.Config.Project is null ? "" : $" (linked to {existing.Config.Project}/{existing.Config.Branch})";
+                string linkedTo = existing.Config.Project is null ? "" : $" (linked to {existing.Config.Root})";
                 AnsiConsole.MarkupLine($"[red]'{Markup.Escape(existing.Root)}' is already a Vertex workspace{Markup.Escape(linkedTo)}.[/]");
                 return 1;
             }
 
-            Workspace workspace = Workspace.Initialize(root, new WorkspaceConfig
+            VWorkspace workspace = VWorkspace.Initialize(root, new WorkspaceConfig
             {
                 Address = settings.ServerAddress,
                 Project = project.Name,
@@ -83,9 +83,6 @@ namespace Vertex.Cli.Workspaces
             });
 
             AnsiConsole.MarkupLine($"Linked [purple]{Markup.Escape(workspace.Root)}[/] to [purple]{Markup.Escape(project.Name)}/{Markup.Escape(branch.Name)}[/].");
-
-            // TODO: download the branch's files once the server tracks revisions.
-            AnsiConsole.MarkupLine("[grey]Files aren't downloaded yet; that needs revisions on the server.[/]");
             return 0;
         }
     }

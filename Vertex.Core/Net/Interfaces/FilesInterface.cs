@@ -268,26 +268,18 @@ namespace Vertex.Core.Net.Interfaces
 
         private async Task<(long Raw, long Compressed)> UploadBatchAsync(List<(ChunkedFile File, FileChunk Chunk)> batch, CancellationToken ct)
         {
-            using AsyncClientStreamingCall<ChunkData, UploadChunksResponse> call = FilesClient.UploadChunks(cancellationToken: ct);
+            // Batches are small (at most one maximum-size chunk of raw data), so reading and compressing them here
+            // costs little; overlap comes from several batches uploading in parallel.
+            UploadChunksRequest request = new();
             long raw = 0;
-
-            // Read + compress the next chunk on the thread pool while the current one is on the wire.
-            Task<ChunkData> next = Task.Run(() => PrepareChunk(batch[0].File, batch[0].Chunk), ct);
-            for (int i = 0; i < batch.Count; i++)
+            foreach ((ChunkedFile file, FileChunk chunk) in batch)
             {
-                ChunkData message = await next;
-                if (i + 1 < batch.Count)
-                {
-                    (ChunkedFile file, FileChunk chunk) = batch[i + 1];
-                    next = Task.Run(() => PrepareChunk(file, chunk), ct);
-                }
-
-                await call.RequestStream.WriteAsync(message, ct);
+                ChunkData message = PrepareChunk(file, chunk);
+                request.Chunks.Add(message);
                 raw += message.Size;
             }
 
-            await call.RequestStream.CompleteAsync();
-            UploadChunksResponse response = await call.ResponseAsync;
+            UploadChunksResponse response = await FilesClient.UploadChunksAsync(request, cancellationToken: ct);
             return (raw, response.BytesReceived);
         }
 
@@ -338,7 +330,7 @@ namespace Vertex.Core.Net.Interfaces
         }
 
         /// <summary>
-        /// Groups chunks into upload streams capped at <see cref="FileTransferLimits.MaximumUploadStreamBytes"/>,
+        /// Groups chunks into upload requests capped at <see cref="FileTransferLimits.MaximumUploadRequestBytes"/>,
         /// keeping a file's chunks together so reads stay mostly sequential.
         /// </summary>
         private static IEnumerable<List<(ChunkedFile File, FileChunk Chunk)>> BatchUploads(List<(ChunkedFile File, FileChunk Chunk)> chunks)
@@ -347,7 +339,7 @@ namespace Vertex.Core.Net.Interfaces
             long bytes = 0;
             foreach ((ChunkedFile File, FileChunk Chunk) item in chunks)
             {
-                if (batch.Count > 0 && bytes + item.Chunk.Length > FileTransferLimits.MaximumUploadStreamBytes)
+                if (batch.Count > 0 && bytes + item.Chunk.Length > FileTransferLimits.MaximumUploadRequestBytes)
                 {
                     yield return batch;
                     batch = new List<(ChunkedFile, FileChunk)>();
@@ -370,7 +362,7 @@ namespace Vertex.Core.Net.Interfaces
             long bytes = 0;
             foreach (PendingChunk chunk in chunks)
             {
-                if (batch.Count > 0 && (batch.Count == FileTransferLimits.MaximumChunksPerDownload || bytes + chunk.Size > FileTransferLimits.MaximumUploadStreamBytes))
+                if (batch.Count > 0 && (batch.Count == FileTransferLimits.MaximumChunksPerDownload || bytes + chunk.Size > FileTransferLimits.MaximumDownloadStreamBytes))
                 {
                     yield return batch.ToArray();
                     batch.Clear();

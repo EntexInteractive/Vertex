@@ -7,24 +7,26 @@ namespace Vertex.Core.Client.Workspaces
     /// <summary>
     /// A local folder linked to a Vertex project, marked by a <c>.vx</c> directory at its root (like <c>.git</c>).
     /// The workspace holds no history: the server does. Locally it only stores which project and branch it
-    /// follows (<c>.vx/config</c>) and an index of the files it has seen (<c>.vx/index.db</c>).
+    /// follows (<c>.vx/config</c>) and an index of the files it has seen (<c>.vx/index</c>).
     /// </summary>
-    public sealed class Workspace
+    public sealed class VWorkspace
     {
         public const string MetadataDirectoryName = ".vx";
         private const string ConfigFileName = "config";
-        private const string IndexFileName = "index.db";
+        private const string IndexFileName = "index";
 
         private readonly string _rootPrefix;
 
-        /// <summary>Full path of the workspace root.</summary>
+        /// <summary>
+        /// Full path of the workspace root.
+        /// </summary>
         public string Root { get; }
 
         public string MetadataDirectory => Path.Combine(Root, MetadataDirectoryName);
 
         public WorkspaceConfig Config { get; }
 
-        private Workspace(string root, WorkspaceConfig config)
+        private VWorkspace(string root, WorkspaceConfig config)
         {
             Root = root;
             Config = config;
@@ -36,11 +38,10 @@ namespace Vertex.Core.Client.Workspaces
         /// <c>.git</c>.
         /// </summary>
         /// <returns>The workspace, or null when <paramref name="path"/> is not inside one.</returns>
-        public static Workspace? Find(string path)
+        public static VWorkspace? Find(string path)
         {
             string? current = Path.GetFullPath(path);
             if (File.Exists(current)) current = Path.GetDirectoryName(current);
-
             while (current is not null)
             {
                 if (Directory.Exists(Path.Combine(current, MetadataDirectoryName))) return Open(current);
@@ -53,7 +54,7 @@ namespace Vertex.Core.Client.Workspaces
         /// <summary>
         /// Like <see cref="Find"/>, but throws a message suitable for the user when there is no workspace.
         /// </summary>
-        public static Workspace FindRequired(string path)
+        public static VWorkspace FindRequired(string path)
         {
             return Find(path) ?? throw new InvalidOperationException($"'{Path.GetFullPath(path)}' is not inside a Vertex workspace. Run 'vx init' to create one.");
         }
@@ -62,10 +63,11 @@ namespace Vertex.Core.Client.Workspaces
         /// Creates a new workspace at <paramref name="root"/>.
         /// </summary>
         /// <exception cref="InvalidOperationException"><paramref name="root"/> is already inside a workspace.</exception>
-        public static Workspace Initialize(string root, WorkspaceConfig config)
+        public static VWorkspace Initialize(string root, WorkspaceConfig config)
         {
             root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
-            Workspace? existing = Find(root);
+            VWorkspace? existing = Find(root);
+            
             if (existing is not null) throw new InvalidOperationException($"'{existing.Root}' is already a Vertex workspace.");
 
             DirectoryInfo metadata = Directory.CreateDirectory(Path.Combine(root, MetadataDirectoryName));
@@ -80,11 +82,11 @@ namespace Vertex.Core.Client.Workspaces
             return Open(root);
         }
 
-        private static Workspace Open(string root)
+        private static VWorkspace Open(string root)
         {
             root = Path.TrimEndingDirectorySeparator(root);
             WorkspaceConfig config = WorkspaceConfig.Load(Path.Combine(root, MetadataDirectoryName, ConfigFileName)) ?? new WorkspaceConfig();
-            return new Workspace(root, config);
+            return new VWorkspace(root, config);
         }
 
         /// <summary>

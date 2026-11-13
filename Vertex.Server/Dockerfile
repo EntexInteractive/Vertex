@@ -19,4 +19,5 @@ RUN dotnet publish "./Vertex.Server.csproj" -c $BUILD_CONFIGURATION -a $TARGETAR
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
+COPY LICENSE /app/LICENSE
 ENTRYPOINT ["dotnet", "VertexServer.dll"]

@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Security.Cryptography.X509Certificates;
 using Amazon;
+using Grpc.AspNetCore.Web;
 using Amazon.Runtime;
 using Amazon.S3;
 using EntexInteractive.Extensions.Diagnostics;
@@ -190,7 +191,10 @@ namespace Vertex.Server
             using PhysicalFileProvider reactFiles = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(app.Environment.WebRootPath);
             app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = reactFiles });
             app.UseStaticFiles(new StaticFileOptions { FileProvider = reactFiles });
-            
+
+            // Accept gRPC-Web as well as native gRPC. gRPC-Web carries the call status in the response body instead of
+            // HTTP/2 trailers, which some proxies (Cloudflare Tunnel) drop.
+            app.UseGrpcWeb(new GrpcWebOptions { DefaultEnabled = true });
             app.MapGrpcService<GreeterService>();
             app.MapGrpcService<FileTransferService>();
             

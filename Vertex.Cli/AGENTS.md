@@ -1,7 +1,26 @@
 # Vertex.Cli
 
-The command-line client registers commands through Program.cs and Startup.cs. Look in IO/ for push, pull, and changes,
-and in Net/ for server commands. Preserve command names, option defaults, and exit behavior. Exercise the affected
-command through the CLI.
+The `vx` command line client, built on Spectre.Console.Cli. See the root AGENTS.md for project-wide rules.
 
-From the Vertex repository root, run `dotnet build Vertex.Cli/Vertex.Cli.csproj`.
+- `Program.cs` sets up logging (`-log` enables debug output) and runs a single command, or an interactive prompt
+  when started without arguments. `Startup.cs` registers every command; a command class does nothing until it is
+  registered there.
+- Commands are grouped by area: `Workspaces/` (`init`, `fetch`), `Files/` (`status`, `push`, `pull`; `submit` and
+  `sync` are empty placeholders), `Branches/` (`branch`), `Projects/`, `Profiles/`, `Net/` (`info`), `Utils/`.
+- Shared options live in settings classes: `NetworkSettings` (`--server`, default `http://127.0.0.1:5000`),
+  `ProjectSettings`, `BranchSettings` and `FilesSettings`. Extend these instead of redeclaring options.
+- Server calls go through the interfaces in `Vertex.Core/Net/Interfaces`, and workspace logic belongs in
+  `Vertex.Core.Client`. Keep commands thin: parse, call, print.
+
+UX rules (ease of use is the top priority):
+
+- Default to the current folder and to the workspace's project and branch. The common case shouldn't need flags.
+- Make commands safe to re-run. Ask for confirmation only before destructive server-side actions (for example
+  `vx branch -d`).
+- Report an error as one red line that names the fix, e.g. "Project 'X' already exists. Use 'vx fetch X' to link
+  this folder to it."
+- Escape user-supplied text with `Markup.Escape` before printing it as markup.
+- Keep existing command names, option names, defaults and exit codes (0 for success, non-zero for failure).
+
+Build: `dotnet build Vertex.Cli/Vertex.Cli.csproj` from the repository root. The output is `vx` in
+`Vertex.Cli/bin/<Configuration>/net10.0/`. Run the affected command against a local server to verify a change.

@@ -1,84 +1,34 @@
-## Getting Started with HelloPhotino.React
+# Vertex.Gui
 
-This sample demonstrates how to create a basic React starter app in a Photino.NET application. It utilizes
-Photino.NET.Server which serves (often bundled) UI files from a local ASP.NET server. This gets around issues with
-serving JavaScript modules, bundles, and other resources from static files and allows the UI to make standard service
-calls to the .NET back end if desired.
+The Vertex desktop app. It's a small [Photino.NET](https://www.tryphotino.io/) host that opens a native window and
+shows the shared web UI from [`Vertex.Web`](../Vertex.Web).
 
-## Development
+## How it works
 
-### Calling C# from React
+- Building this project runs `npm ci` and `npm run build` in `Vertex.Web` (see `Vertex.React.targets` at the repository
+  root) and embeds the output as resources. `Photino.NET.Server` serves the embedded files from a local static file
+  server, so the published app is a single executable with no separate web files.
+- The UI calls C# through Photino's web message bridge. `Vertex.Web/src/backend.ts` sends
+  `{ type: "request", id, method, payload }`, and `Program.HandleUiMessage` answers with a matching response.
 
-This project uses Photino.NET, which provides a web-message bridge similar in purpose to Electron IPC. The React helper in `UserInterface/app/backend.ts` sends a request with a method name, payload, and request ID; the C# host handles it and returns a matching response. Calls return promises, so they can be awaited from button handlers.
+## Adding a backend method
 
-Add callable methods to the allowlist in `Program.HandleUiMessage`, then call them from React:
+1. Add the method to the allowlist `switch` in `Program.HandleUiMessage`. Only methods listed there can be called.
+2. Add its payload and result types to `BackendMethods` in `Vertex.Web/src/backend.ts`.
+3. Call it from React:
 
-```tsx
-const result = await invokeBackend<string>("app.getGreeting", { name: "Ada" });
+   ```tsx
+   const greeting = await callBackend("app.getGreeting", { name: "Ada" });
+   ```
+
+`callBackend` throws when the page runs in a normal browser, so check `hasPhotinoBackend()` before showing desktop-only
+features.
+
+## Building
+
+From the repository root:
+
+```sh
+dotnet build Vertex.Gui/Vertex.Gui.csproj
+dotnet run --project Vertex.Gui
 ```
-
-Use only methods explicitly registered by the host. This bridge is for calls from the UI inside the Photino window; the helper reports an error when rendered in a normal browser.
-
-### User Interface
-
-The entire user interface is contained in the UserInterface folder. It can be maintained independently of the .NET
-portion of the application. It uses standard React development paradigms. To begin development, first issue the
-following command from the UserInterface folder to install the necessary dependencies:
-
-```bash
-npm install
-```
-
-During development, the user is expected to run the React development server using the following command from the
-UserInterface folder:
-
-```bash
-npm run dev
-``` 
-
-### .NET
-
-During development, The .NET application expects the React development server to be running (see above). The .NET
-application will proxy requests to the React development server. To run the .NET application, issue the following
-command from the UserInterface folder:
-
-```bash
-dotnet run
-```
-
-If the development server isn't running, the UI will not be able to serve the UI and you'll get a "localhost refused to
-connect" or similar error.
-
-## Production
-
-### User Interface
-
-The first step in doing a production build of the UI is to issue the following command from the UserInterface folder:
-
-```bash
-npm run build
-```
-
-This will create a folder named build in the UserInterface folder. Manually copy the contents of this folder to the
-Resources/wwwroot folder in the .NET project. This process is not automated because it differs by operating system. Feel
-free to automate this step in your own environment.
-
-### .NET
-
-After doing a production build of the user interface and copying the resulting output to the wwwroot folder, the .NET
-application can be built in release mode by using the Configuration Manager in Visual Studio or by issuing the following
-command from the root .NET project folder:
-
-```bash
-dotnet build -c Release
-```
-
-### Photino.NET.Server
-
-In release mode, the UI is served from ASP.NET. Photino.NET.Server serves files from either embedded resources (built
-into the .NET assembly) or from the file system. In this sample, we placed the wwwroot folder in the Resources folder.
-All files in the Resources folder are embedded into the .NET assembly and don't need to be distributed separately. When
-run, the server will create a wwwroot folder structure in the output folder. Any files placed in these folders will
-override the embedded resources. Alternately, you may choose to move the wwwroot folder to the root of the project and
-set the files to be copied to the output folder. This is how many of the simpler examples are configured. Or you can use
-both methods. The choice is yours.
