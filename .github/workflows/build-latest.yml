@@ -84,5 +84,4 @@ jobs:
       ref: ${{ github.sha }}
       tags: |
         type=raw,value=latest
-        type=sha
     secrets: inherit
