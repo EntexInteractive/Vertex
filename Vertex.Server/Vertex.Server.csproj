@@ -40,7 +40,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="AWSSDK.S3" Version="4.0.104.10"/>
+        <PackageReference Include="AWSSDK.S3" Version="4.1.0"/>
         <PackageReference Include="Dapper" Version="2.1.89"/>
         <PackageReference Include="EntexInteractive.Extensions.Diagnostics" Version="10.0.6"/>
         <PackageReference Include="Grpc.AspNetCore" Version="2.83.0" />
