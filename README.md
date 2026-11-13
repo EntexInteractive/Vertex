@@ -2,23 +2,59 @@
 
 [![.NET](https://img.shields.io/github/actions/workflow/status/EntexInteractive/Vertex/build-latest.yml?label=Main%20build&style=for-the-badge)](https://github.com/EntexInteractive/Vertex/actions/workflows/build-latest.yml) [![latest version](https://img.shields.io/github/v/release/EntexInteractive/Vertex?label=Latest%20release&style=for-the-badge)](https://github.com/EntexInteractive/Vertex/releases/latest) [![GitHub Downloads](https://img.shields.io/github/downloads/EntexInteractive/Vertex/total?style=for-the-badge)](https://github.com/EntexInteractive/Vertex/releases/latest) [![Docker Pulls](https://img.shields.io/docker/pulls/entexinteractive/vertex-server?style=for-the-badge)](https://hub.docker.com/r/entexinteractive/vertex-server)
 
-**Version control without the hassle.**
-
-Vertex keeps a single central history on a server, so large binary assets don't live in every clone, and the command line feels like git: `vx init`, `vx status`, `vx push`. The server is stateless and stores file content in S3, so you can run it on a single Docker host or scale it out in Kubernetes.
-
 > [!WARNING]
-> Vertex is **pre-alpha**. Workspaces, branches, status, and content upload work, but revisions (`vx submit`) and syncing (`vx sync`) are still being built. Don't trust it with your only copy of anything yet.
+> Vertex is **early development**. A lot of the core systems are still being built. Don't trust it blindly with your only copy of anything.
+
+## What is Vertex?
+
+**Vertex is an open-source, self-hosted development platform designed to bring source control, code review, build automation, issue tracking, and development workflows together into one unified ecosystem.** Built with binary assets in mind, Vertex aims to combine the centralized version control capabilities of Perforce with the simplicity of Git and the integrated development workflows of modern DevOps platforms.
+
+At its core, Vertex provides a centralized source control system powered by content-addressable storage (CAS), deduplication, content-defined chunking, and high-performance gRPC file transfers. It is designed to efficiently manage large repositories, binary assets, and collaborative development projects. Beyond source control, Vertex's long-term vision is to provide an all-in-one development environment where submitting changes, reviewing code, building projects, tracking issues, and automating workflows are all seamlessly connected.
+
+Whether you're an independent developer working on your first game or a studio managing multiple projects, the goal is the same: **spend less time managing development infrastructure and more time building.**
 
 ## Why Vertex?
 
-- **Made for big binary files.** Files are split with content-defined chunking (FastCDC) and compressed with zstd, so
-  An edited multi-gigabyte asset uploads only the changed chunks, and identical content is stored once.
-- **Centralized, like Perforce.** History lives on the server, not in every workspace, and revisions are numbered (`#1234`) and linear. A workspace holds only the files you work on.
-- **Simple, like git.** No client specs or workspace mappings. A `.vx/` folder makes any folder a workspace, and `.vxignore` uses gitignore syntax.
-- **Fast.** `vx status` uses a stat cache and checks 100,000 unchanged files in under half a second.
-- **Scales out.** The server is stateless. It uses PostgreSQL for metadata, Redis for caching, and any S3-compatible store (AWS S3, MinIO, RustFS) for content.
+Modern game development often relies on multiple disconnected tools to manage the development lifecycle. Large teams commonly use Perforce for source control, Swarm for code reviews, Jira for issue tracking, Horde or TeamCity for build automation, and Robomerge for branch integration. While these tools are powerful individually, maintaining and integrating them introduces additional complexity, infrastructure overhead, and complicated administrative work.
 
-The long-term goal is a single product for source control, CI, and issue tracking, rather than stitching together Perforce + TeamCity + Jira.
+Rather than managing separate applications and integrations, Vertex is designed around one unified development workflow:
+
+**Submit → Review → Build → Integrate**
+
+Submitted revisions are held for review, built, and then, if a build fails, Vertex's planned automation will automatically create or update an issue, attach relevant diagnostic data, and link the failure to the originating change. Developers can resolve the problem and continue the workflow without switching between multiple platforms.
+
+### Our Goals
+
+- **Unified Development:** Bring source control, code review, CI/CD, issue tracking, and automation into one cohesive platform.
+- **Simplicity First:** Provide intuitive workflows and straightforward administration without sacrificing powerful capabilities.
+- **Built for Large Projects:** Efficiently handle large files, binary assets, and repositories commonly found in game development.
+- **Self-Hosted by Design:** Your projects, your code, and your infrastructure under your control.
+- **Automation at Every Step:** Reduce repetitive tasks by connecting changes, reviews, builds, and issues automatically.
+- **Open Source:** Encourage transparency, collaboration, and community-driven development without vendor lock-in.
+
+## Feature Status
+
+| Feature | Status | Notes/Roadmap |
+| :--- | :--- | :--- |
+| Source Control | 🟥 Early | Centralized version control with branches, revisions, and merging. Complete synchronization, conflict resolution, and file locking. |
+| Branch Automation | ⬜ Planned | Automated branch integration and change propagation, similar to Epic Games' Robomerge. |
+| Content-Addressable Storage | 🟧 Experimental | SHA-256 addressing, FastCDC chunking, deduplication, and Zstandard compression. Improve integrity verification and garbage collection. |
+| File Transfers | 🟧 Experimental | gRPC-based uploads and downloads with S3-compatible storage. Improve performance, reliability, and the ability to resume transfers. |
+| Command-Line Interface | 🟧 Experimental | Core `vx` commands for interacting with Vertex. Expand repository management and source-control workflows. |
+| Web Dashboard | 🟥 Early | Centralized project management, administration, and monitoring. |
+| Desktop Client | 🟥 Early | Graphical interface for source-control operations and web dashboard. |
+| Code Review | ⬜ Planned | Review submitted changes with comments, approvals, and branch protection. |
+| Build Automation | ⬜ Planned | CI/CD pipelines, distributed build agents, automated testing, and artifact management. |
+| Issue Tracking | ⬜ Planned | Integrated bug reports, tasks, project boards, and automatic issue creation from failed builds. |
+| Unreal Engine Integration | ⬜ Planned | Native Unreal Editor integration, asset locking, and game-development workflows. |
+
+## Key
+
+- 🟩 **Production Ready**: Feature is stable, tested, and recommended for production environments. Compatibility and upgrade paths are maintained between releases.
+- 🟨 **Beta**: Feature is functional and suitable for evaluation, but may contain bugs or minor missing functionality. Breaking changes are expected to be limited.
+- 🟧 **Experimental**: Feature is functional but may undergo significant changes or be removed in future releases. Not recommended for critical production workloads.
+- 🟥 **Early**: Feature is in active or initial development and may be incomplete, unstable, or subject to major redesign.
+- ⬜ **Planned**: Feature is on the roadmap but has not yet been implemented.
 
 ## Quick start
 
@@ -59,12 +95,6 @@ To link another folder to an existing project, run `vx fetch <project>` inside i
 `vx init` writes a starter `.vxignore` when it recognizes the project type (currently Unreal Engine).
 
 ## Architecture
-
-```
- vx (CLI) ─┐                       ┌─► PostgreSQL   projects, branches, revisions
- Agent  ───┼─ gRPC / gRPC-Web ─►  Vertex.Server ─┼─► Redis        cache (optional)
- Web UI ───┘                       └─► S3           chunks and file manifests
-```
 
 | Project              | Description                                                                  |
 |----------------------|------------------------------------------------------------------------------|
@@ -137,7 +167,7 @@ Contributions are welcome: bug reports, ideas, docs, and code. Read [CONTRIBUTIN
 
 ## Maintainers
 
-Vertex is primarily maintained by Kyle Ebbinga ([@TheGuitarleader](https://github.com/TheGuitarleader)) (Entex Interactive).
+Vertex is primarily maintained by Kyle Ebbinga ([@TheGuitarleader](https://github.com/TheGuitarleader)).
 
 ## License
 
