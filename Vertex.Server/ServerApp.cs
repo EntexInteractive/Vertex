@@ -101,6 +101,7 @@ namespace Vertex.Server
 
             // Database services
             Dapper.DefaultTypeMap.MatchNamesWithUnderscores = true;
+            builder.Services.AddSingleton<DatabaseMigrator>();
             builder.Services.AddScoped<PostgresDatabase>();
             builder.Services.AddScoped<DapperContext>();
 
@@ -198,6 +199,20 @@ namespace Vertex.Server
             });
 
             WebApplication app = builder.Build();
+
+            // Bring the database schema up to date before any hosted service runs or any request is accepted. On
+            // failure, exit non-zero so a container restart policy retries once the cause is fixed.
+            try
+            {
+                await app.Services.GetRequiredService<DatabaseMigrator>().MigrateAsync();
+            }
+            catch (InvalidOperationException ex)
+            {
+                Log.Fatal(ex, "{Message}", ex.Message);
+                await Log.CloseAndFlushAsync();
+                Environment.ExitCode = 1;
+                return;
+            }
 
             // Configure the HTTP request pipeline.
             if (app.Environment.IsDevelopment())

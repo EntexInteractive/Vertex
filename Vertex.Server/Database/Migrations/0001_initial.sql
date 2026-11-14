@@ -1,4 +1,9 @@
-﻿-- Vertex database schema. Safe to run more than once: everything is created only if missing.
+﻿-- Initial Vertex schema. The server applies migrations at startup (Database/DatabaseMigrator.cs).
+--
+-- This one stays idempotent (IF NOT EXISTS) because it also runs against databases created before migrations existed,
+-- when this file was applied by hand as schema.sql; it adopts them without touching their data. Later migrations run
+-- exactly once and don't need to be idempotent.
+--
 -- Tables are created in dependency order (tokens and group members reference users, branches and access reference
 -- projects).
 
@@ -63,27 +68,15 @@ CREATE INDEX IF NOT EXISTS idx_group_members_user_id ON auth.group_members (user
 CREATE SCHEMA IF NOT EXISTS projects;
 CREATE TABLE IF NOT EXISTS projects.projects
 (
-    id
-    UUID
-    PRIMARY
-    KEY,
-    created_at
-    BIGINT
-    NOT
-    NULL,
-    name
-    VARCHAR
-(
-    255
-) NOT NULL,
+    id         UUID         PRIMARY KEY,
+    created_at BIGINT       NOT NULL,
+    name       VARCHAR(255) NOT NULL,
     -- 0 = private (grants only), 1 = internal (every logged-in user can read).
-    visibility SMALLINT NOT NULL DEFAULT 1,
-    owner_id UUID NOT NULL,
-    CONSTRAINT uq_projects_name UNIQUE
-(
-    name
-)
-    );
+    visibility SMALLINT     NOT NULL DEFAULT 1,
+    owner_id   UUID         NOT NULL,
+
+    CONSTRAINT uq_projects_name UNIQUE (name)
+);
 
 CREATE INDEX IF NOT EXISTS idx_projects_owner_id ON projects.projects (owner_id);
 
@@ -113,15 +106,12 @@ CREATE INDEX IF NOT EXISTS idx_access_principal_id ON projects.access (principal
 CREATE SCHEMA IF NOT EXISTS branches;
 CREATE TABLE IF NOT EXISTS branches.branches
 (
-    id         UUID PRIMARY KEY,
-    created_at
-    BIGINT
-    NOT
-    NULL,
+    id         UUID         PRIMARY KEY,
+    created_at BIGINT       NOT NULL,
     name       VARCHAR(255) NOT NULL,
     project_id UUID         NOT NULL,
     owner_id   UUID         NOT NULL,
-    parent_id  UUID NULL,
+    parent_id  UUID         NULL,
 
     CONSTRAINT uq_branches_project_name UNIQUE (project_id, name),
     CONSTRAINT uq_branches_id_project UNIQUE (id, project_id),

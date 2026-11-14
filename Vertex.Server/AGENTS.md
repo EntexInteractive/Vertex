@@ -15,8 +15,13 @@ project-wide rules.
 - `Storage/S3ContentStore.cs` stores content-addressed chunks and file manifests in S3. Keep the server stateless:
   any instance must be able to serve any request.
 - `Database/` holds PostgreSQL access (`PostgresDatabase`, `DapperContext`), the Redis-backed cache (`CacheContext`,
-  `RedisSubscriber`) and `schema.sql`. The schema must stay idempotent and in dependency order, and timestamps are
-  `BIGINT` Unix milliseconds. Redis is optional; without it the server uses a memory-only cache.
+  `RedisSubscriber`) and the schema migrations. Redis is optional; without it the server uses a memory-only cache.
+- Schema migrations (`Database/Migrations/NNNN_name.sql`) are embedded in the assembly and applied by
+  `DatabaseMigrator` (DbUp) before the server starts listening, each in its own transaction, under a PostgreSQL
+  advisory lock so concurrent instances don't race. Applied names are recorded in `public.schema_migrations`. To
+  change the schema, add the next-numbered file; never edit a merged one. The server refuses to start against a
+  database that has migrations it doesn't know (it's older than the database). Timestamps are `BIGINT` Unix
+  milliseconds.
 - Multi-step writes, such as creating a project together with its default branch, run in one transaction.
 - Authentication (`Auth/`): opaque `vxp_` bearer tokens from `POST /api/v1/auth/login`, stored as SHA-256 in
   `auth.tokens`. `TokenAuthenticationHandler` resolves them through the cache, so authenticated calls don't hit

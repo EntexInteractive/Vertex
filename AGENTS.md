@@ -54,8 +54,9 @@ building and by running the affected `vx` commands against the local compose sta
   server code from it. After changing it, build the whole solution.
 - **Server config** comes only from `VX_*` environment variables, read and validated in
   `Vertex.Server/ServerSettings.cs`. Add new settings there and document them in the README table.
-- **Schema:** `Vertex.Server/Database/schema.sql` must be idempotent (`IF NOT EXISTS`), with tables created in
-  dependency order. Timestamps are `BIGINT` Unix milliseconds.
+- **Schema:** every change is a new migration in `Vertex.Server/Database/Migrations/` named `NNNN_name.sql` (next
+  number, lowercase name). The server applies pending migrations at startup. Never edit or renumber a migration that
+  has been merged; write a new one. Timestamps are `BIGINT` Unix milliseconds.
 - **Secrets:** never commit credentials, connection strings with real passwords, certificates or keys.
   `launchSettings.json`, `.env` and `.vx/` are git-ignored on purpose. The values in `docker-compose.yml` and
   `.env.example` are throwaway development defaults.

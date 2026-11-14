@@ -114,9 +114,10 @@ ASPNETCORE_ENVIRONMENT = Development
 
 To run the whole stack in containers instead, run `docker compose up -d --build`.
 
-The database schema lives in `Vertex.Server/Database/schema.sql` and must stay idempotent, because it runs against
-existing databases. The compose Postgres container only applies it when its volume is first created, so reset with
-`docker compose down -v` after changing it.
+The server creates and upgrades its database schema at startup from the migrations in
+`Vertex.Server/Database/Migrations/`. To change the schema, add a file with the next number (for example
+`0002_add_locks.sql`) and restart the server; existing data is kept. Never edit a migration that has been merged,
+because databases that already ran it won't run it again.
 
 ### Project layout
 

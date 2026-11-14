@@ -1,6 +1,5 @@
 // Copyright 2026 Entex Interactive
 
-using Npgsql;
 using Vertex.Server.Users;
 
 namespace Vertex.Server.Auth
@@ -29,25 +28,18 @@ namespace Vertex.Server.Auth
             using IServiceScope scope = _scopes.CreateScope();
             UsersRepository users = scope.ServiceProvider.GetRequiredService<UsersRepository>();
 
-            try
+            // DatabaseMigrator has created the auth tables before any hosted service starts.
+            if (await users.AnyUsersAsync(cancellationToken)) return;
+
+            if (_settings.AdminPassword is null)
             {
-                if (await users.AnyUsersAsync(cancellationToken)) return;
-
-                if (_settings.AdminPassword is null)
-                {
-                    _logger.LogWarning("No users exist, so nobody can log in. Set {Variable} and restart to create the '{Admin}' account.", ServerSettings.AdminPasswordVariable, AdminUsername);
-                    return;
-                }
-
-                if (await users.CreateFirstAdminAsync(AdminUsername, PasswordHasher.Hash(_settings.AdminPassword), cancellationToken))
-                {
-                    _logger.LogInformation("Created the server admin '{Admin}'. Log in with 'vx login -u {Admin}'.", AdminUsername, AdminUsername);   
-                }
+                _logger.LogWarning("No users exist, so nobody can log in. Set {Variable} and restart to create the '{Admin}' account.", ServerSettings.AdminPasswordVariable, AdminUsername);
+                return;
             }
-            catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UndefinedTable)
+
+            if (await users.CreateFirstAdminAsync(AdminUsername, PasswordHasher.Hash(_settings.AdminPassword), cancellationToken))
             {
-                // The server doesn't apply the schema itself; say what's missing instead of failing every login.
-                _logger.LogError("The auth tables don't exist. Apply Database/schema.sql to the database, then restart.");
+                _logger.LogInformation("Created the server admin '{Admin}'. Log in with 'vx login -u {Admin}'.", AdminUsername, AdminUsername);
             }
         }
 

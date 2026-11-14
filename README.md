@@ -148,6 +148,7 @@ docker pull ghcr.io/entexinteractive/vertex-server:stable
 Every [release](https://github.com/EntexInteractive/Vertex/releases/latest) also includes a self-contained server
 for Windows, Linux and macOS (`VertexServer-<platform>`, e.g. `VertexServer-linux-x64.tar.gz`), with no .NET install needed. Extract it, set the environment
 variables below, and run `VertexServer`. You still need PostgreSQL and S3-compatible storage; Redis is optional.
+The server creates its database schema on first start and upgrades it automatically when you update the server.
 
 `docker-compose.yml` starts a complete local stack with development credentials. To change them, copy `.env.example` to `.env`. To run the server from your IDE instead, start only the dependencies:
 
