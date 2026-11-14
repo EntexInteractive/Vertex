@@ -67,10 +67,20 @@ docker compose up -d --build          # server + PostgreSQL + Redis + RustFS on 
 dotnet build Vertex.Cli -c Release    # builds the vx command line client
 ```
 
-Add `Vertex.Cli/bin/Release/net10.0` to your `PATH` (or call `vx` by its full path), then:
+Add `Vertex.Cli/bin/Release/net10.0` to your `PATH` (or call `vx` by its full path). Or, on Linux and macOS, install
+the latest released `vx` instead of building it:
 
 ```sh
-vx config server http://127.0.0.1:5000   # the default server for every command on this machine (this one is also the built-in default)
+curl -fsSL https://raw.githubusercontent.com/EntexInteractive/Vertex/main/install.sh | bash
+```
+
+Run it again to update. Pass options after `bash -s --`, e.g. `| bash -s -- --version 0.1.0-alpha.2`; `--uninstall`
+removes it. On Windows, download `vx-win-x64.zip` from [Releases](https://github.com/EntexInteractive/Vertex/releases).
+
+Then:
+
+```sh
+vx config server <address>   # the default server for every command on this machine (can be bypassed via `--server <url>` with most commands)
 vx login -u admin    # the compose stack's first admin; the password is VX_ADMIN_PASSWORD (default: vertexadmin)
 cd path/to/your/project
 vx init              # creates a project named after the folder and makes this folder its workspace
@@ -80,19 +90,6 @@ vx info              # shows the server version and latency
 ```
 
 To link another folder to an existing project, run `vx fetch <project>` inside it. Run `vx --help` for every command.
-
-### Choosing a server
-
-Like Perforce's `P4PORT`, each command picks its server from the first of these that is set:
-
-1. `--server <url>` on the command.
-2. The workspace's own server. `vx init --server <url>` and `vx fetch --server <url>` pin one; without `--server`, a
-   workspace follows the default below, so moving the server means changing one setting.
-3. The default set with `vx config server <url>`, saved in `~/.vertex/config.json`.
-4. `http://127.0.0.1:5000`.
-
-`vx config` shows which server commands in the current folder use and where it came from. `vx login` never changes the
-default.
 
 ## Commands
 
