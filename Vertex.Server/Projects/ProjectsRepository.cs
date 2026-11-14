@@ -41,11 +41,11 @@ namespace Vertex.Server.Projects
                     new { project.Id, CreatedAt = (long)project.CreatedAt.TotalMilliseconds, project.Name, Visibility = (short)project.Visibility, project.OwnerId },
                     transaction, cancellationToken: cancellationToken));
 
-                const string branchSql = "INSERT INTO branches.branches (id, created_at, name, project_id, owner_id, parent_id) " +
-                                         "VALUES (@Id, @CreatedAt, @Name, @ProjectId, @OwnerId, NULL);";
+                const string branchSql = "INSERT INTO branches.branches (id, created_at, name, project_id, parent_id) " +
+                                         "VALUES (@Id, @CreatedAt, @Name, @ProjectId, NULL);";
 
                 await connection.ExecuteAsync(new CommandDefinition(branchSql,
-                    new { defaultBranch.Id, CreatedAt = (long)defaultBranch.CreatedAt.TotalMilliseconds, defaultBranch.Name, defaultBranch.ProjectId, defaultBranch.OwnerId },
+                    new { defaultBranch.Id, CreatedAt = (long)defaultBranch.CreatedAt.TotalMilliseconds, defaultBranch.Name, defaultBranch.ProjectId },
                     transaction, cancellationToken: cancellationToken));
 
                 await AccessService.GrantAsync(connection, transaction, project.Id, project.OwnerId, PrincipalKind.User, AccessLevel.Admin, cancellationToken);

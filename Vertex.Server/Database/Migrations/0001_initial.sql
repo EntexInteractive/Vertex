@@ -9,6 +9,10 @@
 
 -- Users, their login tokens, and groups. User and group names share one namespace (enforced by the server), so a
 -- project grant can name either without saying which.
+--
+-- Users are never deleted, only disabled (or, for an erasure request, anonymized in place), because history refers to
+-- them. References to auth.users from history and ownership use ON DELETE RESTRICT; only per-login data (tokens,
+-- group membership) cascades.
 CREATE SCHEMA IF NOT EXISTS auth;
 CREATE TABLE IF NOT EXISTS auth.users
 (
@@ -75,7 +79,8 @@ CREATE TABLE IF NOT EXISTS projects.projects
     visibility SMALLINT     NOT NULL DEFAULT 1,
     owner_id   UUID         NOT NULL,
 
-    CONSTRAINT uq_projects_name UNIQUE (name)
+    CONSTRAINT uq_projects_name UNIQUE (name),
+    CONSTRAINT fk_projects_owner FOREIGN KEY (owner_id) REFERENCES auth.users (id) ON DELETE RESTRICT
 );
 
 CREATE INDEX IF NOT EXISTS idx_projects_owner_id ON projects.projects (owner_id);
@@ -110,7 +115,6 @@ CREATE TABLE IF NOT EXISTS branches.branches
     created_at BIGINT       NOT NULL,
     name       VARCHAR(255) NOT NULL,
     project_id UUID         NOT NULL,
-    owner_id   UUID         NOT NULL,
     parent_id  UUID         NULL,
 
     CONSTRAINT uq_branches_project_name UNIQUE (project_id, name),
@@ -120,7 +124,6 @@ CREATE TABLE IF NOT EXISTS branches.branches
     CONSTRAINT chk_branches_not_self_parent CHECK (parent_id IS NULL OR parent_id <> id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_branches_owner_id ON branches.branches (owner_id);
 CREATE INDEX IF NOT EXISTS idx_branches_parent_id ON branches.branches (parent_id);
 
 

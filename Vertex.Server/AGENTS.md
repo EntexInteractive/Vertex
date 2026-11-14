@@ -31,6 +31,8 @@ project-wide rules.
   a server-admin flag, and project visibility. No custom roles. Check with
   `AccessService.CheckAsync(User, projectId, level)` and return its status and message when denied. Anything that
   changes grants, group membership or admin flags must invalidate the access cache (`InvalidateAllAsync`).
+- Users are never deleted, only disabled (or anonymized in place for an erasure request), because history refers to
+  them. Foreign keys to `auth.users` from history or ownership use `ON DELETE RESTRICT`.
 - The `Development` environment enables Swagger and gRPC reflection.
 
 Build: `dotnet build Vertex.Server/Vertex.Server.csproj` from the repository root (this also builds `Vertex.Web`).

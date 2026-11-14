@@ -39,7 +39,7 @@ namespace Vertex.Server.Projects
 
             Guid ownerId = User.GetUserId();
             VProject project = new(name.Trim(), ownerId);
-            VBranch branch = new(string.IsNullOrWhiteSpace(defaultBranch) ? "main" : defaultBranch.Trim(), project.Id, ownerId);
+            VBranch branch = new(string.IsNullOrWhiteSpace(defaultBranch) ? "main" : defaultBranch.Trim(), project.Id);
 
             if (!await _projects.CreateProjectAsync(project, branch, cancellationToken)) return Conflict($"A project named '{project.Name}' already exists.");
             return StatusCode(StatusCodes.Status201Created, new CreateProjectResponse(project, branch));
