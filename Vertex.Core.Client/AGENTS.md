@@ -18,6 +18,8 @@ rules.
 - `IO/IgnoreTemplates/`: starter `.vxignore` files that `vx init` writes when it detects a project type. Add one by
   subclassing `IgnoreTemplate`; templates are discovered automatically.
 - `Database/`: SQLite connection helpers.
+- `Auth/CredentialStore.cs`: logins from `vx login`, one per server, in `~/.vertex/credentials` (`VX_CONFIG_DIR`
+  overrides the folder). Tokens are DPAPI-encrypted on Windows; elsewhere the file is mode 600. Never log tokens.
 
 Measure performance changes on a large tree (100,000+ files) and report the timings.
 

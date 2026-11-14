@@ -65,7 +65,7 @@ namespace Vertex.Cli.Files
             TimeSpan hashing = timer.Elapsed;
 
             string baseDirectory = Directory.GetCurrentDirectory();
-            using FilesInterface client = new(settings.ServerAddress) { MaxConcurrency = parallel };
+            using FilesInterface client = new(settings.ServerAddress, settings.Token) { MaxConcurrency = parallel };
             HashSet<ChunkedFile> stored = new();
             UploadResult result = await client.UploadAsync(chunked, file =>
             {

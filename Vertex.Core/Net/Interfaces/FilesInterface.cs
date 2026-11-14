@@ -29,7 +29,7 @@ namespace Vertex.Core.Net.Interfaces
 
         public Files.FilesClient FilesClient { get; }
 
-        public FilesInterface(string url) : base(url)
+        public FilesInterface(string url, string? token = null) : base(url, token)
         {
             FilesClient = new Files.FilesClient(GrpcChannel);
         }

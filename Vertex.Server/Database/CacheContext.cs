@@ -43,15 +43,16 @@ namespace Vertex.Server.Database
         /// <param name="key"></param>
         /// <param name="factory"></param>
         /// <param name="expires"></param>
+        /// <param name="cancellationToken"></param>
         /// <typeparam name="T"></typeparam>
         /// <returns></returns>
-        public async Task<T?> GetOrSetAsync<T>(string key, Func<CancellationToken, ValueTask<T>> factory, double expires)
+        public async Task<T?> GetOrSetAsync<T>(string key, Func<CancellationToken, ValueTask<T>> factory, double expires, CancellationToken cancellationToken = default)
         {
             return await _cache.GetOrCreateAsync(key.ToLowerInvariant(), factory, new HybridCacheEntryOptions
             {
                 Expiration = TimeSpan.FromMinutes(expires),
                 LocalCacheExpiration = TimeSpan.FromMinutes(expires / 3)
-            });
+            }, cancellationToken: cancellationToken);
         }
 
         /// <summary>
@@ -70,18 +71,19 @@ namespace Vertex.Server.Database
         /// Deletes cached data.
         /// </summary>
         /// <param name="key"></param>
-        public async Task DeleteCachedValueAsync(string key)
+        /// <param name="cancellationToken"></param>
+        public async Task DeleteCachedValueAsync(string key, CancellationToken cancellationToken = default)
         {
             string cacheKey = key.ToLowerInvariant();
             _logger.LogDebug("Remove redis key: {CacheKey}", cacheKey);
 
             await (_redis?.GetDatabase().KeyDeleteAsync(new RedisKey(cacheKey)) ?? Task.CompletedTask);
             await PublishAsync(CacheInvalidateChannel, cacheKey.ToLowerInvariant());
-            await _cache.RemoveAsync(cacheKey);
+            await _cache.RemoveAsync(cacheKey, cancellationToken);
         }
 
         /// <inheritdoc />
-        public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = new CancellationToken())
+        public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
         {
             try
             {
@@ -101,13 +103,11 @@ namespace Vertex.Server.Database
         /// <param name="callback"></param>
         public Task SubscribeAsync(string channel, Action<string> callback)
         {
-            Task subscribeAsync = _redis?.GetSubscriber().SubscribeAsync(RedisChannel.Literal(channel), (_, value) =>
+            return _redis?.GetSubscriber().SubscribeAsync(RedisChannel.Literal(channel), (_, value) =>
             {
                 if (!value.HasValue) return;
                 callback(value.ToString());
             }) ?? Task.CompletedTask;
-
-            return subscribeAsync;
         }
 
 

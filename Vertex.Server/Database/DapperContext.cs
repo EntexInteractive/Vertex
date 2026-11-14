@@ -32,13 +32,13 @@ namespace Vertex.Server.Database
         /// <param name="parameters">The parameters to use for this query.</param>
         /// <param name="key">The key used for caching.</param>
         /// <returns>True if success, otherwise false.</returns>
-        public async Task<bool> ExecuteAsync(Func<IDbConnection> connectionFactory, string sql, object? parameters, string? key = null)
+        public async Task<bool> ExecuteAsync(Func<IDbConnection> connectionFactory, string sql, object? parameters, string? key = null, CancellationToken cancellationToken = default)
         {
             try
             {
                 using IDbConnection connection = connectionFactory();
                 bool success = await connection.ExecuteAsync(sql, parameters) > 0;
-                if (!string.IsNullOrEmpty(key) && success) await _cache.DeleteCachedValueAsync(key);
+                if (!string.IsNullOrEmpty(key) && success) await _cache.DeleteCachedValueAsync(key, cancellationToken);
                 return success;
             }
             catch (Exception ex)
@@ -56,9 +56,9 @@ namespace Vertex.Server.Database
         /// <param name="parameters"></param>
         /// <param name="key"></param>
         /// <param name="expires"></param>
-        public async Task<string?> QueryJsonAsync(Func<IDbConnection> connectionFactory, string sql, object? parameters, string? key = null, int expires = 15)
+        public async Task<string?> QueryJsonAsync(Func<IDbConnection> connectionFactory, string sql, object? parameters, string? key = null, int expires = 15, CancellationToken cancellationToken = default)
         {
-            return await QuerySingleAsync<string>(connectionFactory, sql, parameters, key, expires);
+            return await QuerySingleAsync<string>(connectionFactory, sql, parameters, key, expires, cancellationToken);
         }
 
         /// <summary>
@@ -70,7 +70,7 @@ namespace Vertex.Server.Database
         /// <param name="key">The key to use for caching.</param>
         /// <param name="expires">The expiry timeout for the cached value (in minutes).</param>
         /// <typeparam name="T">The type used to determine the cache key prefix.</typeparam>
-        public async Task<T?> QuerySingleAsync<T>(Func<IDbConnection> connectionFactory, string sql, object? parameters, string? key = null, int expires = 15)
+        public async Task<T?> QuerySingleAsync<T>(Func<IDbConnection> connectionFactory, string sql, object? parameters, string? key = null, int expires = 15, CancellationToken cancellationToken = default)
         {
             try
             {
@@ -81,7 +81,7 @@ namespace Vertex.Server.Database
                             using IDbConnection connection = connectionFactory();
                             return await connection.QuerySingleOrDefaultAsync<T>(sql, parameters);
                         },
-                        expires);
+                        expires, cancellationToken);
                 }
 
                 using IDbConnection connectionFallback = connectionFactory();
@@ -103,7 +103,7 @@ namespace Vertex.Server.Database
         /// <param name="key">The key to use for caching.</param>
         /// <param name="expires">The expiry timeout for the cached value (in minutes).</param>
         /// <typeparam name="TSource">The type used to determine the cache key prefix.</typeparam>
-        public async Task<IReadOnlyList<TSource>> QueryAsync<TSource>(Func<IDbConnection> connectionFactory, string sql, object? parameters, string? key = null, int expires = 15)
+        public async Task<IReadOnlyList<TSource>> QueryAsync<TSource>(Func<IDbConnection> connectionFactory, string sql, object? parameters, string? key = null, int expires = 15, CancellationToken cancellationToken = default)
         {
             try
             {
@@ -115,7 +115,7 @@ namespace Vertex.Server.Database
 
                 if (!string.IsNullOrEmpty(key))
                 {
-                    return await _cache.GetOrSetAsync(key, Execute, expires) ?? [];
+                    return await _cache.GetOrSetAsync(key, Execute, expires, cancellationToken) ?? [];
                 }
 
                 using IDbConnection connectionFallback = connectionFactory();

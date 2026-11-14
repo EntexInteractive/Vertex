@@ -18,6 +18,14 @@ project-wide rules.
   `RedisSubscriber`) and `schema.sql`. The schema must stay idempotent and in dependency order, and timestamps are
   `BIGINT` Unix milliseconds. Redis is optional; without it the server uses a memory-only cache.
 - Multi-step writes, such as creating a project together with its default branch, run in one transaction.
+- Authentication (`Auth/`): opaque `vxp_` bearer tokens from `POST /api/v1/auth/login`, stored as SHA-256 in
+  `auth.tokens`. `TokenAuthenticationHandler` resolves them through the cache, so authenticated calls don't hit
+  PostgreSQL. A fallback policy requires a logged-in user on every endpoint, REST and gRPC; opt out only with
+  `[AllowAnonymous]`. Read the caller with `User.GetUserId()` and `User.IsServerAdmin()` (`VertexClaims`).
+- Permissions (`Access/AccessService`): fixed levels (read, write, admin) granted per project to users or groups,
+  a server-admin flag, and project visibility. No custom roles. Check with
+  `AccessService.CheckAsync(User, projectId, level)` and return its status and message when denied. Anything that
+  changes grants, group membership or admin flags must invalidate the access cache (`InvalidateAllAsync`).
 - The `Development` environment enables Swagger and gRPC reflection.
 
 Build: `dotnet build Vertex.Server/Vertex.Server.csproj` from the repository root (this also builds `Vertex.Web`).

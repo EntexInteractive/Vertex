@@ -32,6 +32,8 @@ services:
       VX_S3_BUCKET: ${VX_S3_BUCKET:-vertex-storage}
       VX_S3_ACCESS_KEY: ${VX_S3_ACCESS_KEY:-vertexadmin}
       VX_S3_SECRET_KEY: ${VX_S3_SECRET_KEY:-vertexadmin}
+      # Creates the "admin" account on first start; log in with: vx login -u admin
+      VX_ADMIN_PASSWORD: ${VX_ADMIN_PASSWORD:-vertexadmin}
     depends_on:
       postgres:
         condition: service_healthy

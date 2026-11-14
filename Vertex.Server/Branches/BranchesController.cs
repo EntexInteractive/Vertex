@@ -2,6 +2,9 @@
 
 using Microsoft.AspNetCore.Mvc;
 using Vertex.Core.Data;
+using Vertex.Core.Security;
+using Vertex.Server.Access;
+using Vertex.Server.Auth;
 using Vertex.Server.Branches;
 
 namespace Vertex.Server.Projects
@@ -10,18 +13,33 @@ namespace Vertex.Server.Projects
     public class BranchesController : Controller
     {
         private readonly BranchesRepository _branches;
+        private readonly AccessService _access;
 
-        public BranchesController(BranchesRepository branches)
+        public BranchesController(BranchesRepository branches, AccessService access)
         {
             _branches = branches;
+            _access = access;
+        }
+
+        /// <summary>
+        /// Creating and deleting branches needs project admin; reading them needs read.
+        /// </summary>
+        /// <returns>Null when allowed, otherwise the response to return.</returns>
+        private async Task<ActionResult?> DenyAsync(Guid projectId, AccessLevel required, CancellationToken cancellationToken)
+        {
+            AccessCheck check = await _access.CheckAsync(User, projectId, required, cancellationToken);
+            return check.Allowed ? null : StatusCode(check.StatusCode, check.Message);
         }
 
         [HttpPost]
         [ProducesResponseType(StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public async Task<ActionResult<VBranch>> CreateBranchAsync([FromQuery] string name, [FromQuery] Guid projectId, [FromQuery] Guid ownerId, [FromQuery] Guid? parentId = null, CancellationToken cancellationToken = default)
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public async Task<ActionResult<VBranch>> CreateBranchAsync([FromQuery] string name, [FromQuery] Guid projectId, [FromQuery] Guid? parentId = null, CancellationToken cancellationToken = default)
         {
-            VBranch branch = new VBranch(name, projectId, ownerId, parentId);
+            if (await DenyAsync(projectId, AccessLevel.Admin, cancellationToken) is ActionResult denied) return denied;
+
+            VBranch branch = new VBranch(name, projectId, User.GetUserId(), parentId);
             if (!await _branches.AddBranchAsync(branch, cancellationToken))
             {
                 // Only look up why on the failure path, so a successful create stays one query.
@@ -40,6 +58,8 @@ namespace Vertex.Server.Projects
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         public async Task<ActionResult<VBranch>> DeleteBranchAsync([FromQuery] Guid projectId, [FromQuery] string name, CancellationToken cancellationToken)
         {
+            if (await DenyAsync(projectId, AccessLevel.Admin, cancellationToken) is ActionResult denied) return denied;
+
             try
             {
                 VBranch? branch = await _branches.DeleteBranchAsync(projectId, name, cancellationToken);
@@ -57,6 +77,8 @@ namespace Vertex.Server.Projects
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<ActionResult<IReadOnlyList<VBranch>>> ListBranchesAsync([FromQuery] Guid projectId, CancellationToken cancellationToken)
         {
+            if (await DenyAsync(projectId, AccessLevel.Read, cancellationToken) is ActionResult denied) return denied;
+
             IReadOnlyList<VBranch> branches = await _branches.ListBranchesAsync(projectId, cancellationToken);
             return Ok(branches);
         }
@@ -66,6 +88,8 @@ namespace Vertex.Server.Projects
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<ActionResult<VBranch>> GetBranchByIdAsync([FromQuery] Guid projectId, [FromQuery] Guid branchId, CancellationToken cancellationToken)
         {
+            if (await DenyAsync(projectId, AccessLevel.Read, cancellationToken) is ActionResult denied) return denied;
+
             VBranch? branch = await _branches.GetBranchByIdAsync(projectId, branchId, cancellationToken);
             if (branch is null) return NotFound();
             return Ok(branch);
@@ -76,6 +100,8 @@ namespace Vertex.Server.Projects
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<ActionResult<VBranch>> GetBranchByNameAsync([FromQuery] Guid projectId, [FromQuery] string name, CancellationToken cancellationToken)
         {
+            if (await DenyAsync(projectId, AccessLevel.Read, cancellationToken) is ActionResult denied) return denied;
+
             VBranch? branch = await _branches.GetBranchByNameAsync(projectId, name, cancellationToken);
             if (branch is null) return NotFound();
             return Ok(branch);
