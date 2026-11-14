@@ -55,7 +55,8 @@ namespace Vertex.Core.Net.Interfaces
             GrpcChannel = GrpcChannel.ForAddress(url, new GrpcChannelOptions
             {
                 HttpHandler = new GrpcWebHandler(GrpcWebMode.GrpcWeb, new VersionHandler(_versionPolicy, new AuthorizationHandler(token, transport))),
-                MaxSendMessageSize = FileTransferLimits.MaximumMessageSize,
+                // Submit sends one large request; the server enforces the per-call limits.
+                MaxSendMessageSize = FileTransferLimits.MaximumSubmitMessageSize,
                 MaxReceiveMessageSize = FileTransferLimits.MaximumMessageSize
             });
         }

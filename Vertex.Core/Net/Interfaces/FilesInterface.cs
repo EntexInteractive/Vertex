@@ -151,6 +151,10 @@ namespace Vertex.Core.Net.Interfaces
                     });
                 }
 
+                // A read-only destination (e.g. a file locked by someone else) can't be replaced on Windows.
+                if (OperatingSystem.IsWindows() && File.Exists(destination) && new FileInfo(destination).IsReadOnly)
+                    File.SetAttributes(destination, File.GetAttributes(destination) & ~FileAttributes.ReadOnly);
+
                 File.Move(temporaryPath, destination, true);
                 return new DownloadResult(manifest.Size, rawDownloaded, compressedDownloaded, reused);
             }

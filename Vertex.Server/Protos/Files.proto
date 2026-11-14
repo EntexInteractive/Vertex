@@ -79,3 +79,51 @@ message GetManifestRequest {
 message DownloadChunksRequest {
   repeated bytes ids = 1;
 }
+
+// Project history. A workspace submits its changes as one revision and syncs the branch head.
+//
+// Submit: upload content with the Files service first (FindMissingFiles -> ... -> SubmitFiles), then call Submit
+// with each changed path, its new file id and the file id it was based on. The server refuses the whole submit when
+// any file changed on the branch since that base, so nobody overwrites someone else's work.
+// Sync: GetHeadChanges pages through files changed after the workspace's last synced revision.
+service Revisions {
+  rpc Submit(SubmitRequest) returns (SubmitResponse);
+  rpc GetHeadChanges(GetHeadChangesRequest) returns (GetHeadChangesResponse);
+}
+
+message FileChange {
+  string path = 1;          // Relative to the workspace root, '/' separators.
+  string file_id = 2;       // New content; empty to delete the file.
+  string base_file_id = 3;  // Content the change was made from; empty for a new file.
+}
+
+message SubmitRequest {
+  string project_id = 1;
+  string branch_id = 2;
+  string workspace_id = 3;
+  string message = 4;
+  repeated FileChange changes = 5;
+}
+
+message SubmitResponse {
+  int64 revision = 1;
+}
+
+message GetHeadChangesRequest {
+  string project_id = 1;
+  string branch_id = 2;
+  int64 after_revision = 3;  // 0 for every file on the branch.
+  string page_token = 4;     // From the previous page; empty for the first.
+}
+
+message HeadFile {
+  string path = 1;
+  string file_id = 2;  // Empty when the file was deleted.
+  int64 revision = 3;  // The revision that last changed it.
+}
+
+message GetHeadChangesResponse {
+  int64 head_revision = 1;     // Latest revision on the branch when the page was read.
+  repeated HeadFile files = 2;
+  string next_page_token = 3;  // Empty on the last page.
+}

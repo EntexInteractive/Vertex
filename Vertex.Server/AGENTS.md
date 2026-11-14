@@ -18,8 +18,9 @@ project-wide rules.
   `RedisSubscriber`) and the schema migrations. Redis is optional; without it the server uses a memory-only cache.
 - Schema migrations (`Database/Migrations/NNNN_name.sql`) are embedded in the assembly and applied by
   `DatabaseMigrator` (DbUp) before the server starts listening, each in its own transaction, under a PostgreSQL
-  advisory lock so concurrent instances don't race. Applied names are recorded in `public.schema_migrations`. To
-  change the schema, add the next-numbered file; never edit a merged one. The server refuses to start against a
+  advisory lock so concurrent instances don't race. Applied names are recorded in `public.schema_migrations`. Until
+  the first release, schema changes are appended idempotently to `0001_initial.sql` (see the root AGENTS.md); after
+  it, add the next-numbered file and never edit a released one. The server refuses to start against a
   database that has migrations it doesn't know (it's older than the database). Timestamps are `BIGINT` Unix
   milliseconds.
 - Multi-step writes, such as creating a project together with its default branch, run in one transaction.

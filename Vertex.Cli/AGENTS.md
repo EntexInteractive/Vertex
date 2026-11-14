@@ -5,8 +5,8 @@ The `vx` command line client, built on Spectre.Console.Cli. See the root AGENTS.
 - `Program.cs` sets up logging (`-log` enables debug output) and runs a single command, or an interactive prompt
   when started without arguments. `Startup.cs` registers every command; a command class does nothing until it is
   registered there.
-- Commands are grouped by area: `Workspaces/` (`init`, `fetch`), `Files/` (`status`, `push`, `pull`; `submit` and
-  `sync` are empty placeholders), `Branches/` (`branch`), `Projects/`, `Profiles/`, `Net/` (`info`), `Utils/`.
+- Commands are grouped by area: `Workspaces/` (`init`, `fetch`), `Files/` (`status`, `submit`, `sync`, `revert`;
+  `WorkspaceSettings.cs` has their shared settings, the linked-workspace lookup and path filtering), `Branches/` (`branch`), `Projects/`, `Profiles/`, `Net/` (`info`), `Utils/`.
 - Shared options live in settings classes: `NetworkSettings` (`--server`, default `http://127.0.0.1:5000`),
   `ProjectSettings`, `BranchSettings` and `FilesSettings`. Extend these instead of redeclaring options.
 - Server calls go through the interfaces in `Vertex.Core/Net/Interfaces`, and workspace logic belongs in

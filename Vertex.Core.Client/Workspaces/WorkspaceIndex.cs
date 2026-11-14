@@ -23,7 +23,14 @@ namespace Vertex.Core.Client.Workspaces
     /// </summary>
     public sealed class WorkspaceIndex : IDisposable
     {
-        private const int SchemaVersion = 1;
+        private const int SchemaVersion = 2;
+
+        /// <summary>
+        /// The last revision <c>vx sync</c> brought the workspace up to, stored in the <c>meta</c> table.
+        /// </summary>
+        public const string SyncedRevisionKey = "synced_revision";
+
+        private const string MetaTableSql = "CREATE TABLE IF NOT EXISTS meta (key TEXT NOT NULL PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;";
 
         private readonly SqliteConnection _connection;
 
@@ -60,8 +67,14 @@ namespace Vertex.Core.Client.Workspaces
                                              base_id     TEXT    NULL,
                                              indexed_at  INTEGER NOT NULL
                                          ) WITHOUT ROWID;
+                                         {MetaTableSql}
                                          PRAGMA user_version = {SchemaVersion};
                                          """);
+                }
+                else if (version == 1)
+                {
+                    // Version 2 added the meta table; upgrade in place.
+                    Execute(connection, $"{MetaTableSql} PRAGMA user_version = {SchemaVersion};");
                 }
                 else if (version != SchemaVersion)
                 {
@@ -144,6 +157,27 @@ namespace Vertex.Core.Client.Workspaces
             }
 
             transaction.Commit();
+        }
+
+        /// <summary>
+        /// Reads a value from the <c>meta</c> table.
+        /// </summary>
+        /// <returns>The value, or null when it was never set.</returns>
+        public string? GetMeta(string key)
+        {
+            using SqliteCommand command = _connection.CreateCommand();
+            command.CommandText = "SELECT value FROM meta WHERE key = $key;";
+            command.Parameters.AddWithValue("$key", key);
+            return command.ExecuteScalar() as string;
+        }
+
+        public void SetMeta(string key, string value)
+        {
+            using SqliteCommand command = _connection.CreateCommand();
+            command.CommandText = "INSERT INTO meta (key, value) VALUES ($key, $value) ON CONFLICT (key) DO UPDATE SET value = excluded.value;";
+            command.Parameters.AddWithValue("$key", key);
+            command.Parameters.AddWithValue("$value", value);
+            command.ExecuteNonQuery();
         }
 
         public void Dispose()
