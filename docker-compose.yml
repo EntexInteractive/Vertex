@@ -52,9 +52,8 @@ services:
       POSTGRES_USER: vertex
       POSTGRES_PASSWORD: ${VX_POSTGRES_PASSWORD:-vertex}
     volumes:
+      # The server creates and upgrades the schema itself at startup.
       - postgres-data:/var/lib/postgresql
-      # Runs once, when the data volume is first created.
-      - ./Vertex.Server/Database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U vertex -d vertex" ]
       interval: 5s
