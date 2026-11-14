@@ -70,6 +70,7 @@ dotnet build Vertex.Cli -c Release    # builds the vx command line client
 Add `Vertex.Cli/bin/Release/net10.0` to your `PATH` (or call `vx` by its full path), then:
 
 ```sh
+vx login -u admin    # the compose stack's first admin; the password is VX_ADMIN_PASSWORD (default: vertexadmin)
 cd path/to/your/project
 vx init              # creates a project named after the folder and makes this folder its workspace
 vx status            # lists files changed since the last push
@@ -77,7 +78,7 @@ vx push              # uploads new and changed content
 vx info              # shows the server version and latency
 ```
 
-To link another folder to an existing project, run `vx fetch <project>` inside it. Run `vx --help` for every command. Commands use `http://127.0.0.1:5000` by default; pass `--server <url>` to use another server.
+To link another folder to an existing project, run `vx fetch <project>` inside it. Run `vx --help` for every command. Inside a workspace, commands use the workspace's server; elsewhere they use `http://127.0.0.1:5000`. Pass `--server <url>` to use another server.
 
 ## Commands
 
@@ -89,10 +90,30 @@ To link another folder to an existing project, run `vx fetch <project>` inside i
 | `vx push [paths]`             | Uploads new and changed files. Only chunks the server doesn't have are sent.     |
 | `vx pull <file-id> [dest]`    | Downloads a single file by id.                                                   |
 | `vx branch`                   | Shows the current branch. `list`, `<name>` and `-d <name>` list, create, delete. |
-| `vx info`                     | Shows server information.                                                        |
+| `vx info`                     | Shows server information and who you're logged in as.                           |
+| `vx login [server]`           | Logs in and saves the login in `~/.vertex/credentials`. `-u` and `--password-stdin` for scripts. |
+| `vx logout [server]`          | Revokes the saved login and forgets it.                                          |
+| `vx passwd`                   | Changes your password and logs out your other devices.                          |
+| `vx access`                   | Shows who can access the project. `grant <user\|group> <read\|write\|admin>`, `revoke`, `visibility <internal\|private>`. |
+| `vx user`                     | Server admins: `add`, `list`, `disable`, `enable` and `admin` users.             |
+| `vx group`                    | Server admins: `create`, `delete`, `list`, `add` and `remove` group members.     |
 | `vx submit`, `vx sync`        | Create a revision and update a workspace to a branch's latest state.             |
 
 `vx init` writes a starter `.vxignore` when it recognizes the project type (currently Unreal Engine).
+
+### Users and permissions
+
+Every command except `vx info` and `vx login` needs a login. Permissions are deliberately simple:
+
+- **Levels**: each project grants users or groups `read` (sync, view history), `write` (submit, lock) or `admin`
+  (manage access and branches). A user's level is the highest of their own grant and their groups' grants.
+- **Groups** make large teams manageable: grant a group once, then add and remove people from it.
+- **Visibility**: new projects are `internal`, so every logged-in user can read them. Make one `private` with
+  `vx access visibility private` to limit it to its grants.
+- **Server admins** manage users and groups and have admin access to every project. Anyone can create a project and
+  becomes its admin.
+
+User and group names share one namespace, so `vx access grant Artists write` works without saying which it is.
 
 ## Architecture
 
@@ -127,6 +148,7 @@ docker pull ghcr.io/entexinteractive/vertex-server:stable
 Every [release](https://github.com/EntexInteractive/Vertex/releases/latest) also includes a self-contained server
 for Windows, Linux and macOS (`VertexServer-<platform>`, e.g. `VertexServer-linux-x64.tar.gz`), with no .NET install needed. Extract it, set the environment
 variables below, and run `VertexServer`. You still need PostgreSQL and S3-compatible storage; Redis is optional.
+The server creates its database schema on first start and upgrades it automatically when you update the server.
 
 `docker-compose.yml` starts a complete local stack with development credentials. To change them, copy `.env.example` to `.env`. To run the server from your IDE instead, start only the dependencies:
 
@@ -152,6 +174,7 @@ The server is configured entirely through environment variables. At startup, it 
 | `VX_S3_SECRET_KEY`       | No       | —                          | Static S3 secret key.                                                                                    |
 | `VX_TLS_CERT`            | No       | —                          | PEM certificate file. With `VX_TLS_KEY`, enables TLS and serves both HTTP/1.1 and HTTP/2 on the port.    |
 | `VX_TLS_KEY`             | No       | —                          | PEM private key file for `VX_TLS_CERT`.                                                                  |
+| `VX_ADMIN_PASSWORD`      | No       | —                          | Creates the `admin` server admin on first start, while no users exist. Ignored afterwards. At least 8 characters. |
 
 When the S3 keys are unset, the AWS SDK default credential chain is used (`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, EKS IRSA or pod identity, instance profile). In Kubernetes, prefer workload identity, or load the keys from a Secret. Standard ASP.NET Core variables such as `ASPNETCORE_ENVIRONMENT` also apply; `Development` enables Swagger and gRPC reflection.
 

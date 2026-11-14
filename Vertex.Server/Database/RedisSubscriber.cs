@@ -32,6 +32,7 @@ namespace Vertex.Server.Database
             _logger.LogInformation("Subscribed to channel: {Channel}", _cache.CacheInvalidateChannel);
             await _cache.SubscribeAsync(_cache.CacheInvalidateChannel, (key) =>
             {
+                _logger.LogDebug("Invalidated cache key: {CacheKey}", key);
                 _hybrid.RemoveAsync(key, cancellationToken);
             });
         }

@@ -57,7 +57,7 @@ namespace Vertex.Cli.Workspaces
             string projectName = settings.Project ?? new DirectoryInfo(root).Name;
             string branchName = settings.Branch ?? "main";
 
-            using ProjectInterface projects = new(settings.ServerAddress);
+            using ProjectInterface projects = new(settings.ServerAddress, settings.Token);
             ServerResult<CreateProjectResponse> result = await projects.CreateProjectAsync(projectName, branchName, cancellationToken);
             if (result.StatusCode == 409)
             {
@@ -82,7 +82,8 @@ namespace Vertex.Cli.Workspaces
                     Project = created.Project.Name,
                     ProjectId = created.Project.Id,
                     Branch = created.DefaultBranch.Name,
-                    BranchId = created.DefaultBranch.Id
+                    BranchId = created.DefaultBranch.Id,
+                    User = settings.Credential?.Username
                 });
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

@@ -1,4 +1,4 @@
-// Copyright 2026 Entex Interactive
+﻿// Copyright 2026 Entex Interactive
 
 namespace Vertex.Server
 {
@@ -23,6 +23,7 @@ namespace Vertex.Server
         public const string S3SecretKeyVariable = "VX_S3_SECRET_KEY";
         public const string TlsCertificateVariable = "VX_TLS_CERT";
         public const string TlsKeyVariable = "VX_TLS_KEY";
+        public const string AdminPasswordVariable = "VX_ADMIN_PASSWORD";
 
         /// <summary>Port Kestrel listens on. Default 5000.</summary>
         public required int HttpPort { get; init; }
@@ -46,6 +47,12 @@ namespace Vertex.Server
         public required string RedisConnectionString { get; init; }
 
         public required StorageSettings Storage { get; init; }
+
+        /// <summary>
+        /// Password for the <c>admin</c> account the server creates on first start, while no users exist. Ignored
+        /// once any user exists, so it can stay set or be removed after the first start.
+        /// </summary>
+        public string? AdminPassword { get; init; }
 
         /// <summary>
         /// Reads and validates all settings from the environment.
@@ -83,6 +90,11 @@ namespace Vertex.Server
             if (tlsKey is not null && !File.Exists(tlsKey))
                 errors.Add($"{TlsKeyVariable} points to '{tlsKey}', which does not exist.");
 
+            string? adminPassword = Environment.GetEnvironmentVariable(AdminPasswordVariable);
+            if (string.IsNullOrEmpty(adminPassword)) adminPassword = null;
+            if (adminPassword is not null && adminPassword.Length < Auth.PasswordHasher.MinimumLength)
+                errors.Add($"{AdminPasswordVariable} must be at least {Auth.PasswordHasher.MinimumLength} characters.");
+
             if (errors.Count > 0)
                 throw new InvalidOperationException("Invalid server configuration:" + Environment.NewLine + string.Join(Environment.NewLine, errors.Select(e => "  - " + e)));
 
@@ -93,6 +105,7 @@ namespace Vertex.Server
                 TlsKeyPath = tlsKey,
                 PostgresConnectionString = postgres!,
                 RedisConnectionString = Read(RedisVariable) ?? "redis:6379",
+                AdminPassword = adminPassword,
                 Storage = new StorageSettings
                 {
                     Endpoint = endpoint,

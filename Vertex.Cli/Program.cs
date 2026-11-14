@@ -32,8 +32,17 @@ namespace Vertex.Cli
             app.Configure(config =>
             {
                 config.SetApplicationName("vx");
+                config.SetInterceptor(new CurrentSettingsInterceptor());
                 config.SetExceptionHandler((ex, resolver) =>
                 {
+                    // Errors any command can hit, such as not being logged in, get one line naming the fix.
+                    if (ServerErrors.Describe(ex) is string known)
+                    {
+                        AnsiConsole.MarkupLine($"[red]{Markup.Escape(known)}[/]");
+                        Log.Debug(ex, "Command execution failed");
+                        return;
+                    }
+
                     // Some exceptions (e.g. a missing assembly in a single-file build) have an empty message; never
                     // fail silently.
                     string message = string.IsNullOrWhiteSpace(ex?.Message) ? ex?.GetType().Name ?? "Unknown error" : ex.Message;
@@ -86,6 +95,17 @@ namespace Vertex.Cli
             finally
             {
                 await Log.CloseAndFlushAsync();
+            }
+        }
+
+        /// <summary>
+        /// Remembers the running command's settings, so error messages can name the server it talked to.
+        /// </summary>
+        private sealed class CurrentSettingsInterceptor : ICommandInterceptor
+        {
+            public void Intercept(CommandContext context, CommandSettings settings)
+            {
+                NetworkSettings.Current = settings as NetworkSettings;
             }
         }
 

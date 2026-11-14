@@ -15,9 +15,24 @@ project-wide rules.
 - `Storage/S3ContentStore.cs` stores content-addressed chunks and file manifests in S3. Keep the server stateless:
   any instance must be able to serve any request.
 - `Database/` holds PostgreSQL access (`PostgresDatabase`, `DapperContext`), the Redis-backed cache (`CacheContext`,
-  `RedisSubscriber`) and `schema.sql`. The schema must stay idempotent and in dependency order, and timestamps are
-  `BIGINT` Unix milliseconds. Redis is optional; without it the server uses a memory-only cache.
+  `RedisSubscriber`) and the schema migrations. Redis is optional; without it the server uses a memory-only cache.
+- Schema migrations (`Database/Migrations/NNNN_name.sql`) are embedded in the assembly and applied by
+  `DatabaseMigrator` (DbUp) before the server starts listening, each in its own transaction, under a PostgreSQL
+  advisory lock so concurrent instances don't race. Applied names are recorded in `public.schema_migrations`. To
+  change the schema, add the next-numbered file; never edit a merged one. The server refuses to start against a
+  database that has migrations it doesn't know (it's older than the database). Timestamps are `BIGINT` Unix
+  milliseconds.
 - Multi-step writes, such as creating a project together with its default branch, run in one transaction.
+- Authentication (`Auth/`): opaque `vxp_` bearer tokens from `POST /api/v1/auth/login`, stored as SHA-256 in
+  `auth.tokens`. `TokenAuthenticationHandler` resolves them through the cache, so authenticated calls don't hit
+  PostgreSQL. A fallback policy requires a logged-in user on every endpoint, REST and gRPC; opt out only with
+  `[AllowAnonymous]`. Read the caller with `User.GetUserId()` and `User.IsServerAdmin()` (`VertexClaims`).
+- Permissions (`Access/AccessService`): fixed levels (read, write, admin) granted per project to users or groups,
+  a server-admin flag, and project visibility. No custom roles. Check with
+  `AccessService.CheckAsync(User, projectId, level)` and return its status and message when denied. Anything that
+  changes grants, group membership or admin flags must invalidate the access cache (`InvalidateAllAsync`).
+- Users are never deleted, only disabled (or anonymized in place for an erasure request), because history refers to
+  them. Foreign keys to `auth.users` from history or ownership use `ON DELETE RESTRICT`.
 - The `Development` environment enables Swagger and gRPC reflection.
 
 Build: `dotnet build Vertex.Server/Vertex.Server.csproj` from the repository root (this also builds `Vertex.Web`).

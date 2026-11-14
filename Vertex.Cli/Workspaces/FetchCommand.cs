@@ -31,7 +31,7 @@ namespace Vertex.Cli.Workspaces
     {
         public override async Task<int> ExecuteAsync(CommandContext context, FetchSettings settings, CancellationToken cancellationToken)
         {
-            using ProjectInterface projects = new(settings.ServerAddress);
+            using ProjectInterface projects = new(settings.ServerAddress, settings.Token);
             ServerResult<VProject> projectResult = await projects.GetProjectByNameAsync(settings.Project, cancellationToken);
             if (!projectResult.IsSuccessStatusCode)
             {
@@ -43,7 +43,7 @@ namespace Vertex.Cli.Workspaces
             }
 
             VProject project = projectResult.Data!;
-            using BranchInterface branches = new(settings.ServerAddress);
+            using BranchInterface branches = new(settings.ServerAddress, settings.Token);
             ServerResult<VBranch> branchResult = await branches.GetBranchByNameAsync(project.Id, settings.Branch, cancellationToken);
             if (!branchResult.IsSuccessStatusCode)
             {
@@ -79,7 +79,8 @@ namespace Vertex.Cli.Workspaces
                 Project = project.Name,
                 ProjectId = project.Id,
                 Branch = branch.Name,
-                BranchId = branch.Id
+                BranchId = branch.Id,
+                User = settings.Credential?.Username
             });
 
             AnsiConsole.MarkupLine($"Linked [purple]{Markup.Escape(workspace.Root)}[/] to [purple]{Markup.Escape(project.Name)}/{Markup.Escape(branch.Name)}[/].");

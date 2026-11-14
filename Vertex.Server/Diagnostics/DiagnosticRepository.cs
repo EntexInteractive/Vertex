@@ -25,8 +25,8 @@ namespace Vertex.Server.Diagnostics
         public async Task<bool> AddRequestAsync(VRequest request)
         {
             Func<IDbConnection> conn = () => _database.CreateConnection();
-            const string sql = "INSERT INTO diagnostics.requests(received_at, auth_user, method, endpoint, status_code, process_ms, length) VALUES(@ReceivedAt, @AuthUser, @Method, @Endpoint, @StatusCode, @ProcessMs, @Length);";
-            return await _dapper.ExecuteAsync(conn, sql, new { request.ReceivedAt, request.AuthUser, request.Method, request.Endpoint, request.StatusCode, request.ProcessMs, request.Length });
+            const string sql = "INSERT INTO diagnostics.requests (uuid, method, endpoint, status_code, process_ms, length, cpu_usage, ram_usage) VALUES (@Uuid, @Method, @Endpoint, @StatusCode, @ProcessMs, @Length, 0, @RamUsage);";
+            return await _dapper.ExecuteAsync(conn, sql, new { Uuid = request.AuthUser?.ToString(), request.Method, request.Endpoint, request.StatusCode, request.ProcessMs, request.Length, RamUsage = Environment.WorkingSet });
         }
 
         /// <summary>

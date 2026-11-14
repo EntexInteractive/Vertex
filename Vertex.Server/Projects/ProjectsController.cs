@@ -3,6 +3,9 @@
 using Microsoft.AspNetCore.Mvc;
 using Vertex.Core.Data;
 using Vertex.Core.Net.Responses;
+using Vertex.Core.Security;
+using Vertex.Server.Access;
+using Vertex.Server.Auth;
 
 namespace Vertex.Server.Projects
 {
@@ -10,14 +13,17 @@ namespace Vertex.Server.Projects
     public class ProjectsController : Controller
     {
         private readonly ProjectsRepository _projects;
+        private readonly AccessService _access;
 
-        public ProjectsController(ProjectsRepository projects)
+        public ProjectsController(ProjectsRepository projects, AccessService access)
         {
             _projects = projects;
+            _access = access;
         }
 
         /// <summary>
-        /// Creates a project together with its default branch.
+        /// Creates a project together with its default branch. Any logged-in user can create one, and becomes its
+        /// admin. New projects are internal: every logged-in user can read them.
         /// </summary>
         /// <param name="name">The name of the project to create.</param>
         /// <param name="defaultBranch">The default branch's name. Defaults to <c>main</c>.</param>
@@ -31,17 +37,16 @@ namespace Vertex.Server.Projects
         {
             if (string.IsNullOrWhiteSpace(name)) return BadRequest("A project name is required.");
 
-            // TODO: use the authenticated user once authentication exists.
-            Guid ownerId = Guid.NewGuid();
+            Guid ownerId = User.GetUserId();
             VProject project = new(name.Trim(), ownerId);
-            VBranch branch = new(string.IsNullOrWhiteSpace(defaultBranch) ? "main" : defaultBranch.Trim(), project.Id, ownerId);
+            VBranch branch = new(string.IsNullOrWhiteSpace(defaultBranch) ? "main" : defaultBranch.Trim(), project.Id);
 
             if (!await _projects.CreateProjectAsync(project, branch, cancellationToken)) return Conflict($"A project named '{project.Name}' already exists.");
             return StatusCode(StatusCodes.Status201Created, new CreateProjectResponse(project, branch));
         }
 
         /// <summary>
-        /// Retrieves the list of available projects.
+        /// Retrieves the projects the caller can read.
         /// </summary>
         /// <param name="cancellationToken">A token that can be used to cancel the operation.</param>
         /// <return>A task that represents the asynchronous operation. The task result contains the collection of projects wrapped in an <see cref="ActionResult{TValue}"/>.</return>
@@ -49,7 +54,7 @@ namespace Vertex.Server.Projects
         [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<ActionResult<IReadOnlyList<VProject>>> GetProjectsAsync(CancellationToken cancellationToken)
         {
-            IReadOnlyList<VProject> projects = await _projects.ListProjectsAsync(cancellationToken);
+            IReadOnlyList<VProject> projects = await _projects.ListProjectsForUserAsync(User.GetUserId(), cancellationToken);
             return Ok(projects);
         }
 
@@ -66,6 +71,9 @@ namespace Vertex.Server.Projects
         {
             VProject? project = await _projects.GetProjectByIdAsync(id, cancellationToken);
             if (project is null) return NotFound();
+
+            AccessCheck check = await _access.CheckAsync(User, project.Id, AccessLevel.Read, cancellationToken);
+            if (!check.Allowed) return StatusCode(check.StatusCode, check.Message);
             return Ok(project);
         }
 
@@ -82,6 +90,9 @@ namespace Vertex.Server.Projects
         {
             VProject? project = await _projects.GetProjectByNameAsync(name, cancellationToken);
             if (project is null) return NotFound();
+
+            AccessCheck check = await _access.CheckAsync(User, project.Id, AccessLevel.Read, cancellationToken);
+            if (!check.Allowed) return StatusCode(check.StatusCode, check.Message);
             return Ok(project);
         }
     }

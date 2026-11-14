@@ -42,6 +42,7 @@
     <ItemGroup>
         <PackageReference Include="AWSSDK.S3" Version="4.1.0"/>
         <PackageReference Include="Dapper" Version="2.1.89"/>
+        <PackageReference Include="dbup-postgresql" Version="7.0.1"/>
         <PackageReference Include="EntexInteractive.Extensions.Diagnostics" Version="10.0.6"/>
         <PackageReference Include="Grpc.AspNetCore" Version="2.85.0" />
         <PackageReference Include="Grpc.AspNetCore.Web" Version="2.85.0"/>
@@ -70,6 +71,12 @@
 
     <ItemGroup>
         <ProjectReference Include="..\Vertex.Core\Vertex.Core.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- Applied at startup by DatabaseMigrator. Embedded under the bare file name, which DbUp records as the
+             migration's name, so it stays stable if folders or namespaces change. -->
+        <EmbeddedResource Include="Database/Migrations/*.sql" LogicalName="%(Filename)%(Extension)"/>
     </ItemGroup>
 
     <ItemGroup>

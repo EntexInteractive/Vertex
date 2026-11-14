@@ -34,7 +34,7 @@ namespace Vertex.Cli.Files
             string destination = Path.GetFullPath(settings.Destination ?? ".");
             if (Directory.Exists(destination)) destination = Path.Combine(destination, settings.FileId.ToLowerInvariant());
 
-            using FilesInterface client = new(settings.ServerAddress) { MaxConcurrency = Math.Max(1, settings.MaxConcurrency) };
+            using FilesInterface client = new(settings.ServerAddress, settings.Token) { MaxConcurrency = Math.Max(1, settings.MaxConcurrency) };
             Stopwatch timer = Stopwatch.StartNew();
             DownloadResult result = await client.DownloadAsync(settings.FileId, destination, cancellationToken);
             timer.Stop();

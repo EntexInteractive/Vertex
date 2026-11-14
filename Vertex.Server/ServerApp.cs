@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using System.Security.Cryptography.X509Certificates;
 using Amazon;
 using Grpc.AspNetCore.Web;
@@ -6,6 +6,8 @@ using Amazon.Runtime;
 using Amazon.S3;
 using EntexInteractive.Extensions.Diagnostics;
 using EntexInteractive.Extensions.Globalization;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.FileProviders;
@@ -13,13 +15,17 @@ using Microsoft.OpenApi.Models;
 using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Serialization;
 using Vertex.Core.Net;
+using Vertex.Server.Access;
+using Vertex.Server.Auth;
 using Vertex.Server.Branches;
 using Vertex.Server.Database;
 using Vertex.Server.Diagnostics;
 using Vertex.Server.FileServices;
+using Vertex.Server.Groups;
 using Vertex.Server.Projects;
 using Vertex.Server.Services;
 using Vertex.Server.Storage;
+using Vertex.Server.Users;
 
 namespace Vertex.Server
 {
@@ -95,12 +101,29 @@ namespace Vertex.Server
 
             // Database services
             Dapper.DefaultTypeMap.MatchNamesWithUnderscores = true;
+            builder.Services.AddSingleton<DatabaseMigrator>();
             builder.Services.AddScoped<PostgresDatabase>();
             builder.Services.AddScoped<DapperContext>();
 
             builder.Services.AddScoped<BranchesRepository>();
             builder.Services.AddScoped<DiagnosticRepository>();
             builder.Services.AddScoped<ProjectsRepository>();
+            builder.Services.AddScoped<UsersRepository>();
+            builder.Services.AddScoped<GroupsRepository>();
+            builder.Services.AddScoped<TokensRepository>();
+            builder.Services.AddScoped<AccessService>();
+
+            // Authentication: opaque bearer tokens from 'vx login'. Every endpoint requires a logged-in user unless it
+            // opts out with [AllowAnonymous] (server info, login), which covers REST and gRPC alike.
+            builder.Services.AddSingleton<LoginThrottle>();
+            builder.Services.AddHostedService<AdminBootstrapper>();
+            builder.Services.AddAuthentication(VertexClaims.Scheme)
+                .AddScheme<AuthenticationSchemeOptions, TokenAuthenticationHandler>(VertexClaims.Scheme, null);
+
+            builder.Services.AddAuthorization(options =>
+            {
+                options.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
+            });
             
             // Caching services
             builder.Services.AddSingleton<CacheContext>();
@@ -152,7 +175,7 @@ namespace Vertex.Server
                     Description = "For api bearer access.",
                     In = ParameterLocation.Header,
                     Type = SecuritySchemeType.Http,
-                    BearerFormat = "JWT",
+                    BearerFormat = "vxp_ token from vx login",
                     Scheme = "Bearer"
                 });
 
@@ -177,11 +200,25 @@ namespace Vertex.Server
 
             WebApplication app = builder.Build();
 
+            // Bring the database schema up to date before any hosted service runs or any request is accepted. On
+            // failure, exit non-zero so a container restart policy retries once the cause is fixed.
+            try
+            {
+                await app.Services.GetRequiredService<DatabaseMigrator>().MigrateAsync();
+            }
+            catch (InvalidOperationException ex)
+            {
+                Log.Fatal(ex, "{Message}", ex.Message);
+                await Log.CloseAndFlushAsync();
+                Environment.ExitCode = 1;
+                return;
+            }
+
             // Configure the HTTP request pipeline.
             if (app.Environment.IsDevelopment())
             {
-                app.MapOpenApi();
-                app.MapGrpcReflectionService();
+                app.MapOpenApi().AllowAnonymous();
+                app.MapGrpcReflectionService().AllowAnonymous();
                 //app.UseDeveloperExceptionPage();
                 app.UseSwagger();
                 app.UseSwaggerUI();
@@ -198,11 +235,12 @@ namespace Vertex.Server
             // Accept gRPC-Web as well as native gRPC. gRPC-Web carries the call status in the response body instead of
             // HTTP/2 trailers, which some proxies (Cloudflare Tunnel) drop.
             app.UseGrpcWeb(new GrpcWebOptions { DefaultEnabled = true });
+            app.UseAuthentication();
+            app.UseAuthorization();
             app.MapGrpcService<GreeterService>();
             app.MapGrpcService<FileTransferService>();
             
             app.UseHttpsRedirection();
-            app.UseAuthorization();
             app.MapControllers();
             await app.RunAsync();
         }
