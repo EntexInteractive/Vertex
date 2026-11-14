@@ -75,8 +75,7 @@ namespace Vertex.Server.Database
         public async Task DeleteCachedValueAsync(string key, CancellationToken cancellationToken = default)
         {
             string cacheKey = key.ToLowerInvariant();
-            _logger.LogDebug("Remove redis key: {CacheKey}", cacheKey);
-
+            _logger.LogDebug("Removed redis key: {CacheKey}", cacheKey);
             await (_redis?.GetDatabase().KeyDeleteAsync(new RedisKey(cacheKey)) ?? Task.CompletedTask);
             await PublishAsync(CacheInvalidateChannel, cacheKey.ToLowerInvariant());
             await _cache.RemoveAsync(cacheKey, cancellationToken);
