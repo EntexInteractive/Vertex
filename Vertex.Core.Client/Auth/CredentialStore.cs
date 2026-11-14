@@ -48,9 +48,7 @@ namespace Vertex.Core.Client.Auth
             get
             {
                 string? overridden = Environment.GetEnvironmentVariable(ConfigDirectoryVariable);
-                return string.IsNullOrWhiteSpace(overridden)
-                    ? System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".vertex")
-                    : overridden;
+                return string.IsNullOrWhiteSpace(overridden) ? System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".vx") : overridden;
             }
         }
 
