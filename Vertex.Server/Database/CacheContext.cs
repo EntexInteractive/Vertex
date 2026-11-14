@@ -81,6 +81,71 @@ namespace Vertex.Server.Database
             await _cache.RemoveAsync(cacheKey, cancellationToken);
         }
 
+        // INCR and start the expiry on the first increment, atomically, so a crash between the two can't leave a
+        // counter that never expires.
+        private const string IncrementScript = "local count = redis.call('INCR', KEYS[1]) if count == 1 then redis.call('PEXPIRE', KEYS[1], ARGV[1]) end return count";
+
+        /// <summary>
+        /// Adds one to a counter shared by every server instance. The counter starts at the first increment and
+        /// disappears <paramref name="window"/> later.
+        /// </summary>
+        /// <returns>The new count, or null when Redis isn't available, so the caller can fall back to a local count.</returns>
+        public async Task<long?> IncrementCounterAsync(string key, TimeSpan window)
+        {
+            if (_redis is null) return null;
+
+            try
+            {
+                RedisResult result = await _redis.GetDatabase().ScriptEvaluateAsync(IncrementScript, [new RedisKey(key)], [(long)window.TotalMilliseconds]);
+                return (long)result;
+            }
+            catch (RedisException ex)
+            {
+                _logger.LogWarning(ex, "Could not increment the shared counter '{Key}'.", key);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Reads several shared counters in one round trip. Missing counters read as 0.
+        /// </summary>
+        /// <returns>The counts in the order of <paramref name="keys"/>, or null when Redis isn't available.</returns>
+        public async Task<long[]?> GetCountersAsync(params string[] keys)
+        {
+            if (_redis is null) return null;
+
+            try
+            {
+                RedisValue[] values = await _redis.GetDatabase().StringGetAsync(keys.Select(k => new RedisKey(k)).ToArray());
+                return values.Select(v => v.HasValue ? (long)v : 0).ToArray();
+            }
+            catch (RedisException ex)
+            {
+                _logger.LogWarning(ex, "Could not read shared counters.");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Deletes a shared counter.
+        /// </summary>
+        /// <returns>False when Redis isn't available.</returns>
+        public async Task<bool> DeleteCounterAsync(string key)
+        {
+            if (_redis is null) return false;
+
+            try
+            {
+                await _redis.GetDatabase().KeyDeleteAsync(new RedisKey(key));
+                return true;
+            }
+            catch (RedisException ex)
+            {
+                _logger.LogWarning(ex, "Could not delete the shared counter '{Key}'.", key);
+                return false;
+            }
+        }
+
         /// <inheritdoc />
         public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
         {

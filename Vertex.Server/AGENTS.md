@@ -27,6 +27,9 @@ project-wide rules.
   `auth.tokens`. `TokenAuthenticationHandler` resolves them through the cache, so authenticated calls don't hit
   PostgreSQL. A fallback policy requires a logged-in user on every endpoint, REST and gRPC; opt out only with
   `[AllowAnonymous]`. Read the caller with `User.GetUserId()` and `User.IsServerAdmin()` (`VertexClaims`).
+  `LoginThrottle` limits failed logins per username and per client address, with counters in Redis so the limits
+  hold across instances. The client address comes from `X-Forwarded-For` only for trusted proxies (loopback and
+  `VX_TRUSTED_PROXIES`).
 - Permissions (`Access/AccessService`): fixed levels (read, write, admin) granted per project to users or groups,
   a server-admin flag, and project visibility. No custom roles. Check with
   `AccessService.CheckAsync(User, projectId, level)` and return its status and message when denied. Anything that
