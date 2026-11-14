@@ -4,6 +4,7 @@ using Spectre.Console.Cli;
 using Vertex.Cli.Access;
 using Vertex.Cli.Auth;
 using Vertex.Cli.Branches;
+using Vertex.Cli.Config;
 using Vertex.Cli.Files;
 using Vertex.Cli.Groups;
 using Vertex.Cli.Net;
@@ -34,6 +35,10 @@ namespace Vertex.Cli
                 .WithExample("login")
                 .WithExample("login", "https://vertex.example.com", "-u", "alice")
                 .WithExample("login", "-u", "ci-bot", "--password-stdin");
+            config.AddCommand<ConfigCommand>("config").WithDescription("Shows or changes settings for every command on this machine, such as the default server.")
+                .WithExample("config")
+                .WithExample("config", "server", "https://vertex.example.com")
+                .WithExample("config", "server", "--unset");
             config.AddCommand<LogoutCommand>("logout").WithDescription("Logs out of a server and forgets the saved login.");
             config.AddCommand<PasswdCommand>("passwd").WithDescription("Changes your password.");
 

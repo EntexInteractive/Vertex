@@ -78,7 +78,7 @@ namespace Vertex.Cli.Workspaces
             {
                 workspace = VWorkspace.Initialize(root, new WorkspaceConfig
                 {
-                    Address = settings.ServerAddress,
+                    Address = settings.ServerFromOption ? settings.ServerAddress : null,
                     Project = created.Project.Name,
                     ProjectId = created.Project.Id,
                     Branch = created.DefaultBranch.Name,

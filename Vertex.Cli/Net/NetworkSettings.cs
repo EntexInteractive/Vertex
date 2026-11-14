@@ -3,6 +3,7 @@
 using System.ComponentModel;
 using Spectre.Console.Cli;
 using Vertex.Core.Client.Auth;
+using Vertex.Core.Client.Config;
 using Vertex.Core.Client.Workspaces;
 
 namespace Vertex.Cli.Net
@@ -12,8 +13,9 @@ namespace Vertex.Cli.Net
         public const string DefaultServerAddress = "http://127.0.0.1:5000";
 
         private string? _serverAddress;
-        private string? _workspaceServer;
+        private VWorkspace? _workspace;
         private bool _workspaceChecked;
+        private UserConfig? _userConfig;
         private Credential? _credential;
         private bool _credentialChecked;
 
@@ -23,16 +25,46 @@ namespace Vertex.Cli.Net
         public static NetworkSettings? Current { get; set; }
 
         /// <summary>
-        /// The server to talk to: <c>--server</c> when given, otherwise the current workspace's server, otherwise
+        /// The server to talk to, like Perforce's P4PORT: <c>--server</c> when given, otherwise the current
+        /// workspace's server, otherwise the one set with <c>vx config server</c>, otherwise
         /// <see cref="DefaultServerAddress"/>.
         /// </summary>
         [CommandOption("--server|-s")]
-        [Description("The server address to use. Defaults to the workspace's server, or http://127.0.0.1:5000.")]
+        [Description("The server address to use. Defaults to the workspace's server, then the one set with 'vx config server', then http://127.0.0.1:5000.")]
         public string ServerAddress
         {
-            get => _serverAddress ?? WorkspaceServer ?? DefaultServerAddress;
+            get => _serverAddress ?? WorkspaceServer ?? ConfiguredServer ?? DefaultServerAddress;
             set => _serverAddress = value;
         }
+
+        /// <summary>
+        /// True when the server was named on the command line rather than taken from the workspace or config.
+        /// </summary>
+        public bool ServerFromOption => _serverAddress is not null;
+
+        /// <summary>
+        /// Where <see cref="ServerAddress"/> came from, for <c>vx config</c> and <c>vx info</c>.
+        /// </summary>
+        public string ServerSource
+        {
+            get
+            {
+                if (_serverAddress is not null) return "--server";
+                if (WorkspaceServer is not null) return $"workspace {Workspace!.Root}";
+                if (ConfiguredServer is not null) return "vx config";
+                return "built-in default";
+            }
+        }
+
+        /// <summary>
+        /// The server saved with <c>vx config server</c>, or null.
+        /// </summary>
+        public string? ConfiguredServer => string.IsNullOrWhiteSpace(UserConfig.Server) ? null : UserConfig.Server;
+
+        /// <summary>
+        /// The per-user settings, read once per command.
+        /// </summary>
+        public UserConfig UserConfig => _userConfig ??= UserConfig.Load();
 
         [CommandOption("--verbose|-v")]
         [Description("Displays verbose output.")]
@@ -67,14 +99,22 @@ namespace Vertex.Cli.Net
             return sameAsDefault ? "vx login" : $"vx login {server}";
         }
 
-        private string? WorkspaceServer
+        /// <summary>
+        /// The workspace containing the current folder, or null.
+        /// </summary>
+        private VWorkspace? Workspace
         {
             get
             {
-                if (_workspaceChecked) return _workspaceServer;
+                if (_workspaceChecked) return _workspace;
                 _workspaceChecked = true;
-                return _workspaceServer = VWorkspace.Find(Directory.GetCurrentDirectory())?.Config.Address;
+                return _workspace = VWorkspace.Find(Directory.GetCurrentDirectory());
             }
         }
+
+        /// <summary>
+        /// The server the current workspace pins, or null when it follows the configured server.
+        /// </summary>
+        public string? WorkspaceServer => string.IsNullOrWhiteSpace(Workspace?.Config.Address) ? null : Workspace.Config.Address;
     }
 }
