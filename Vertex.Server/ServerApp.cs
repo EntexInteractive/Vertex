@@ -8,6 +8,7 @@ using EntexInteractive.Extensions.Diagnostics;
 using EntexInteractive.Extensions.Globalization;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.FileProviders;
@@ -41,9 +42,6 @@ namespace Vertex.Server
         /// <return>A task that represents the asynchronous operation of building and running the server application.</return>
         public static async Task Main(string[] args)
         {
-            CommandLineArguments arguments = new(args);
-
-
             ServerSettings settings = ServerSettings.FromEnvironment();
             AssemblyName assembly = Assembly.GetExecutingAssembly().GetName();
 
@@ -57,7 +55,7 @@ namespace Vertex.Server
             
             
             builder.Host.UseSerilog((context, services, configuration) => configuration.ReadFrom.Configuration(context.Configuration));
-            Log.Information($"{assembly.Name} [Version {assembly.Version}]");
+            Log.Information("{AssemblyName} [Version {AssemblyVersion}]", assembly.Name, assembly.Version);
             
             string region = settings.Storage.Region;
             string serviceUrl = settings.Storage.Endpoint;
@@ -80,7 +78,6 @@ namespace Vertex.Server
                 // per-stream throughput is bounded by window size / round-trip time.
                 options.Limits.Http2.InitialStreamWindowSize = FileTransferLimits.StreamWindowSize;
                 options.Limits.Http2.InitialConnectionWindowSize = FileTransferLimits.ConnectionWindowSize;
-
                 options.ListenAnyIP(settings.HttpPort, listenOptions =>
                 {
                     if (settings.UseTls)
@@ -116,10 +113,17 @@ namespace Vertex.Server
             // Authentication: opaque bearer tokens from 'vx login'. Every endpoint requires a logged-in user unless it
             // opts out with [AllowAnonymous] (server info, login), which covers REST and gRPC alike.
             builder.Services.AddSingleton<LoginThrottle>();
-            builder.Services.AddHostedService<AdminBootstrapper>();
-            builder.Services.AddAuthentication(VertexClaims.Scheme)
-                .AddScheme<AuthenticationSchemeOptions, TokenAuthenticationHandler>(VertexClaims.Scheme, null);
 
+            // Take the client's address from X-Forwarded-For, but only when it was set by a trusted proxy (loopback
+            // or VX_TRUSTED_PROXIES); anyone else could fake it. Login limits are per client address.
+            builder.Services.Configure<ForwardedHeadersOptions>(options =>
+            {
+                foreach (System.Net.IPNetwork network in settings.TrustedProxies) options.KnownIPNetworks.Add(network);
+                options.ForwardedHeaders = ForwardedHeaders.XForwardedFor;
+                options.ForwardLimit = null;
+            });
+            builder.Services.AddHostedService<AdminBootstrapper>();
+            builder.Services.AddAuthentication(VertexClaims.Scheme).AddScheme<AuthenticationSchemeOptions, TokenAuthenticationHandler>(VertexClaims.Scheme, null);
             builder.Services.AddAuthorization(options =>
             {
                 options.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
@@ -165,10 +169,6 @@ namespace Vertex.Server
             builder.Services.AddOpenApi();
             builder.Services.AddSwaggerGen(gen =>
             {
-                string xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
-                string xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
-                gen.IncludeXmlComments(xmlPath);
-
                 gen.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
                 {
                     Name = "Authorization",
@@ -225,6 +225,7 @@ namespace Vertex.Server
             }
 
             // Middleware
+            app.UseForwardedHeaders();
             app.UseMiddleware<DiagnosticMiddleware>();
 
             // Serve only the generated React files, even when development static assets are registered.

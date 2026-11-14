@@ -1,5 +1,8 @@
 ﻿// Copyright 2026 Entex Interactive
 
+using System.Net;
+using System.Net.Sockets;
+
 namespace Vertex.Server
 {
     /// <summary>
@@ -24,6 +27,7 @@ namespace Vertex.Server
         public const string TlsCertificateVariable = "VX_TLS_CERT";
         public const string TlsKeyVariable = "VX_TLS_KEY";
         public const string AdminPasswordVariable = "VX_ADMIN_PASSWORD";
+        public const string TrustedProxiesVariable = "VX_TRUSTED_PROXIES";
 
         /// <summary>Port Kestrel listens on. Default 5000.</summary>
         public required int HttpPort { get; init; }
@@ -53,6 +57,14 @@ namespace Vertex.Server
         /// once any user exists, so it can stay set or be removed after the first start.
         /// </summary>
         public string? AdminPassword { get; init; }
+
+        /// <summary>
+        /// Proxies whose <c>X-Forwarded-For</c> header is trusted for the client's address, as addresses or CIDR
+        /// ranges. Loopback is always trusted. Set it when the server sits behind a proxy or tunnel (for example
+        /// Cloudflare Tunnel in another container); otherwise every client appears to come from the proxy, and they
+        /// share one login limit.
+        /// </summary>
+        public IReadOnlyList<IPNetwork> TrustedProxies { get; init; } = [];
 
         /// <summary>
         /// Reads and validates all settings from the environment.
@@ -95,6 +107,13 @@ namespace Vertex.Server
             if (adminPassword is not null && adminPassword.Length < Auth.PasswordHasher.MinimumLength)
                 errors.Add($"{AdminPasswordVariable} must be at least {Auth.PasswordHasher.MinimumLength} characters.");
 
+            List<IPNetwork> trustedProxies = new();
+            foreach (string entry in (Read(TrustedProxiesVariable) ?? "").Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (TryParseNetwork(entry, out IPNetwork network)) trustedProxies.Add(network);
+                else errors.Add($"{TrustedProxiesVariable} has '{entry}', which isn't an IP address or CIDR range such as '172.18.0.0/16'.");
+            }
+
             if (errors.Count > 0)
                 throw new InvalidOperationException("Invalid server configuration:" + Environment.NewLine + string.Join(Environment.NewLine, errors.Select(e => "  - " + e)));
 
@@ -106,6 +125,7 @@ namespace Vertex.Server
                 PostgresConnectionString = postgres!,
                 RedisConnectionString = Read(RedisVariable) ?? "redis:6379",
                 AdminPassword = adminPassword,
+                TrustedProxies = trustedProxies,
                 Storage = new StorageSettings
                 {
                     Endpoint = endpoint,
@@ -115,6 +135,22 @@ namespace Vertex.Server
                     SecretKey = secretKey
                 }
             };
+        }
+
+        /// <summary>
+        /// Parses a CIDR range, or a single address as a range holding just that address.
+        /// </summary>
+        private static bool TryParseNetwork(string text, out IPNetwork network)
+        {
+            if (text.Contains('/')) return IPNetwork.TryParse(text, out network);
+            if (IPAddress.TryParse(text, out IPAddress? address))
+            {
+                network = new IPNetwork(address, address.AddressFamily == AddressFamily.InterNetwork ? 32 : 128);
+                return true;
+            }
+
+            network = default;
+            return false;
         }
 
         /// <summary>

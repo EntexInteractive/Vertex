@@ -36,21 +36,19 @@ namespace Vertex.Server.Auth
             if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrEmpty(request.Password)) return BadRequest("A username and password are required.");
 
             string username = request.Username.Trim();
-            if (_throttle.IsBlocked(username))
-            {
-                return StatusCode(StatusCodes.Status429TooManyRequests, $"Too many failed logins for '{username}'. Wait {LoginThrottle.Window.TotalMinutes:N0} minutes and try again.");
-            }
+            string? blocked = await _throttle.CheckAsync(username, HttpContext);
+            if (blocked is not null) return StatusCode(StatusCodes.Status429TooManyRequests, blocked);
 
             UserCredentials? credentials = await _users.GetCredentialsAsync(username, cancellationToken);
             if (!PasswordHasher.Verify(request.Password, credentials?.PasswordHash) || credentials is null)
             {
-                _throttle.RecordFailure(username);
+                await _throttle.RecordFailureAsync(username, HttpContext);
                 return Unauthorized("Incorrect username or password.");
             }
 
             if (credentials.Disabled) return Unauthorized($"The account '{username}' is disabled. Ask a server admin to run 'vx user enable {username}'.");
 
-            _throttle.RecordSuccess(username);
+            await _throttle.RecordSuccessAsync(username);
             string device = string.IsNullOrWhiteSpace(request.DeviceName) ? "unknown device" : request.DeviceName.Trim();
             string token = await _tokens.CreateAsync(credentials.Id, device, cancellationToken);
             await _users.SetLastLoginAsync(credentials.Id, cancellationToken);
