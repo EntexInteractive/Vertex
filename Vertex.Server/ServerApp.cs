@@ -53,7 +53,6 @@ namespace Vertex.Server
                 WebRootPath = Path.Combine(AppContext.BaseDirectory, "wwwroot")
             });
             
-            
             builder.Host.UseSerilog((context, services, configuration) => configuration.ReadFrom.Configuration(context.Configuration));
             Log.Information("{AssemblyName} [Version {AssemblyVersion}]", assembly.Name, assembly.Version);
             

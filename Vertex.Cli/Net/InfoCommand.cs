@@ -52,7 +52,7 @@ namespace Vertex.Cli.Net
             VWorkspace? workspace = VWorkspace.Find(Directory.GetCurrentDirectory());
 
             // Local information (always available)
-            AnsiConsole.WriteLine($"Logged in as:      {(info != null ? await GetLoginAsync(settings, cancellationToken) : "(server unavailable)")}");
+            AnsiConsole.WriteLine($"Logged in as:      {(info != null ? await GetLoginAsync(settings, cancellationToken) : "Unavailable")}");
             AnsiConsole.WriteLine($"Current directory: {Directory.GetCurrentDirectory()}");
             AnsiConsole.WriteLine($"Current Project:   {(string.IsNullOrWhiteSpace(workspace?.Config.Project) ? "(no project found; run vx init to create one)" : workspace.Config.Root)}");
             AnsiConsole.WriteLine($"Client address:    {info?.Address ?? "Unavailable"}");
@@ -60,7 +60,7 @@ namespace Vertex.Cli.Net
             AnsiConsole.WriteLine($"Client version:    {typeof(Program).Assembly.GetName().Version?.ToString() ?? ""} {(clientBuild?.ToLocalTime().ToString("(MM/dd/yyyy)") ?? "")}");
 
             // Server information
-            AnsiConsole.WriteLine($"Server address:    {settings.ServerAddress}");
+            AnsiConsole.WriteLine($"Server address:    {settings.ServerAddress} ({settings.ServerSource})");
 
             if (info != null)
             {
@@ -89,7 +89,7 @@ namespace Vertex.Cli.Net
                 using AuthInterface auth = new(settings.ServerAddress, settings.Token);
                 ServerResult<VUser> me = await auth.GetCurrentUserAsync(cancellationToken);
                 if (!me.IsSuccessStatusCode) return $"(unknown: {ServerErrors.Message(me)})";
-                return me.Data!.IsAdmin ? $"{me.Data.Username} (server admin)" : me.Data.Username;
+                return me.Data!.IsAdmin ? $"{me.Data.Username} (admin)" : me.Data.Username;
             }
             catch (NotLoggedInException)
             {

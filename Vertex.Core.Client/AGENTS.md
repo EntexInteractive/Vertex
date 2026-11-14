@@ -20,6 +20,8 @@ rules.
 - `Database/`: SQLite connection helpers.
 - `Auth/CredentialStore.cs`: logins from `vx login`, one per server, in `~/.vertex/credentials` (`VX_CONFIG_DIR`
   overrides the folder). Tokens are DPAPI-encrypted on Windows; elsewhere the file is mode 600. Never log tokens.
+- `Config/UserConfig.cs`: per-user settings from `vx config` in `config.json` next to the credentials file. Today
+  only `Server`, the default server used when neither `--server` nor the workspace names one.
 
 Measure performance changes on a large tree (100,000+ files) and report the timings.
 

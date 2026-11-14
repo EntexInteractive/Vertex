@@ -3,6 +3,7 @@
 using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text;
+using Vertex.Core.Client.IO;
 
 namespace Vertex.Core.Client.Auth
 {
@@ -22,8 +23,6 @@ namespace Vertex.Core.Client.Auth
     /// </remarks>
     public static class CredentialStore
     {
-        public const string ConfigDirectoryVariable = "VX_CONFIG_DIR";
-
         private const string DpapiProtection = "dpapi";
         private const string NoProtection = "none";
         private static readonly byte[] Entropy = "Vertex credentials"u8.ToArray();
@@ -43,14 +42,7 @@ namespace Vertex.Core.Client.Auth
         /// <summary>
         /// The folder holding the credentials file.
         /// </summary>
-        public static string Directory
-        {
-            get
-            {
-                string? overridden = Environment.GetEnvironmentVariable(ConfigDirectoryVariable);
-                return string.IsNullOrWhiteSpace(overridden) ? System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".vx") : overridden;
-            }
-        }
+        public static string Directory => System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".vertex");
 
         public static string Path => System.IO.Path.Combine(Directory, "credentials");
 
@@ -136,20 +128,7 @@ namespace Vertex.Core.Client.Auth
 
         private static void Write(CredentialsFile file)
         {
-            System.IO.Directory.CreateDirectory(Directory);
-            if (!OperatingSystem.IsWindows())
-                File.SetUnixFileMode(Directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-
-            string temporary = Path + ".tmp";
-            FileStreamOptions options = new() { Mode = FileMode.Create, Access = FileAccess.Write };
-            if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-
-            using (StreamWriter writer = new(temporary, new UTF8Encoding(false), options))
-            {
-                writer.Write(JsonConvert.SerializeObject(file, Formatting.Indented));
-            }
-
-            File.Move(temporary, Path, true);
+            AtomicFile.WriteAllText(Path, JsonConvert.SerializeObject(file, Formatting.Indented), true);
         }
 
         private static string Unprotect(Entry entry)
