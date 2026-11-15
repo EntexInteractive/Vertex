@@ -9,7 +9,7 @@ namespace Vertex.Server.Auth
     /// </summary>
     public static class VertexClaims
     {
-        public const string Scheme = "VertexToken";
+        public const string Scheme = "VToken";
         public const string Admin = "vx:admin";
         public const string TokenId = "vx:token";
 

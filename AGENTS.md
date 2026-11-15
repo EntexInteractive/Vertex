@@ -1,7 +1,7 @@
 # Vertex
 
 Vertex is centralized source control for games and other big-file projects: Perforce's model (central linear
-history, file locking, large binaries), git's ease of use (`vx init`, `vx status`, `vx push`, a `.vx/` folder per
+history, file locking, large binaries), git's ease of use (`vx init`, `vx status`, `vx submit`, a `.vx/` folder per
 workspace, no client specs), and a stateless server that scales out (PostgreSQL metadata, Redis cache, S3 content).
 The project is pre-alpha. Read README.md for the user-facing picture and CONTRIBUTING.md for the workflow.
 
@@ -54,9 +54,11 @@ building and by running the affected `vx` commands against the local compose sta
   server code from it. After changing it, build the whole solution.
 - **Server config** comes only from `VX_*` environment variables, read and validated in
   `Vertex.Server/ServerSettings.cs`. Add new settings there and document them in the README table.
-- **Schema:** every change is a new migration in `Vertex.Server/Database/Migrations/` named `NNNN_name.sql` (next
-  number, lowercase name). The server applies pending migrations at startup. Never edit or renumber a migration that
-  has been merged; write a new one. Timestamps are `BIGINT` Unix milliseconds.
+- **Schema:** until the first release, append changes to `Vertex.Server/Database/Migrations/0001_initial.sql` using
+  idempotent statements only (`CREATE ... IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`), so there is one file to
+  apply between releases; existing databases re-run it by hand (see CONTRIBUTING.md). After the first release, every
+  change is a new migration named `NNNN_name.sql` (next number, lowercase name), and merged migrations are never
+  edited or renumbered. The server applies pending migrations at startup. Timestamps are `BIGINT` Unix milliseconds.
 - **Secrets:** never commit credentials, connection strings with real passwords, certificates or keys.
   `launchSettings.json`, `.env` and `.vx/` are git-ignored on purpose. The values in `docker-compose.yml` and
   `.env.example` are throwaway development defaults.

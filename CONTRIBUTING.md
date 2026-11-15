@@ -115,9 +115,21 @@ ASPNETCORE_ENVIRONMENT = Development
 To run the whole stack in containers instead, run `docker compose up -d --build`.
 
 The server creates and upgrades its database schema at startup from the migrations in
-`Vertex.Server/Database/Migrations/`. To change the schema, add a file with the next number (for example
-`0002_add_locks.sql`) and restart the server; existing data is kept. Never edit a migration that has been merged,
-because databases that already ran it won't run it again.
+`Vertex.Server/Database/Migrations/`.
+
+**Before the first release**, there is only `0001_initial.sql`. To change the schema, append to it using idempotent
+statements (`CREATE TABLE IF NOT EXISTS`, `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, ...). A new database gets the
+change at startup, but a database that already ran the file won't run it again, so apply it by hand after pulling a
+schema change; it only creates what's missing and keeps existing data:
+
+```sh
+pg_dump -Fc -d vertex -f vertex-backup.dump   # back up first
+psql -d vertex -v ON_ERROR_STOP=1 -1 -f Vertex.Server/Database/Migrations/0001_initial.sql
+```
+
+**After the first release**, add a file with the next number instead (for example `0002_add_labels.sql`) and restart
+the server; existing data is kept. Never edit a migration that has been released, because databases that already ran
+it won't run it again.
 
 ### Project layout
 

@@ -26,10 +26,14 @@ namespace Vertex.Cli
             config.AddCommand<FetchCommand>("fetch").WithDescription("Links a folder to an existing project.");
 
             config.AddCommand<InfoCommand>("info").WithDescription("Displays server information.");
-            config.AddCommand<PushCommand>("push");
-            config.AddCommand<PullCommand>("pull");
-
-            config.AddCommand<StatusCommand>("status").WithDescription("Shows files changed since the last push.");
+            config.AddCommand<StatusCommand>("status").WithDescription("Shows files changed since the last submit or sync.");
+            config.AddCommand<SubmitCommand>("submit").WithDescription("Submits the changes in the current folder as one revision.")
+                .WithExample("submit", "-m", "\"Add jump animation\"")
+                .WithExample("submit", "-m", "\"New level\"", "Content/Maps");
+            config.AddCommand<SyncCommand>("sync").WithDescription("Gets the latest revision of the branch, keeping local changes.");
+            config.AddCommand<RevertCommand>("revert").WithDescription("Discards local changes to files, restoring them from the server.")
+                .WithExample("revert", "Content/Hero.uasset")
+                .WithExample("revert", ".");
 
             config.AddCommand<LoginCommand>("login").WithDescription("Logs in to a server and saves the login for later commands.")
                 .WithExample("login")

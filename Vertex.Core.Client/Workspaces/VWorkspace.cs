@@ -73,6 +73,7 @@ namespace Vertex.Core.Client.Workspaces
             DirectoryInfo metadata = Directory.CreateDirectory(Path.Combine(root, MetadataDirectoryName));
             if (OperatingSystem.IsWindows()) metadata.Attributes |= FileAttributes.Hidden;
 
+            config.WorkspaceId ??= Guid.NewGuid();
             config.Save(Path.Combine(metadata.FullName, ConfigFileName));
             using (WorkspaceIndex.Open(Path.Combine(metadata.FullName, IndexFileName)))
             {
@@ -85,8 +86,16 @@ namespace Vertex.Core.Client.Workspaces
         private static VWorkspace Open(string root)
         {
             root = Path.TrimEndingDirectorySeparator(root);
-            WorkspaceConfig config = WorkspaceConfig.Load(Path.Combine(root, MetadataDirectoryName, ConfigFileName)) ?? new WorkspaceConfig();
-            return new VWorkspace(root, config);
+            string configPath = Path.Combine(root, MetadataDirectoryName, ConfigFileName);
+            WorkspaceConfig? config = WorkspaceConfig.Load(configPath);
+            if (config is { WorkspaceId: null })
+            {
+                // Workspaces created before workspace ids existed get one now.
+                config.WorkspaceId = Guid.NewGuid();
+                config.Save(configPath);
+            }
+
+            return new VWorkspace(root, config ?? new WorkspaceConfig());
         }
 
         /// <summary>

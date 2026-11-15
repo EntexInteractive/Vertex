@@ -22,6 +22,7 @@ using Vertex.Server.Branches;
 using Vertex.Server.Database;
 using Vertex.Server.Diagnostics;
 using Vertex.Server.FileServices;
+using Vertex.Server.History;
 using Vertex.Server.Groups;
 using Vertex.Server.Projects;
 using Vertex.Server.Services;
@@ -108,6 +109,7 @@ namespace Vertex.Server
             builder.Services.AddScoped<GroupsRepository>();
             builder.Services.AddScoped<TokensRepository>();
             builder.Services.AddScoped<AccessService>();
+            builder.Services.AddScoped<RevisionsRepository>();
 
             // Authentication: opaque bearer tokens from 'vx login'. Every endpoint requires a logged-in user unless it
             // opts out with [AllowAnonymous] (server info, login), which covers REST and gRPC alike.
@@ -156,6 +158,10 @@ namespace Vertex.Server
                 // Transfers are streamed in bounded messages; file size is not tied to a gRPC message limit.
                 options.MaxReceiveMessageSize = FileTransferLimits.MaximumMessageSize;
                 options.MaxSendMessageSize = FileTransferLimits.MaximumMessageSize;
+            }).AddServiceOptions<RevisionService>(options =>
+            {
+                // A submit lists every changed file in one request.
+                options.MaxReceiveMessageSize = FileTransferLimits.MaximumSubmitMessageSize;
             });
             
             builder.Services.AddGrpcReflection();
@@ -239,6 +245,7 @@ namespace Vertex.Server
             app.UseAuthorization();
             app.MapGrpcService<GreeterService>();
             app.MapGrpcService<FileTransferService>();
+            app.MapGrpcService<RevisionService>();
             
             app.UseHttpsRedirection();
             app.MapControllers();

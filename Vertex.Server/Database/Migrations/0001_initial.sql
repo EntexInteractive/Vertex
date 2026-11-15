@@ -151,3 +151,63 @@ CREATE TABLE IF NOT EXISTS diagnostics.requests
 CREATE INDEX IF NOT EXISTS idx_request_logs_received_at ON diagnostics.requests (received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_request_logs_uuid_received_at ON diagnostics.requests (uuid, received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_request_logs_endpoint ON diagnostics.requests (endpoint);
+
+
+-- Revisions: the project's history. Until the first release, schema changes are appended here idempotently instead
+-- of in new migration files; existing databases apply this file again by hand (see CONTRIBUTING.md).
+--
+-- Revision numbers (#N) are per project and come from projects.revision_counter, which a submit increments first:
+-- that row lock serializes submits within a project, so checks against the branch head can't race.
+ALTER TABLE projects.projects ADD COLUMN IF NOT EXISTS revision_counter BIGINT NOT NULL DEFAULT 0;
+-- Lock journal sequence (file locking, next).
+ALTER TABLE projects.projects ADD COLUMN IF NOT EXISTS lock_seq BIGINT NOT NULL DEFAULT 0;
+
+CREATE SCHEMA IF NOT EXISTS revisions;
+CREATE TABLE IF NOT EXISTS revisions.revisions
+(
+    id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    project_id UUID   NOT NULL,
+    branch_id  UUID   NOT NULL,
+    number     BIGINT NOT NULL,
+    user_id    UUID   NOT NULL,
+    message    TEXT   NOT NULL,
+    created_at BIGINT NOT NULL,
+
+    CONSTRAINT uq_revisions_project_number UNIQUE (project_id, number),
+    CONSTRAINT fk_revisions_branch FOREIGN KEY (branch_id, project_id) REFERENCES branches.branches (id, project_id) ON DELETE CASCADE,
+    CONSTRAINT fk_revisions_user FOREIGN KEY (user_id) REFERENCES auth.users (id) ON DELETE RESTRICT
+);
+
+CREATE INDEX IF NOT EXISTS idx_revisions_branch_number ON revisions.revisions (branch_id, number DESC);
+
+-- What each revision changed. action: 0 = created, 1 = modified, 2 = deleted. file_id is NULL for deletions.
+-- A rename is stored as a deletion plus a creation.
+CREATE TABLE IF NOT EXISTS revisions.changes
+(
+    revision_id BIGINT   NOT NULL,
+    path        TEXT     NOT NULL,
+    action      SMALLINT NOT NULL,
+    file_id     TEXT     NULL,
+
+    CONSTRAINT pk_changes PRIMARY KEY (revision_id, path),
+    CONSTRAINT fk_changes_revision FOREIGN KEY (revision_id) REFERENCES revisions.revisions (id) ON DELETE CASCADE,
+    CONSTRAINT chk_changes_action CHECK (action BETWEEN 0 AND 2),
+    CONSTRAINT chk_changes_file_id CHECK ((action = 2) = (file_id IS NULL))
+);
+
+-- The current content of every file on each branch, so sync and submit never replay history. path_key is
+-- lower(path): game projects live on case-insensitive file systems, so two paths differing only in case are one file.
+-- revision is the number of the revision that last changed the file, which sync uses to fetch only what's new.
+CREATE TABLE IF NOT EXISTS revisions.head
+(
+    branch_id UUID   NOT NULL,
+    path_key  TEXT   NOT NULL,
+    path      TEXT   NOT NULL,
+    file_id   TEXT   NOT NULL,
+    revision  BIGINT NOT NULL,
+
+    CONSTRAINT pk_head PRIMARY KEY (branch_id, path_key),
+    CONSTRAINT fk_head_branch FOREIGN KEY (branch_id) REFERENCES branches.branches (id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_head_branch_revision ON revisions.head (branch_id, revision);

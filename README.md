@@ -84,8 +84,9 @@ vx config server <address>   # the default server for every command on this mach
 vx login -u admin    # the compose stack's first admin; the password is VX_ADMIN_PASSWORD (default: vertexadmin)
 cd path/to/your/project
 vx init              # creates a project named after the folder and makes this folder its workspace
-vx status            # lists files changed since the last push
-vx push              # uploads new and changed content
+vx status            # lists files changed since the last submit or sync
+vx submit -m "First" # submits every change as one revision (#1)
+vx sync              # gets what others submitted
 vx info              # shows the server version and latency
 ```
 
@@ -97,9 +98,10 @@ To link another folder to an existing project, run `vx fetch <project>` inside i
 |-------------------------------|----------------------------------------------------------------------------------|
 | `vx init [--template <name>]` | Creates a project on the server and makes the current folder its workspace.      |
 | `vx fetch <project> [path]`   | Links a folder to an existing project.                                           |
-| `vx status [--limit <n>]`     | Shows files changed since the last push.                                         |
-| `vx push [paths]`             | Uploads new and changed files. Only chunks the server doesn't have are sent.     |
-| `vx pull <file-id> [dest]`    | Downloads a single file by id.                                                   |
+| `vx status [--limit <n>]`     | Shows files changed since the last submit or sync.                               |
+| `vx submit -m <msg> [paths]`  | Submits every change (or those under `paths`) as one revision. Only chunks the server doesn't have are sent. Refused when a file changed on the server since your last sync. |
+| `vx sync`                     | Gets files changed on the branch since the last sync. Local changes are never overwritten. |
+| `vx revert <paths>`           | Discards local changes, restoring the last submitted or synced content from the server. |
 | `vx branch`                   | Shows the current branch. `list`, `<name>` and `-d <name>` list, create, delete. |
 | `vx info`                     | Shows server information and who you're logged in as.                           |
 | `vx login [server]`           | Logs in and saves the login in `~/.vertex/credentials`. `-u` and `--password-stdin` for scripts. |
@@ -109,7 +111,6 @@ To link another folder to an existing project, run `vx fetch <project>` inside i
 | `vx access`                   | Shows who can access the project. `grant <user\|group> <read\|write\|admin>`, `revoke`, `visibility <internal\|private>`. |
 | `vx user`                     | Server admins: `add`, `list`, `disable`, `enable` and `admin` users.             |
 | `vx group`                    | Server admins: `create`, `delete`, `list`, `add` and `remove` group members.     |
-| `vx submit`, `vx sync`        | Create a revision and update a workspace to a branch's latest state.             |
 
 `vx init` writes a starter `.vxignore` when it recognizes the project type (currently Unreal Engine).
 

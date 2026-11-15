@@ -8,17 +8,30 @@ namespace Vertex.Core.Security
     /// <remarks>Stored as <c>SMALLINT</c>; don't renumber.</remarks>
     public enum AccessLevel : short
     {
-        /// <summary>No access.</summary>
+        /// <summary>
+        /// No access.
+        /// </summary>
         None = 0,
 
-        /// <summary>Sync files and view history.</summary>
+        /// <summary>
+        /// Sync files and view history.
+        /// </summary>
         Read = 1,
 
-        /// <summary>Submit revisions and lock files.</summary>
+        /// <summary>
+        /// Submit revisions and lock files.
+        /// </summary>
         Write = 2,
 
-        /// <summary>Manage access and branches, and delete the project.</summary>
-        Admin = 3
+        /// <summary>
+        /// Manage project access and settings.
+        /// </summary>
+        Manage = 3,
+
+        /// <summary>
+        /// Manage access and branches, and delete the project.
+        /// </summary>
+        Admin = 4
     }
 
     /// <summary>

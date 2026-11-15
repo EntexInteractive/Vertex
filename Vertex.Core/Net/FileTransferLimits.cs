@@ -43,6 +43,22 @@ namespace Vertex.Core.Net
         public const int MaximumChunksPerDownload = 1_024;
 
         /// <summary>
+        /// Largest Submit request (roughly 200 bytes per changed file), so a first submit of a whole game project fits
+        /// in one call while staying under proxy body limits (Cloudflare: 100 MB).
+        /// </summary>
+        public const int MaximumSubmitMessageSize = 64 * 1024 * 1024;
+
+        /// <summary>
+        /// Most changed files in one Submit request.
+        /// </summary>
+        public const int MaximumChangesPerSubmit = 250_000;
+
+        /// <summary>
+        /// Files per GetHeadChanges page (a few MB at most).
+        /// </summary>
+        public const int HeadChangesPageSize = 10_000;
+
+        /// <summary>
         /// HTTP/2 flow-control windows. Throughput on a single stream is capped at roughly
         /// window / round-trip time, so the defaults (64 KB-768 KB) starve high-latency links.
         /// </summary>
