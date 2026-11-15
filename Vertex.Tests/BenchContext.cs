@@ -95,8 +95,7 @@ namespace Vertex.Tests
                 // A typo in the address should say so, not suggest logging in to a server that isn't there.
                 using ServerInterface probe = new(server);
                 ServerResult<InfoResponse> reachable = await probe.GetInfoAsync(ct);
-                if (!reachable.IsSuccessStatusCode)
-                    throw new BenchSetupException($"Can't reach {server}: {reachable.Exception?.Message}. Check the address, or pass --server.");
+                if (!reachable.IsSuccessStatusCode) throw new BenchSetupException($"Can't reach {server}: {reachable.Exception?.Message}. Check the address, or pass --server.");
                 throw new BenchSetupException($"Not logged in to {server}. Run 'vx login {server}' first, or pass --token.");
             }
 
@@ -121,8 +120,7 @@ namespace Vertex.Tests
         {
             using ServerInterface serverApi = new(Server, Token);
             ServerResult<InfoResponse> info = await serverApi.GetInfoAsync(ct);
-            if (!info.IsSuccessStatusCode)
-                throw new BenchSetupException($"Can't reach {Server}: {info.Exception?.Message}. Check the address, or pass --server.");
+            if (!info.IsSuccessStatusCode) throw new BenchSetupException($"Can't reach {Server}: {info.Exception?.Message}. Check the address, or pass --server.");
             ServerInfo = info.Data;
 
             using AuthInterface auth = new(Server, Token);
@@ -143,8 +141,7 @@ namespace Vertex.Tests
                 ProjectId = existing.Data.Id;
                 using BranchInterface branches = new(Server, Token);
                 IReadOnlyList<VBranch> list = Unwrap(await branches.ListBranchesAsync(ProjectId, ct));
-                VBranch branch = list.FirstOrDefault(b => b.Name == "main") ?? list.FirstOrDefault()
-                                 ?? throw new BenchSetupException($"Project {ProjectName} has no branches.");
+                VBranch branch = list.FirstOrDefault(b => b.Name == "main") ?? list.FirstOrDefault() ?? throw new BenchSetupException($"Project {ProjectName} has no branches.");
                 BranchId = branch.Id;
                 return;
             }

@@ -305,12 +305,17 @@ metrics above. It uses your `vx login` for the server and creates a `bench-<time
 vx login https://vertex.example.com
 dotnet run -c Release --project Vertex.Tests -- all --server https://vertex.example.com --profile standard
 dotnet run -c Release --project Vertex.Tests -- soak --server https://vertex.example.com --duration 30m
+dotnet run -c Release --project Vertex.Tests -- soak --server https://vertex.example.com --profile team --duration 10m
 ```
 
 Scenarios: `latency`, `upload`, `dedup`, `download`, `submit` (one large first submit and sync), `submitters`
 (concurrent revisions), `locks`, `events` (stream fan-out) and `soak` (all of it at once, until Ctrl+C). Profiles are
 `smoke` (about 2 minutes), `standard` (2 GB of assets, 100,000 files, 16 clients) and `stress` (10 GB, 250,000 files, 64
-clients); `--clients`, `--concurrency`, `--duration` and the size flags override them. Reports are saved as Markdown and
+clients); `--clients`, `--concurrency`, `--duration` and the size flags override them. These three run flat out: every
+simulated developer submits or locks again the moment the last call returns, so they measure the server's ceiling.
+`team` paces 100 clients like people (a submit every 30-60 s, a lock every 10-30 s, everyone with an event stream
+open): its numbers are what users feel. `--think 30-60` and `--lock-think 10-30` (seconds, `0` for none) set the
+pacing for any profile. Reports are saved as Markdown and
 JSON in `./bench-results`. Run it from a machine outside the server's network to include the proxy, or against the
 origin directly to leave it out.
 

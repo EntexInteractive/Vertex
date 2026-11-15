@@ -50,12 +50,19 @@ namespace Vertex.Tests.Scenarios.Workers
         /// <summary>
         /// Submits until <paramref name="until"/> passes or <paramref name="ct"/> is cancelled.
         /// </summary>
+        /// <remarks>
+        /// With the profile's think time, the worker starts at a random point in the first think window and pauses
+        /// between submits like a developer working; without it, it submits again as soon as the last one returns.
+        /// </remarks>
         public async Task RunAsync(Func<bool> until, CancellationToken ct)
         {
+            ThinkTime think = _context.Profile.SubmitThink;
+            await Task.Delay(think.Stagger(_random), ct);
             while (!until() && !ct.IsCancellationRequested)
             {
                 int[] slots = Enumerable.Range(0, Slots).OrderBy(_ => _random.Next()).Take(_random.Next(1, 21)).ToArray();
                 if (!await SubmitAsync(slots, ct)) await Task.Delay(250, ct);
+                else if (!think.IsNone) await Task.Delay(think.Next(_random), ct);
             }
         }
 

@@ -42,8 +42,13 @@ namespace Vertex.Tests.Scenarios.Workers
 
         public long Held => Interlocked.Read(ref _held);
 
+        /// <remarks>
+        /// With the profile's think time, each lock and unlock cycle is followed by a pause, like saves in an editor.
+        /// </remarks>
         public async Task RunAsync(Func<bool> until, CancellationToken ct)
         {
+            ThinkTime think = _context.Profile.LockThink;
+            await Task.Delay(think.Stagger(_random), ct);
             while (!until() && !ct.IsCancellationRequested)
             {
                 string[] paths = NextPaths();
@@ -60,6 +65,8 @@ namespace Vertex.Tests.Scenarios.Workers
                 Interlocked.Add(ref _held, results!.Count(r => r.Status == LockStatus.Held));
                 if (mine.Length > 0)
                     await _unlock.TryTimeAsync(() => _locks.UnlockAsync(_context.ProjectId, _context.BranchId, WorkspaceId, mine, ct: ct), ct);
+
+                if (!think.IsNone) await Task.Delay(think.Next(_random), ct);
             }
         }
 

@@ -47,7 +47,8 @@ namespace Vertex.Tests.Scenarios
             using CancellationTokenSource stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
             if (limit is TimeSpan l) stop.CancelAfter(l);
             CancellationToken token = stop.Token;
-            AnsiConsole.MarkupLine($"[grey]{quarter} submitters, {quarter} lockers, {subscribers.Count} subscribers, {quarter} syncing workspaces, 1 downloader. " +
+            AnsiConsole.MarkupLine($"[grey]{quarter} submitters (think {context.Profile.SubmitThink}), {quarter} lockers (think {context.Profile.LockThink}), " +
+                                   $"{subscribers.Count} subscribers, {quarter} syncing workspaces, 1 downloader. " +
                                    $"{(limit is null ? "Ctrl+C to stop." : $"Running for {Format.Duration(limit.Value)}.")}[/]");
 
             List<Task> tasks = new();
@@ -74,6 +75,7 @@ namespace Vertex.Tests.Scenarios
             result.Rate("Files locked", lockers.Sum(w => w.Granted), elapsed, "locks");
             result.Rate("Events delivered", subscribers.Sum(s => s.Received), elapsed, "events");
             result.Figure("Stream reconnects", subscribers.Sum(s => s.Reconnects).ToString("N0"));
+            result.Figure("Think time", $"{context.Profile.SubmitThink} between submits, {context.Profile.LockThink} between locks");
             result.Figure("Duration", Format.Duration(elapsed), elapsed.TotalSeconds, "s");
             result.Check(result.TotalErrors == 0, $"{result.TotalErrors:N0} calls failed during the soak.");
         }

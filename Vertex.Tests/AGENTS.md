@@ -12,7 +12,10 @@ dotnet run -c Release --project Vertex.Tests -- soak                       # unt
 ```
 
 - `Program.cs`: one command per scenario, plus `all` (every scenario except soak, in `ScenarioCatalog.All` order).
-- `BenchSettings.cs` / `BenchProfile.cs`: flags and the smoke/standard/stress profiles; flags override single values.
+- `BenchSettings.cs` / `BenchProfile.cs`: flags and the smoke/standard/stress/team profiles; flags override single
+  values. smoke/standard/stress have no think time (ceiling tests); `team` pauses like people do (`ThinkTime`:
+  submits every 30-60 s, locks every 10-30 s, 100 clients), so its latencies are what users feel. Workers read
+  `Profile.SubmitThink`/`LockThink`, start at a random point in the first window, and pause after each cycle.
 - `BenchContext.cs`: resolves server and token (`--token`, `VX_BENCH_TOKEN`, then the `vx login` credential), creates
   a `bench-<time>` project (or uses `--project`), owns the scratch folder (system temp unless `--data`), and shares
   data sets between scenarios: the upload scenario's assets are what dedup and download reuse. All repository paths go

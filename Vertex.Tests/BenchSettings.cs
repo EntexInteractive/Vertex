@@ -23,7 +23,8 @@ namespace Vertex.Tests
         public string? Project { get; set; }
 
         [CommandOption("--profile|-p")]
-        [Description("Load profile: smoke (about a minute), standard or stress. Defaults to smoke.")]
+        [Description("Load profile: smoke (about a minute), standard, stress (flat-out ceiling tests) or team (realistic pacing: " +
+                     "100 clients, submits every 30-60 s, locks every 10-30 s). Defaults to smoke.")]
         [DefaultValue("smoke")]
         public string Profile { get; set; } = "smoke";
 
@@ -42,6 +43,14 @@ namespace Vertex.Tests
         [CommandOption("--duration|-d")]
         [Description("How long timed scenarios run, e.g. 90s, 5m, 1h. Soak runs until Ctrl+C without it.")]
         public string? Duration { get; set; }
+
+        [CommandOption("--think")]
+        [Description("Seconds each simulated developer waits between submits, e.g. 30-60, 45, or 0 for none. Overrides the profile.")]
+        public string? Think { get; set; }
+
+        [CommandOption("--lock-think")]
+        [Description("Seconds each simulated workspace waits between lock cycles, e.g. 10-30, or 0 for none. Overrides the profile.")]
+        public string? LockThink { get; set; }
 
         [CommandOption("--large-files")]
         [Description("Number of large assets to generate for the transfer scenarios.")]
@@ -76,10 +85,16 @@ namespace Vertex.Tests
         public override ValidationResult Validate()
         {
             if (!BenchProfile.TryGet(Profile, out _))
-                return ValidationResult.Error($"Unknown profile '{Profile}'. Use smoke, standard or stress.");
+                return ValidationResult.Error($"Unknown profile '{Profile}'. Use smoke, standard, stress or team.");
 
             if (Duration is not null && ParseDuration(Duration) is null)
                 return ValidationResult.Error($"Can't read duration '{Duration}'. Use a number with s, m or h, e.g. --duration 5m.");
+
+            if (Think is not null && ThinkTime.Parse(Think) is null)
+                return ValidationResult.Error($"Can't read --think '{Think}'. Use seconds, e.g. --think 30-60, --think 45 or --think 0.");
+
+            if (LockThink is not null && ThinkTime.Parse(LockThink) is null)
+                return ValidationResult.Error($"Can't read --lock-think '{LockThink}'. Use seconds, e.g. --lock-think 10-30.");
 
             if (Clients is < 1 || Concurrency is < 1 || Subscribers is < 0 || LargeFiles is < 1 || LargeSizeMb is < 1 || SmallFiles is < 1)
                 return ValidationResult.Error("Counts and sizes must be positive.");

@@ -15,11 +15,11 @@ namespace Vertex.Tests.Metrics
         {
             AnsiConsole.Write(new Rule("[purple]Vertex benchmark[/]").LeftJustified());
             Grid grid = new Grid().AddColumn().AddColumn();
-            grid.AddRow("[grey]Server[/]", Markup.Escape($"{context.Server} (version {context.ServerInfo?.Version ?? "?"}, built {context.ServerInfo?.BuildTimeUtc ?? "?"})"));
+            grid.AddRow("[grey]Profile[/]", Markup.Escape(context.Profile.ToString()));
+            grid.AddRow("[grey]Server[/]", Markup.Escape(ServerDescription(context)));
+            grid.AddRow("[grey]Client[/]", Markup.Escape(ClientDescription()));
             grid.AddRow("[grey]User[/]", Markup.Escape(context.Username));
             grid.AddRow("[grey]Project[/]", Markup.Escape($"{context.ProjectName} ({(context.CreatedProject ? "created for this run" : "existing")}), paths under {context.PathPrefix}/"));
-            grid.AddRow("[grey]Profile[/]", Markup.Escape(context.Profile.ToString()));
-            grid.AddRow("[grey]Client[/]", Markup.Escape(ClientDescription()));
             grid.AddRow("[grey]Scratch[/]", Markup.Escape(context.DataRoot));
             AnsiConsole.Write(grid);
             AnsiConsole.WriteLine();
@@ -172,7 +172,12 @@ namespace Vertex.Tests.Metrics
 
         private static string ClientDescription()
         {
-            return $"{Environment.MachineName}, {Environment.ProcessorCount} cores, {RuntimeInformation.OSDescription}, .NET {Environment.Version}";
+            return $"{Environment.MachineName}, {Environment.ProcessorCount} cores, {RuntimeInformation.OSDescription} ({RuntimeInformation.ProcessArchitecture}), .NET {Environment.Version}";
+        }
+        
+        private static string ServerDescription(BenchContext context)
+        {
+            return $"{context.Server}, {context.ServerInfo?.ProcessorCount} cores, {context.ServerInfo?.OperatingSystem} ({context.ServerInfo?.Architecture}), .NET {context.ServerInfo?.Framework}";
         }
     }
 }
