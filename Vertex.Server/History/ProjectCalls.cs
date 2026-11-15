@@ -18,8 +18,7 @@ namespace Vertex.Server.History
         /// <summary>
         /// Throws unless the caller has <paramref name="level"/> in the project and the branch belongs to it.
         /// </summary>
-        public static async Task RequireAsync(AccessService access, RevisionsRepository revisions, ClaimsPrincipal user, Guid projectId, Guid branchId,
-            AccessLevel level, CancellationToken ct)
+        public static async Task RequireAsync(AccessService access, RevisionsRepository revisions, ClaimsPrincipal user, Guid projectId, Guid branchId, AccessLevel level, CancellationToken ct)
         {
             AccessCheck check = await access.CheckAsync(user, projectId, level, ct);
             if (!check.Allowed)
