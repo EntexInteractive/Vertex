@@ -31,6 +31,8 @@ namespace Vertex.Server.Server
             Assembly assembly = Assembly.GetExecutingAssembly();
             AssemblyName assemblyName = assembly.GetName();
             
+            
+            
             return Ok(new InfoResponse
             {
                 Address = HttpContext.Connection.LocalIpAddress?.ToString(),

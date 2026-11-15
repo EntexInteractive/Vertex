@@ -259,6 +259,25 @@ and Npgsql (query durations, pool usage) metrics, the server reports its own. Du
 | `vertex_redis_connected`, `vertex_redis_errors_total` | Without Redis, cross-instance push falls back to 30 s checks. |
 | `vertex_auth_logins_total` (by `outcome`: success, failed, disabled, throttled) | Login activity and brute-force attempts. |
 
+### Benchmarking a deployment
+
+`Vertex.Tests` builds `vx-bench`, which loads a server the way real clients do (same gRPC-Web calls as `vx`) and
+reports client-side latency percentiles and throughput, with each scenario's UTC window so you can line it up with the
+metrics above. It uses your `vx login` for the server and creates a `bench-<time>` project per run.
+
+```sh
+vx login https://vertex.example.com
+dotnet run -c Release --project Vertex.Tests -- all --server https://vertex.example.com --profile standard
+dotnet run -c Release --project Vertex.Tests -- soak --server https://vertex.example.com --duration 30m
+```
+
+Scenarios: `latency`, `upload`, `dedup`, `download`, `submit` (one large first submit and sync), `submitters`
+(concurrent revisions), `locks`, `events` (stream fan-out) and `soak` (all of it at once, until Ctrl+C). Profiles are
+`smoke` (about 2 minutes), `standard` (2 GB of assets, 100,000 files, 16 clients) and `stress` (10 GB, 250,000 files, 64
+clients); `--clients`, `--concurrency`, `--duration` and the size flags override them. Reports are saved as Markdown and
+JSON in `./bench-results`. Run it from a machine outside the server's network to include the proxy, or against the
+origin directly to leave it out.
+
 ## Contributing
 
 Contributions are welcome: bug reports, ideas, docs, and code. Read [CONTRIBUTING.md](CONTRIBUTING.md) to get started, and follow the [Code of Conduct](CODE_OF_CONDUCT.md). Report security issues privately as described in [SECURITY.md](SECURITY.md), not in public issues.

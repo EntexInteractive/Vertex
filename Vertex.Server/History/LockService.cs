@@ -28,8 +28,7 @@ namespace Vertex.Server.History
         private readonly CacheContext _cache;
         private readonly INotificationService _notifications;
 
-        public LockService(ILogger<LockService> logger, LocksRepository locks, RevisionsRepository revisions, AccessService access, CacheContext cache,
-            INotificationService notifications)
+        public LockService(ILogger<LockService> logger, LocksRepository locks, RevisionsRepository revisions, AccessService access, CacheContext cache, INotificationService notifications)
         {
             _notifications = notifications;
             _logger = logger;

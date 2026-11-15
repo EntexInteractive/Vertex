@@ -163,3 +163,6 @@ pids/
 .cache
 .parcel-cache
 launchSettings.json
+
+# vx-bench reports
+bench-results/
