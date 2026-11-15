@@ -46,10 +46,10 @@ namespace Vertex.Server.History
         /// </summary>
         public async Task<bool> BranchExistsAsync(Guid projectId, Guid branchId, CancellationToken cancellationToken)
         {
-            return await _cache.GetOrSetAsync($"branch:exists:{projectId:N}:{branchId:N}", async ct =>
+            return await _cache.GetOrSetAsync(CacheKeys.BranchExists(projectId, branchId), async ct =>
             {
                 const string sql = "SELECT EXISTS (SELECT 1 FROM branches.branches WHERE id = @BranchId AND project_id = @ProjectId);";
-                await using NpgsqlConnection connection = (NpgsqlConnection)_database.CreateConnection();
+                await using NpgsqlConnection connection = _database.CreateConnection();
                 return await connection.ExecuteScalarAsync<bool>(new CommandDefinition(sql, new { ProjectId = projectId, BranchId = branchId }, cancellationToken: ct));
             }, 1, cancellationToken);
         }
@@ -63,10 +63,9 @@ namespace Vertex.Server.History
         /// another and the head can't change between the check and the write. Everything else is batched so the row is
         /// held for as few round trips as possible: one to read the head and the locks, one to write, and the commit.
         /// </remarks>
-        public async Task<SubmitOutcome> SubmitAsync(Guid projectId, Guid branchId, Guid userId, Guid workspaceId, string host, string message,
-            IReadOnlyList<SubmitChange> changes, CancellationToken cancellationToken)
+        public async Task<SubmitOutcome> SubmitAsync(Guid projectId, Guid branchId, Guid userId, Guid workspaceId, string host, string message, IReadOnlyList<SubmitChange> changes, CancellationToken cancellationToken)
         {
-            await using NpgsqlConnection connection = (NpgsqlConnection)_database.CreateConnection();
+            await using NpgsqlConnection connection = _database.CreateConnection();
             await connection.OpenAsync(cancellationToken);
             await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(cancellationToken);
 
@@ -193,13 +192,42 @@ namespace Vertex.Server.History
         }
 
         /// <summary>
-        /// The number of the latest revision on a branch, or 0 when nothing was submitted to it yet.
+        /// How long a cached head revision lives. Short, so a lost update can only hide a new revision briefly.
         /// </summary>
+        private static readonly TimeSpan HeadRevisionLifetime = TimeSpan.FromSeconds(60);
+
+        /// <summary>
+        /// The number of the latest revision on a branch, or 0 when nothing was submitted to it yet. Every sync asks,
+        /// so it's answered from Redis when it can be.
+        /// </summary>
+        /// <remarks>
+        /// Kept with <see cref="CacheContext.SetMaxAsync"/> rather than as a cached value: a reader that queried just
+        /// before a submit can't write the older number back over the newer one.
+        /// </remarks>
         public async Task<long> GetHeadRevisionAsync(Guid branchId, CancellationToken cancellationToken)
         {
+            string key = CacheKeys.HeadRevision(branchId);
+            if (await _cache.GetInt64Async(key) is long cached)
+            {
+                VertexMetrics.CacheLookups.Add(1, VertexMetrics.Tag("result", "hit"), VertexMetrics.Tag("category", "revision"));
+                return cached;
+            }
+
+            VertexMetrics.CacheLookups.Add(1, VertexMetrics.Tag("result", "miss"), VertexMetrics.Tag("category", "revision"));
             const string sql = "SELECT COALESCE(MAX(number), 0) FROM revisions.revisions WHERE branch_id = @BranchId;";
-            await using NpgsqlConnection connection = (NpgsqlConnection)_database.CreateConnection();
-            return await connection.ExecuteScalarAsync<long>(new CommandDefinition(sql, new { BranchId = branchId }, cancellationToken: cancellationToken));
+            await using NpgsqlConnection connection = _database.CreateConnection();
+            long head = await connection.ExecuteScalarAsync<long>(new CommandDefinition(sql, new { BranchId = branchId }, cancellationToken: cancellationToken));
+            await _cache.SetMaxAsync(key, head, HeadRevisionLifetime);
+            return head;
+        }
+
+        /// <summary>
+        /// Records a branch's new head revision after a submit commits, so the next sync sees it without asking
+        /// PostgreSQL.
+        /// </summary>
+        public Task CacheHeadRevisionAsync(Guid branchId, long revision)
+        {
+            return _cache.SetMaxAsync(CacheKeys.HeadRevision(branchId), revision, HeadRevisionLifetime);
         }
 
         /// <summary>
@@ -221,10 +249,8 @@ namespace Vertex.Server.History
                                "  ORDER BY lower(c.path), r.number DESC)" +
                                ") files WHERE path_key > @Cursor ORDER BY path_key LIMIT @Limit;";
 
-            await using NpgsqlConnection connection = (NpgsqlConnection)_database.CreateConnection();
-            return (await connection.QueryAsync<HeadFileRow>(new CommandDefinition(sql,
-                new { BranchId = branchId, After = afterRevision, Head = headRevision, Cursor = cursor, Limit = limit },
-                cancellationToken: cancellationToken))).ToReadOnly();
+            await using NpgsqlConnection connection = _database.CreateConnection();
+            return (await connection.QueryAsync<HeadFileRow>(new CommandDefinition(sql, new { BranchId = branchId, After = afterRevision, Head = headRevision, Cursor = cursor, Limit = limit }, cancellationToken: cancellationToken))).ToReadOnly();
         }
     }
 }
