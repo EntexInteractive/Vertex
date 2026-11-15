@@ -42,11 +42,17 @@ namespace Vertex.Server.Storage
     public sealed class S3ContentStore : IContentStore
     {
         private const string RawSizeMetadata = "raw-size";
+
+        /// <summary>S3 calls slower than this are logged, so a storage stall shows in the log as well as in metrics.</summary>
+        private static readonly TimeSpan SlowCall = TimeSpan.FromSeconds(2);
+
+        private readonly ILogger<S3ContentStore> _logger;
         private readonly IAmazonS3 _s3;
         private readonly string _bucket;
 
-        public S3ContentStore(IAmazonS3 s3, ServerSettings settings)
+        public S3ContentStore(ILogger<S3ContentStore> logger, IAmazonS3 s3, ServerSettings settings)
         {
+            _logger = logger;
             _s3 = s3;
             _bucket = settings.Storage.Bucket;
         }
@@ -97,7 +103,7 @@ namespace Vertex.Server.Storage
         /// <summary>
         /// Runs one S3 call and records its duration and outcome (<c>vertex.storage.duration</c>).
         /// </summary>
-        private static async Task<T> TimedAsync<T>(string operation, Func<Task<T>> call)
+        private async Task<T> TimedAsync<T>(string operation, Func<Task<T>> call)
         {
             long start = Stopwatch.GetTimestamp();
             string outcome = "ok";
@@ -122,7 +128,9 @@ namespace Vertex.Server.Storage
             }
             finally
             {
-                VertexMetrics.StorageDuration.Record(Stopwatch.GetElapsedTime(start).TotalSeconds, VertexMetrics.Tag("operation", operation), VertexMetrics.Tag("outcome", outcome));
+                TimeSpan elapsed = Stopwatch.GetElapsedTime(start);
+                VertexMetrics.StorageDuration.Record(elapsed.TotalSeconds, VertexMetrics.Tag("operation", operation), VertexMetrics.Tag("outcome", outcome));
+                if (elapsed > SlowCall) _logger.LogWarning("Slow S3 call: {Operation} took {Elapsed:F1} s ({Outcome})", operation, elapsed.TotalSeconds, outcome);
             }
         }
         private static Stream AsStream(ReadOnlyMemory<byte> data)

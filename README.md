@@ -204,8 +204,8 @@ The server is configured entirely through environment variables. At startup, it 
 | Variable                 | Required | Default                    | Description                                                                                              |
 |--------------------------|----------|----------------------------|----------------------------------------------------------------------------------------------------------|
 | `VX_HTTP_PORT`           | No       | `5000`                     | Port the server listens on. Clear-text HTTP/2 only, unless TLS is configured below.                      |
-| `VX_POSTGRES_CONNECTION` | **Yes**  | —                          | Npgsql connection string, e.g. `Host=postgres;Port=5432;Database=vertex;Username=...;Password=...`.      |
-| `VX_REDIS_CONNECTION`    | No       | `redis:6379`               | StackExchange.Redis connection string. The server uses a memory-only cache when Redis is unreachable. |
+| `VX_POSTGRES_CONNECTION` | **Yes**  | —                          | Npgsql connection string, e.g. `Host=postgres;Port=5432;Database=vertex;Username=...;Password=...`. Pool settings go here too: `Maximum Pool Size` (default 100, per instance), `Timeout` (seconds to wait for a free connection, default 15) and `Command Timeout` (default 30). Watch `db_client_connection_*` before raising them. |
+| `VX_REDIS_CONNECTION`    | No       | `redis:6379`               | StackExchange.Redis connection string. The server uses a memory-only cache when Redis is unreachable. Run Redis as a pure cache: see below. |
 | `VX_S3_ENDPOINT`         | No       | `https://s3.amazonaws.com` | S3 or S3-compatible endpoint URL (e.g. MinIO, RustFS). Path-style addressing is used.                    |
 | `VX_S3_REGION`           | No       | `us-east-1`                | S3 region.                                                                                               |
 | `VX_S3_BUCKET`           | No       | `vertex-storage`           | Bucket for file chunks and manifests.                                                                    |
@@ -218,6 +218,12 @@ The server is configured entirely through environment variables. At startup, it 
 | `VX_METRICS_PORT`        | No       | —                          | Serves Prometheus metrics on `/metrics` over plain HTTP on this port (e.g. `9464`). Off when unset. Must differ from `VX_HTTP_PORT`; don't expose it publicly. |
 
 When the S3 keys are unset, the AWS SDK default credential chain is used (`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, EKS IRSA or pod identity, instance profile). In Kubernetes, prefer workload identity, or load the keys from a Secret. Standard ASP.NET Core variables such as `ASPNETCORE_ENVIRONMENT` also apply; `Development` enables Swagger and gRPC reflection.
+
+Redis only holds values the server can rebuild (cached rows, counters, cross-instance wake-ups), so run it as a pure
+cache: `redis-server --save "" --appendonly no --maxmemory 256mb --maxmemory-policy allkeys-lru`, as
+`docker-compose.yml` does. Snapshots and append-only rewrites fork Redis and write the whole dataset to disk, which
+on a busy host stalls everything sharing that disk. Give each deployment its own Redis (or its own database number),
+since cache keys aren't namespaced per server.
 
 ### Behind a reverse proxy
 
@@ -258,6 +264,9 @@ and Npgsql (query durations, pool usage) metrics, the server reports its own. Du
 | `vertex_storage_duration_seconds` (by `operation`, `outcome`), `vertex_storage_cache_total` (by `result`) | S3 latency and errors (S3 holds chunk bytes; which chunks and files exist is indexed in PostgreSQL), and how often the in-memory cache answers an existence check without the database. |
 | `vertex_transfer_chunks_total`, `vertex_transfer_files_total` (by `result`: new, deduplicated) | How much content clients didn't have to upload. |
 | `vertex_transfer_received_bytes_total`, `vertex_transfer_sent_bytes_total` | Upload and download bandwidth. |
+| `vertex_transfer_budget_wait_seconds`, `vertex_transfer_slots_used`, `vertex_transfer_slots` | Time transfers wait for a slot before touching S3, and slots in use. Slow transfers with long waits mean the instance is at its memory-based limit; slow transfers without waits mean S3 itself is slow (see `vertex_storage_duration_seconds`). |
+| `vertex_cache_lookups_total`, `vertex_cache_duration_seconds` (by `category`, `result`), `vertex_cache_factory_seconds`, `vertex_cache_value_size_bytes` (by `type`) | Cache hit rate, lookup time (a hit taking milliseconds came from Redis), the cost of misses, and the size of cached values. `category="gen"` are cheap generation lookups; leave them out of hit-rate panels. |
+| `vertex_grpc_errors_total` (by `method`, `status`, `exception`) | Calls that failed with an exception. `Unavailable` means overload (database pool or timeouts, S3 errors or timeouts) and is logged as a warning naming the cause; `Internal` is a server bug. Slow S3 calls (over 2 s) are also logged. |
 | `vertex_redis_connected`, `vertex_redis_errors_total` | Without Redis, cross-instance push falls back to 30 s checks. |
 | `vertex_auth_logins_total` (by `outcome`: success, failed, disabled, throttled) | Login activity and brute-force attempts. |
 

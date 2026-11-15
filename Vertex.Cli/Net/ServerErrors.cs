@@ -36,6 +36,11 @@ namespace Vertex.Cli.Net
                     return rpc.Status.Detail;
                 case RpcException { StatusCode: StatusCode.Unknown or StatusCode.Internal }:
                     return "The server failed to handle the request. Its log has the details; run the command again later or tell the server admin.";
+                case RpcException { StatusCode: StatusCode.Unavailable or StatusCode.ResourceExhausted } busy
+                    when busy.Status.DebugException is null && !string.IsNullOrWhiteSpace(busy.Status.Detail):
+                    // A client-side failure to connect carries a DebugException; a status sent by the server doesn't.
+                    // The server answered but is overloaded ("Storage is busy; retry shortly."). Commands are safe to re-run.
+                    return $"{busy.Status.Detail} Run the command again.";
                 case RpcException { StatusCode: StatusCode.Unavailable }:
                     return $"Can't reach the server at {server}. Check the address with 'vx info'.";
                 default:

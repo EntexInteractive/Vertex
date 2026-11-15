@@ -32,6 +32,12 @@ namespace Vertex.Server.Telemetry
             HistogramBucketBoundaries = [1, 2, 5, 10, 25, 50, 100, 250, 1_000, 10_000, 100_000]
         };
 
+        /// <summary>Bucket boundaries for cached value sizes: 64 B to 1 MB.</summary>
+        private static readonly InstrumentAdvice<long> Bytes = new()
+        {
+            HistogramBucketBoundaries = [64, 256, 1_024, 4_096, 16_384, 65_536, 262_144, 1_048_576]
+        };
+
         /// <summary>Bucket boundaries for requests per shared transaction.</summary>
         private static readonly InstrumentAdvice<long> BatchSizes = new()
         {
@@ -122,8 +128,26 @@ namespace Vertex.Server.Telemetry
 
         /// <summary>Time spent producing a value on a cache miss, tagged with <c>category</c>.</summary>
         public static readonly Histogram<double> CacheFactoryDuration = Meter.CreateHistogram("vertex.cache.factory", "s", "Time producing a value on a cache miss.", advice: Seconds);
+
+        /// <summary>
+        /// Whole cache lookups, tagged with <c>category</c> and <c>result</c>. A hit that takes milliseconds came from
+        /// Redis, so a Redis stall shows up here directly.
+        /// </summary>
+        public static readonly Histogram<double> CacheDuration = Meter.CreateHistogram("vertex.cache.duration", "s", "Cache lookup duration, including Redis and the factory.", advice: Seconds);
+
+        /// <summary>Serialized size of values stored in the cache, tagged with <c>type</c>.</summary>
+        public static readonly Histogram<long> CacheValueSize = Meter.CreateHistogram("vertex.cache.value_size", "By", "Serialized size of cached values.", advice: Bytes);
+
+        /// <summary>Time transfers wait for a <c>TransferBudget</c> slot before touching S3.</summary>
+        public static readonly Histogram<double> TransferBudgetWait = Meter.CreateHistogram("vertex.transfer.budget_wait", "s", "Time waiting for a transfer slot.", advice: Seconds);
         
         // ---- Dependencies and security.
+
+        /// <summary>
+        /// gRPC calls that failed with an exception, tagged with <c>method</c>, the <c>status</c> returned and the
+        /// <c>exception</c> type (see <c>ExceptionInterceptor</c>).
+        /// </summary>
+        public static readonly Counter<long> GrpcErrors = Meter.CreateCounter<long>("vertex.grpc.errors", "{error}", "gRPC calls that failed with an exception.");
 
         /// <summary>Redis operations that failed, tagged with <c>operation</c>.</summary>
         public static readonly Counter<long> RedisErrors = Meter.CreateCounter<long>("vertex.redis.errors", "{error}", "Failed Redis operations.");
@@ -142,12 +166,17 @@ namespace Vertex.Server.Telemetry
         /// <summary>Reports, per event handler, how many events it is behind; set by the dispatcher.</summary>
         public static Func<IEnumerable<KeyValuePair<string, long>>>? HandlerLag { get; set; }
 
+        /// <summary>Reports transfer slots in use and in total; set by the transfer budget.</summary>
+        public static Func<(int InUse, int Total)>? TransferSlots { get; set; }
+
         static VertexMetrics()
         {
             Meter.CreateObservableGauge("vertex.redis.connected", () => RedisState?.Invoke() ?? 0, "1", "Whether Redis is connected (1) or not (0).");
             Meter.CreateObservableGauge("vertex.event_feeds", () => ActiveFeeds?.Invoke() ?? 0, "{project}", "Projects with live subscribers on this instance.");
             Meter.CreateObservableGauge("vertex.events.handler_lag", () => (HandlerLag?.Invoke() ?? [])
                 .Select(lag => new Measurement<long>(lag.Value, new KeyValuePair<string, object?>("handler", lag.Key))), "{event}", "Events an event handler is behind, worst project.");
+            Meter.CreateObservableGauge("vertex.transfer.slots_used", () => TransferSlots?.Invoke().InUse ?? 0, "{chunk}", "Transfer slots in use on this instance.");
+            Meter.CreateObservableGauge("vertex.transfer.slots", () => TransferSlots?.Invoke().Total ?? 0, "{chunk}", "Transfer slots on this instance.");
         }
 
         /// <summary>
