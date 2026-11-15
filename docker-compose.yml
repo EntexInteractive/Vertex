@@ -23,8 +23,10 @@ services:
     restart: unless-stopped
     ports:
       - "5000:8080"
+      - "127.0.0.1:9464:9464"  # Prometheus metrics, local only
     environment:
       VX_HTTP_PORT: "8080"
+      VX_METRICS_PORT: "9464"
       VX_POSTGRES_CONNECTION: Host=postgres;Port=5432;Database=vertex;Username=vertex;Password=${VX_POSTGRES_PASSWORD:-vertex}
       VX_REDIS_CONNECTION: redis:6379
       VX_S3_ENDPOINT: http://rustfs:9000

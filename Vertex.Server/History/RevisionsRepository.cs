@@ -18,7 +18,8 @@ namespace Vertex.Server.History
     /// branch since the submitter's base, or the locks someone else holds on submitted paths.
     /// </summary>
     /// <param name="EventSeq">The project's event seq after the submit's events, or null when nothing was written.</param>
-    public sealed record SubmitOutcome(long? Revision, IReadOnlyList<string> OutOfDate, IReadOnlyList<LockRow> LockedByOthers, long? EventSeq = null);
+    /// <param name="LocksReleased">How many of the submitter's locks the submit released.</param>
+    public sealed record SubmitOutcome(long? Revision, IReadOnlyList<string> OutOfDate, IReadOnlyList<LockRow> LockedByOthers, long? EventSeq = null, int LocksReleased = 0);
 
     /// <summary>
     /// A file on a branch, for sync. <see cref="FileId"/> is null when the file was deleted.
@@ -145,7 +146,7 @@ namespace Vertex.Server.History
                 new NewEvent(EventTypes.RevisionCreated, branchId, userId, workspaceId, host, new RevisionPayload(number, message, applied.Count)), cancellationToken);
 
             await transaction.CommitAsync(cancellationToken);
-            return new SubmitOutcome(number, [], [], eventSeq);
+            return new SubmitOutcome(number, [], [], eventSeq, locks.Count);
         }
 
         /// <summary>

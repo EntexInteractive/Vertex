@@ -1,4 +1,4 @@
-﻿-- Initial Vertex schema. The server applies migrations at startup (Database/DatabaseMigrator.cs).
+-- Initial Vertex schema. The server applies migrations at startup (Database/DatabaseMigrator.cs).
 --
 -- This one stays idempotent (IF NOT EXISTS) because it also runs against databases created before migrations existed,
 -- when this file was applied by hand as schema.sql; it adopts them without touching their data. Later migrations run
@@ -127,26 +127,10 @@ CREATE TABLE IF NOT EXISTS branches.branches
 CREATE INDEX IF NOT EXISTS idx_branches_parent_id ON branches.branches (parent_id);
 
 
-CREATE SCHEMA IF NOT EXISTS diagnostics;
-CREATE TABLE IF NOT EXISTS diagnostics.requests
-(
-    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    auth_user   UUID        NULL,
-    method      VARCHAR(10) NOT NULL,
-    endpoint    TEXT        NOT NULL,
-    status_code INTEGER     NOT NULL,
-    process_ms  BIGINT      NOT NULL,
-    length      BIGINT      NOT NULL,
-
-    CONSTRAINT chk_request_logs_status_code CHECK (status_code BETWEEN 100 AND 599),
-    CONSTRAINT chk_request_logs_process_ms CHECK (process_ms >= 0),
-    CONSTRAINT chk_request_logs_length CHECK (length >= 0)
-);
-
-CREATE INDEX IF NOT EXISTS idx_request_logs_received_at ON diagnostics.requests (received_at DESC);
-CREATE INDEX IF NOT EXISTS idx_request_logs_auth_user_received_at ON diagnostics.requests (auth_user, received_at DESC);
-CREATE INDEX IF NOT EXISTS idx_request_logs_endpoint ON diagnostics.requests (endpoint);
+-- Requests used to be logged here, one row per request. Server metrics now come from OpenTelemetry (VX_METRICS_PORT).
+DROP TABLE IF EXISTS diagnostics.requests;
+DROP TABLE IF EXISTS diagnostics.reports;
+DROP SCHEMA IF EXISTS diagnostics;
 
 
 -- Revisions: the project's history. Until the first release, schema changes are appended here idempotently instead

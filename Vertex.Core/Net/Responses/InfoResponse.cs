@@ -10,7 +10,6 @@ namespace Vertex.Core.Net.Responses
         public string? Address { get; set; }
         public string? BuildTimeUtc { get; set; }
         public DateTime Date { get; set; }
-        public double ProcessMs { get; set; }
         public DateTime StartTime { get; set; }
         public TimeSpan Uptime { get; set; }
         public string? Version { get; set; }

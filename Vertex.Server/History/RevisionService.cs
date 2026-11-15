@@ -9,6 +9,7 @@ using Vertex.Server.Access;
 using Vertex.Server.Auth;
 using Vertex.Server.Database;
 using Vertex.Server.Events;
+using Vertex.Server.Telemetry;
 using Vertex.Server.Storage;
 
 namespace Vertex.Server.History
@@ -86,18 +87,23 @@ namespace Vertex.Server.History
             SubmitOutcome outcome = await _revisions.SubmitAsync(projectId, branchId, user.GetUserId(), workspaceId, host, message, changes, ct);
             if (outcome.OutOfDate.Count > 0)
             {
+                VertexMetrics.SubmitsRefused.Add(1, new KeyValuePair<string, object?>("reason", "out_of_date"));
                 string listed = string.Join(", ", outcome.OutOfDate.Take(ListedPaths));
                 string more = outcome.OutOfDate.Count > ListedPaths ? $" and {outcome.OutOfDate.Count - ListedPaths:N0} more" : "";
                 throw new RpcException(new Status(StatusCode.FailedPrecondition,
                     $"Changed on the server since your last sync: {listed}{more}. Run 'vx sync', then submit again."));
             }
 
+            if (outcome.LockedByOthers.Count > 0) VertexMetrics.SubmitsRefused.Add(1, new KeyValuePair<string, object?>("reason", "locked"));
             if (outcome.LockedByOthers.Count > 0)
                 throw new RpcException(new Status(StatusCode.FailedPrecondition, ProjectCalls.DescribeLockedByOthers(outcome.LockedByOthers, user.GetUserId())));
 
             await ProjectCalls.AfterCommitAsync(_cache, _notifications, projectId, outcome.EventSeq);
             if (outcome.Revision is null) throw new RpcException(new Status(StatusCode.FailedPrecondition, "Nothing to submit: the server already has these changes."));
 
+            VertexMetrics.Revisions.Add(1);
+            VertexMetrics.RevisionFiles.Add(changes.Count);
+            VertexMetrics.LocksReleased.Add(outcome.LocksReleased, new KeyValuePair<string, object?>("reason", "submitted"));
             _logger.LogInformation("Revision #{Revision} in project {ProjectId}: {Files} file(s) by {User}", outcome.Revision, projectId, changes.Count, user.GetUsername());
             return new SubmitResponse { Revision = outcome.Revision.Value };
         }

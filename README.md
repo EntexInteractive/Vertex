@@ -215,6 +215,7 @@ The server is configured entirely through environment variables. At startup, it 
 | `VX_TLS_KEY`             | No       | —                          | PEM private key file for `VX_TLS_CERT`.                                                                  |
 | `VX_ADMIN_PASSWORD`      | No       | —                          | Creates the `admin` server admin on first start, while no users exist. Ignored afterwards. At least 8 characters. |
 | `VX_TRUSTED_PROXIES`     | No       | —                          | Comma-separated addresses or CIDR ranges of proxies allowed to set `X-Forwarded-For`, e.g. `172.18.0.0/16`. Loopback is always trusted. |
+| `VX_METRICS_PORT`        | No       | —                          | Serves Prometheus metrics on `/metrics` over plain HTTP on this port (e.g. `9464`). Off when unset. Must differ from `VX_HTTP_PORT`; don't expose it publicly. |
 
 When the S3 keys are unset, the AWS SDK default credential chain is used (`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, EKS IRSA or pod identity, instance profile). In Kubernetes, prefer workload identity, or load the keys from a Secret. Standard ASP.NET Core variables such as `ASPNETCORE_ENVIRONMENT` also apply; `Development` enables Swagger and gRPC reflection.
 
@@ -226,6 +227,24 @@ and have the proxy connect over HTTPS with HTTP/2 enabled.
 
 Also set `VX_TRUSTED_PROXIES` to the proxy's address, unless it runs on the same machine (loopback is trusted). The
 server limits failed logins per client address, and without it every client behind the proxy shares one address.
+
+### Monitoring
+
+Set `VX_METRICS_PORT` and point Prometheus at it; build dashboards and alerts in Grafana. The metrics come from
+OpenTelemetry and are only served on that port, never on the public one:
+
+```yaml
+scrape_configs:
+  - job_name: vertex
+    static_configs:
+      - targets: ["vertex-server:9464"]  # every server instance
+```
+
+Besides the standard ASP.NET Core (request durations per endpoint and gRPC method, Kestrel connections), .NET runtime
+and Npgsql (query durations, pool usage) metrics, the server reports `vertex_revisions_total`,
+`vertex_revisions_files_total`, `vertex_revisions_refused_total` (by `reason`), `vertex_locks_granted_total`,
+`vertex_locks_released_total` (by `reason`), `vertex_event_streams` (open streams per instance), and
+`vertex_transfer_received_bytes_total` / `vertex_transfer_sent_bytes_total`.
 
 ## Contributing
 

@@ -7,8 +7,11 @@ project-wide rules.
   gRPC-Web, static files for the web UI, and controllers. Start here.
 - `ServerSettings.cs` is the only place that reads configuration (`VX_*` environment variables). It validates every
   setting at startup and reports all errors at once. Add new settings here and document them in the README table.
-- Feature folders (`Projects/`, `Branches/`, `Files/`, `History/`, `Events/`, `Server/`, `Diagnostics/`) each pair a
-  controller or gRPC service with a Dapper repository.
+- Feature folders (`Projects/`, `Branches/`, `Files/`, `History/`, `Events/`, `Server/`) each pair a controller or
+  gRPC service with a Dapper repository.
+- `Telemetry/VertexMetrics.cs`: Vertex's own OpenTelemetry metrics. With `VX_METRICS_PORT` set, `ServerApp` exports
+  them plus the built-in ASP.NET Core, Kestrel, runtime and Npgsql meters for Prometheus on `/metrics`, on that port
+  only. Add a counter or histogram there for anything worth graphing; never write per-request rows to PostgreSQL.
 - `History/`: revisions (`RevisionService`, `RevisionsRepository`) and file locks (`LockService`, `LocksRepository`).
   Every transaction that changes revisions or locks locks the project row first (`revision_counter`, or
   `EventStore.LockProjectAsync`), so they serialize per project and submit's lock check can't race a new lock.

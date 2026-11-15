@@ -5,6 +5,7 @@ using Grpc.Core;
 using Vertex.Core.Security;
 using Vertex.Server.Access;
 using Vertex.Server.History;
+using Vertex.Server.Telemetry;
 
 namespace Vertex.Server.Events
 {
@@ -54,6 +55,7 @@ namespace Vertex.Server.Events
                 await responseStream.WriteAsync(new EventMessage { Seq = cursor, Resync = new Resync() });
             }
 
+            VertexMetrics.EventStreams.Add(1);
             using CancellationTokenSource lifetime = CancellationTokenSource.CreateLinkedTokenSource(context.CancellationToken);
             lifetime.CancelAfter(MaximumStreamDuration);
             CancellationToken ct = lifetime.Token;
@@ -105,6 +107,7 @@ namespace Vertex.Server.Events
                 }
 
                 await events.DisposeAsync();
+                VertexMetrics.EventStreams.Add(-1);
             }
         }
 

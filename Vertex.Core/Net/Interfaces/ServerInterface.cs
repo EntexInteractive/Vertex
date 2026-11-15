@@ -10,9 +10,9 @@ namespace Vertex.Core.Net.Interfaces
     /// </summary>
     public sealed class ServerInterface(string url, string? token = null) : BaseInterface(url, token)
     {
-        public Task<ServerResult<InfoResponse>> GetInfoAsync(TimeSpan time, CancellationToken ct = default)
+        public Task<ServerResult<InfoResponse>> GetInfoAsync(CancellationToken ct = default)
         {
-            return SendAsync<InfoResponse>(HttpMethod.Get, $"api/v1/server/info?time={time}", cancellationToken: ct);
+            return SendAsync<InfoResponse>(HttpMethod.Get, "api/v1/server/info", cancellationToken: ct);
         }
     }
 }
