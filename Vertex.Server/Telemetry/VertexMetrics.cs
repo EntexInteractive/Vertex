@@ -143,6 +143,12 @@ namespace Vertex.Server.Telemetry
         
         // ---- Dependencies and security.
 
+        /// <summary>
+        /// gRPC calls that failed with an exception, tagged with <c>method</c>, the <c>status</c> returned and the
+        /// <c>exception</c> type (see <c>ExceptionInterceptor</c>).
+        /// </summary>
+        public static readonly Counter<long> GrpcErrors = Meter.CreateCounter<long>("vertex.grpc.errors", "{error}", "gRPC calls that failed with an exception.");
+
         /// <summary>Redis operations that failed, tagged with <c>operation</c>.</summary>
         public static readonly Counter<long> RedisErrors = Meter.CreateCounter<long>("vertex.redis.errors", "{error}", "Failed Redis operations.");
 

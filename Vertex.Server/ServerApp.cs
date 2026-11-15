@@ -27,6 +27,7 @@ using Vertex.Server.Telemetry;
 using Vertex.Server.FileServices;
 using Vertex.Server.History;
 using Vertex.Server.Groups;
+using Vertex.Server.Grpc;
 using Vertex.Server.Projects;
 using Vertex.Server.Services;
 using Vertex.Server.Storage;
@@ -64,7 +65,14 @@ namespace Vertex.Server
             string serviceUrl = settings.Storage.Endpoint;
             builder.Services.AddSingleton<IAmazonS3>(_ =>
             {
-                AmazonS3Config s3Config = new() { RegionEndpoint = RegionEndpoint.GetBySystemName(region) };
+                // Bounded, so one stuck S3 call can't hold a transfer slot for minutes: a chunk is at most 4 MB, and a
+                // failed call surfaces to the client as Unavailable (see ExceptionInterceptor).
+                AmazonS3Config s3Config = new()
+                {
+                    RegionEndpoint = RegionEndpoint.GetBySystemName(region),
+                    Timeout = TimeSpan.FromSeconds(30),
+                    MaxErrorRetry = 3
+                };
                 s3Config.ServiceURL = serviceUrl;
                 s3Config.ForcePathStyle = true;
 
@@ -185,6 +193,9 @@ namespace Vertex.Server
             // Add services to the container.
             builder.Services.AddGrpc(options =>
             {
+                // Exceptions become a status the client can act on (Unavailable, Cancelled, Internal), not Unknown.
+                options.Interceptors.Add<ExceptionInterceptor>();
+
                 // Transfers are streamed in bounded messages; file size is not tied to a gRPC message limit.
                 options.MaxReceiveMessageSize = FileTransferLimits.MaximumMessageSize;
                 options.MaxSendMessageSize = FileTransferLimits.MaximumMessageSize;
