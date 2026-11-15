@@ -110,6 +110,8 @@ namespace Vertex.Server
             builder.Services.AddScoped<TokensRepository>();
             builder.Services.AddScoped<AccessService>();
             builder.Services.AddScoped<RevisionsRepository>();
+            builder.Services.AddScoped<LocksRepository>();
+            builder.Services.AddHostedService<LockEventPruner>();
 
             // Authentication: opaque bearer tokens from 'vx login'. Every endpoint requires a logged-in user unless it
             // opts out with [AllowAnonymous] (server info, login), which covers REST and gRPC alike.
@@ -246,6 +248,7 @@ namespace Vertex.Server
             app.MapGrpcService<GreeterService>();
             app.MapGrpcService<FileTransferService>();
             app.MapGrpcService<RevisionService>();
+            app.MapGrpcService<LockService>();
             
             app.UseHttpsRedirection();
             app.MapControllers();

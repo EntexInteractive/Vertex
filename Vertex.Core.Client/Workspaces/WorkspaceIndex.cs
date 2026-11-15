@@ -17,13 +17,31 @@ namespace Vertex.Core.Client.Workspaces
     public sealed record IndexEntry(string Path, long Size, long LastWriteTicks, string FileId, string? BaseId, long IndexedAtTicks);
 
     /// <summary>
+    /// A lock on the workspace's branch, as last fetched from the server.
+    /// </summary>
+    /// <param name="PathKey">Lower-case path, as the server compares paths.</param>
+    /// <param name="Path">Path relative to the workspace root, with <c>/</c> separators.</param>
+    /// <param name="Mine">Held by this workspace.</param>
+    /// <param name="Username">The holder.</param>
+    /// <param name="Host">The holder's machine.</param>
+    /// <param name="CreatedAt">When it was locked (Unix milliseconds).</param>
+    /// <param name="MadeReadOnly">This workspace made the file read-only because of the lock, so it makes it writable
+    /// again on release. Files the user made read-only themselves are never touched.</param>
+    public sealed record LockEntry(string PathKey, string Path, bool Mine, string Username, string Host, long CreatedAt, bool MadeReadOnly);
+
+    /// <summary>
     /// The workspace's local SQLite index (<c>.vx/index.db</c>). It caches each file's content id against its
     /// size and timestamp, so unchanged files are never re-hashed, and records the content each tracked file had
     /// at the last push or sync, which is what changes are measured against.
     /// </summary>
     public sealed class WorkspaceIndex : IDisposable
     {
-        private const int SchemaVersion = 2;
+        private const int SchemaVersion = 3;
+
+        /// <summary>
+        /// The last lock event seq the workspace has applied, stored in the <c>meta</c> table.
+        /// </summary>
+        public const string LockSeqKey = "lock_seq";
 
         /// <summary>
         /// The last revision <c>vx sync</c> brought the workspace up to, stored in the <c>meta</c> table.
@@ -31,6 +49,9 @@ namespace Vertex.Core.Client.Workspaces
         public const string SyncedRevisionKey = "synced_revision";
 
         private const string MetaTableSql = "CREATE TABLE IF NOT EXISTS meta (key TEXT NOT NULL PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;";
+
+        private const string LocksTableSql = "CREATE TABLE IF NOT EXISTS locks (path_key TEXT NOT NULL PRIMARY KEY, path TEXT NOT NULL, mine INTEGER NOT NULL, " +
+                                             "username TEXT NOT NULL, host TEXT NOT NULL, created_at INTEGER NOT NULL, made_read_only INTEGER NOT NULL DEFAULT 0) WITHOUT ROWID;";
 
         private readonly SqliteConnection _connection;
 
@@ -68,13 +89,14 @@ namespace Vertex.Core.Client.Workspaces
                                              indexed_at  INTEGER NOT NULL
                                          ) WITHOUT ROWID;
                                          {MetaTableSql}
+                                         {LocksTableSql}
                                          PRAGMA user_version = {SchemaVersion};
                                          """);
                 }
-                else if (version == 1)
+                else if (version < SchemaVersion)
                 {
-                    // Version 2 added the meta table; upgrade in place.
-                    Execute(connection, $"{MetaTableSql} PRAGMA user_version = {SchemaVersion};");
+                    // Upgrade in place: version 2 added the meta table, version 3 the locks table.
+                    Execute(connection, $"{MetaTableSql} {LocksTableSql} PRAGMA user_version = {SchemaVersion};");
                 }
                 else if (version != SchemaVersion)
                 {
@@ -178,6 +200,81 @@ namespace Vertex.Core.Client.Workspaces
             command.Parameters.AddWithValue("$key", key);
             command.Parameters.AddWithValue("$value", value);
             command.ExecuteNonQuery();
+        }
+
+        public List<LockEntry> ReadLocks()
+        {
+            using SqliteCommand command = _connection.CreateCommand();
+            command.CommandText = "SELECT path_key, path, mine, username, host, created_at, made_read_only FROM locks;";
+            using SqliteDataReader reader = command.ExecuteReader();
+
+            List<LockEntry> locks = new();
+            while (reader.Read())
+            {
+                locks.Add(new LockEntry(reader.GetString(0), reader.GetString(1), reader.GetInt64(2) != 0, reader.GetString(3), reader.GetString(4), reader.GetInt64(5), reader.GetInt64(6) != 0));
+            }
+
+            return locks;
+        }
+
+        /// <summary>
+        /// Removes the locks with keys in <paramref name="deletes"/>, inserts or replaces <paramref name="upserts"/>
+        /// and stores the lock seq, in one transaction.
+        /// </summary>
+        public void ApplyLocks(IEnumerable<LockEntry> upserts, IEnumerable<string> deletes, long lockSeq)
+        {
+            using SqliteTransaction transaction = _connection.BeginTransaction();
+            using (SqliteCommand delete = _connection.CreateCommand())
+            {
+                delete.Transaction = transaction;
+                delete.CommandText = "DELETE FROM locks WHERE path_key = $key;";
+                SqliteParameter key = delete.Parameters.Add("$key", SqliteType.Text);
+                delete.Prepare();
+                foreach (string deleted in deletes)
+                {
+                    key.Value = deleted;
+                    delete.ExecuteNonQuery();
+                }
+            }
+
+            using (SqliteCommand upsert = _connection.CreateCommand())
+            {
+                upsert.Transaction = transaction;
+                upsert.CommandText = "INSERT OR REPLACE INTO locks (path_key, path, mine, username, host, created_at, made_read_only) " +
+                                     "VALUES ($key, $path, $mine, $username, $host, $created_at, $made_read_only);";
+
+                SqliteParameter key = upsert.Parameters.Add("$key", SqliteType.Text);
+                SqliteParameter path = upsert.Parameters.Add("$path", SqliteType.Text);
+                SqliteParameter mine = upsert.Parameters.Add("$mine", SqliteType.Integer);
+                SqliteParameter username = upsert.Parameters.Add("$username", SqliteType.Text);
+                SqliteParameter host = upsert.Parameters.Add("$host", SqliteType.Text);
+                SqliteParameter createdAt = upsert.Parameters.Add("$created_at", SqliteType.Integer);
+                SqliteParameter madeReadOnly = upsert.Parameters.Add("$made_read_only", SqliteType.Integer);
+                upsert.Prepare();
+
+                foreach (LockEntry entry in upserts)
+                {
+                    key.Value = entry.PathKey;
+                    path.Value = entry.Path;
+                    mine.Value = entry.Mine ? 1 : 0;
+                    username.Value = entry.Username;
+                    host.Value = entry.Host;
+                    createdAt.Value = entry.CreatedAt;
+                    madeReadOnly.Value = entry.MadeReadOnly ? 1 : 0;
+                    upsert.ExecuteNonQuery();
+                }
+            }
+
+            using (SqliteCommand meta = _connection.CreateCommand())
+            {
+                meta.Transaction = transaction;
+                meta.CommandText = "INSERT INTO meta (key, value) VALUES ($key, $value) ON CONFLICT (key) DO UPDATE SET value = excluded.value;";
+                meta.Parameters.AddWithValue("$key", LockSeqKey);
+                meta.Parameters.AddWithValue("$value", lockSeq.ToString());
+                meta.ExecuteNonQuery();
+            }
+
+            transaction.Commit();
         }
 
         public void Dispose()

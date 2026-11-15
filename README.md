@@ -102,6 +102,8 @@ To link another folder to an existing project, run `vx fetch <project>` inside i
 | `vx submit -m <msg> [paths]`  | Submits every change (or those under `paths`) as one revision. Only chunks the server doesn't have are sent. Refused when a file changed on the server since your last sync. |
 | `vx sync`                     | Gets files changed on the branch since the last sync. Local changes are never overwritten. |
 | `vx revert <paths>`           | Discards local changes, restoring the last submitted or synced content from the server. |
+| `vx locks [paths]`            | Lists who has which files locked on the branch, and on which machine.            |
+| `vx unlock <paths>`           | Releases locks held elsewhere: yours from a workspace that's gone, or anyone's for project admins. |
 | `vx branch`                   | Shows the current branch. `list`, `<name>` and `-d <name>` list, create, delete. |
 | `vx info`                     | Shows server information and who you're logged in as.                           |
 | `vx login [server]`           | Logs in and saves the login in `~/.vertex/credentials`. `-u` and `--password-stdin` for scripts. |
@@ -113,6 +115,21 @@ To link another folder to an existing project, run `vx fetch <project>` inside i
 | `vx group`                    | Server admins: `create`, `delete`, `list`, `add` and `remove` group members.     |
 
 `vx init` writes a starter `.vxignore` when it recognizes the project type (currently Unreal Engine).
+
+### File locking
+
+There is no checkout step. When `vx status` (or `submit`, `sync`, `revert`) sees that a file changed, it locks the
+file on the branch for you, and the lock goes away when you submit the file, revert it, or change it back. Anyone
+else's copy of a file you hold becomes read-only the next time their `vx` talks to the server, and the server refuses
+to submit a file someone else holds:
+
+```text
+! Modified  Maps/City.umap  (locked by alice on DESKTOP-7; wait for them to submit it, or run 'vx revert Maps/City.umap' to drop your change)
+```
+
+Locks belong to one workspace, so the same person editing a file on two machines is warned too. `vx locks` shows who
+holds what; `vx unlock` clears a lock left behind by a workspace that no longer exists. `vx status` still works
+offline; it just says it couldn't update locks.
 
 ### Users and permissions
 

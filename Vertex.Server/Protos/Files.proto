@@ -103,6 +103,7 @@ message SubmitRequest {
   string workspace_id = 3;
   string message = 4;
   repeated FileChange changes = 5;
+  string host = 6;  // The workspace's machine name, for lock messages.
 }
 
 message SubmitResponse {
@@ -126,4 +127,81 @@ message GetHeadChangesResponse {
   int64 head_revision = 1;     // Latest revision on the branch when the page was read.
   repeated HeadFile files = 2;
   string next_page_token = 3;  // Empty on the last page.
+}
+
+// File locks. Clients lock a path on a branch as soon as they see it change and keep the lock until the change is
+// submitted, reverted or undone, so two people never edit the same file. Locks belong to a user in one workspace.
+//
+// Every lock and release is a numbered event in the project. Clients call GetLockEvents with the last seq they saw to
+// learn what others locked (and make those files read-only); when nothing changed that call costs almost nothing.
+service Locks {
+  rpc Lock(LockRequest) returns (LockResponse);
+  rpc Unlock(UnlockRequest) returns (UnlockResponse);
+  rpc GetLockEvents(GetLockEventsRequest) returns (GetLockEventsResponse);
+}
+
+message LockRequest {
+  string project_id = 1;
+  string branch_id = 2;
+  string workspace_id = 3;
+  string host = 4;
+  repeated string paths = 5;
+}
+
+enum LockStatus {
+  LOCK_STATUS_GRANTED = 0;        // Locked now.
+  LOCK_STATUS_ALREADY_YOURS = 1;  // This workspace already held it.
+  LOCK_STATUS_HELD = 2;           // Someone else (or you, in another workspace) holds it.
+}
+
+message LockResult {
+  string path = 1;
+  LockStatus status = 2;
+  string username = 3;  // The holder, for LOCK_STATUS_HELD.
+  string host = 4;
+  bool same_user = 5;   // Held by the caller in another workspace.
+}
+
+message LockResponse {
+  repeated LockResult results = 1;  // In request order.
+}
+
+message UnlockRequest {
+  string project_id = 1;
+  string branch_id = 2;
+  string workspace_id = 3;
+  repeated string paths = 4;
+  bool force = 5;  // Also release locks held elsewhere: your own from any workspace, or anyone's for project admins.
+}
+
+message UnlockResponse {
+  repeated string released = 1;
+}
+
+message GetLockEventsRequest {
+  string project_id = 1;
+  string branch_id = 2;
+  int64 after_seq = 3;  // 0 for the full list.
+}
+
+message LockInfo {
+  string path = 1;
+  string username = 2;
+  string workspace_id = 3;
+  string host = 4;
+  int64 created_at = 5;  // Unix milliseconds.
+}
+
+message LockEvent {
+  int64 seq = 1;
+  bool released = 2;    // False when the path was locked.
+  LockInfo lock = 3;
+}
+
+message GetLockEventsResponse {
+  int64 latest_seq = 1;
+  // True when after_seq is too old (or 0): locks holds the branch's full lock list and events is empty.
+  bool reset = 2;
+  repeated LockEvent events = 3;  // The branch's events after after_seq, in order.
+  repeated LockInfo locks = 4;
 }

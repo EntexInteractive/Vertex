@@ -23,15 +23,15 @@ namespace Vertex.Core.Security
         /// </summary>
         Write = 2,
 
-        /// <summary>
+        /*/// <summary>
         /// Manage project access and settings.
         /// </summary>
-        Manage = 3,
+        Manage = 3,*/
 
         /// <summary>
         /// Manage access and branches, and delete the project.
         /// </summary>
-        Admin = 4
+        Admin = 3
     }
 
     /// <summary>

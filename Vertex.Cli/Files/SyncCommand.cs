@@ -109,7 +109,13 @@ namespace Vertex.Cli.Files
             // Skipped conflicts must come back on the next sync, so only a clean sync moves the synced revision.
             if (conflicts.Count == 0) index.SetMeta(WorkspaceIndex.SyncedRevisionKey, head.HeadRevision.ToString());
 
+            // Replacing a file drops its read-only flag, so check the files just written against everyone's locks.
+            using LockInterface lockClient = new(settings.ServerAddress, settings.Token);
+            LockReport locks = await LockOutput.Open(linked, index, lockClient, settings)
+                .ReconcileAsync(status.Changes, downloaded.Select(d => d.Path), cancellationToken);
+
             timer.Stop();
+            LockOutput.PrintError(locks);
             if (head.Files.Count == 0)
             {
                 AnsiConsole.MarkupLine($"Already up to date at [purple]#{head.HeadRevision}[/].");

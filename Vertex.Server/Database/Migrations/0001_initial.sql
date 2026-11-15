@@ -128,20 +128,16 @@ CREATE INDEX IF NOT EXISTS idx_branches_parent_id ON branches.branches (parent_i
 
 
 CREATE SCHEMA IF NOT EXISTS diagnostics;
--- Databases created before the table was named requests get it renamed in place.
-ALTER TABLE IF EXISTS diagnostics.reports RENAME TO requests;
 CREATE TABLE IF NOT EXISTS diagnostics.requests
 (
     id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    uuid        VARCHAR(255) NULL,
+    auth_user   UUID        NULL,
     method      VARCHAR(10) NOT NULL,
     endpoint    TEXT        NOT NULL,
     status_code INTEGER     NOT NULL,
     process_ms  BIGINT      NOT NULL,
     length      BIGINT      NOT NULL,
-    cpu_usage   INTEGER     NOT NULL,
-    ram_usage   BIGINT      NOT NULL,
 
     CONSTRAINT chk_request_logs_status_code CHECK (status_code BETWEEN 100 AND 599),
     CONSTRAINT chk_request_logs_process_ms CHECK (process_ms >= 0),
@@ -149,7 +145,7 @@ CREATE TABLE IF NOT EXISTS diagnostics.requests
 );
 
 CREATE INDEX IF NOT EXISTS idx_request_logs_received_at ON diagnostics.requests (received_at DESC);
-CREATE INDEX IF NOT EXISTS idx_request_logs_uuid_received_at ON diagnostics.requests (uuid, received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_request_logs_auth_user_received_at ON diagnostics.requests (auth_user, received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_request_logs_endpoint ON diagnostics.requests (endpoint);
 
 
@@ -211,3 +207,49 @@ CREATE TABLE IF NOT EXISTS revisions.head
 );
 
 CREATE INDEX IF NOT EXISTS idx_head_branch_revision ON revisions.head (branch_id, revision);
+
+
+-- File locks. A file is locked on a branch by one user in one workspace from the moment their client sees it change
+-- until it is submitted, reverted or changed back. Other clients make locked files read-only, and submit refuses
+-- files locked by someone else. path_key is lower(path), like revisions.head.
+CREATE SCHEMA IF NOT EXISTS locks;
+CREATE TABLE IF NOT EXISTS locks.locks
+(
+    branch_id    UUID   NOT NULL,
+    path_key     TEXT   NOT NULL,
+    path         TEXT   NOT NULL,
+    user_id      UUID   NOT NULL,
+    workspace_id UUID   NOT NULL,
+    -- The machine the workspace is on, so "locked by alice on DESKTOP-7" tells people where to look.
+    host         TEXT   NOT NULL,
+    created_at   BIGINT NOT NULL,
+
+    CONSTRAINT pk_locks PRIMARY KEY (branch_id, path_key),
+    CONSTRAINT fk_locks_branch FOREIGN KEY (branch_id) REFERENCES branches.branches (id) ON DELETE CASCADE,
+    CONSTRAINT fk_locks_user FOREIGN KEY (user_id) REFERENCES auth.users (id) ON DELETE RESTRICT
+);
+
+CREATE INDEX IF NOT EXISTS idx_locks_workspace ON locks.locks (workspace_id);
+
+-- Lock journal, so clients fetch only the lock changes since the last seq they saw. seq comes from
+-- projects.lock_seq, incremented in the same transaction as the insert (which locks the project row), so seqs have
+-- no gaps and commit in order; a client cursor can never skip an event. kind: 0 = locked, 1 = released. Old events
+-- are pruned; a client whose cursor is older gets the full lock list instead.
+CREATE TABLE IF NOT EXISTS locks.events
+(
+    project_id   UUID     NOT NULL,
+    seq          BIGINT   NOT NULL,
+    branch_id    UUID     NOT NULL,
+    path         TEXT     NOT NULL,
+    kind         SMALLINT NOT NULL,
+    user_id      UUID     NOT NULL,
+    workspace_id UUID     NOT NULL,
+    host         TEXT     NOT NULL,
+    created_at   BIGINT   NOT NULL,
+
+    CONSTRAINT pk_lock_events PRIMARY KEY (project_id, seq),
+    CONSTRAINT fk_lock_events_project FOREIGN KEY (project_id) REFERENCES projects.projects (id) ON DELETE CASCADE,
+    CONSTRAINT chk_lock_events_kind CHECK (kind IN (0, 1))
+);
+
+CREATE INDEX IF NOT EXISTS idx_lock_events_created_at ON locks.events (created_at);

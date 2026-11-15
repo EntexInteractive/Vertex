@@ -35,6 +35,17 @@ namespace Vertex.Cli.Files
 
             return new LinkedWorkspace(workspace, projectId, branchId, config.WorkspaceId!.Value);
         }
+
+        /// <summary>
+        /// The workspace with its project and branch, or null when it isn't linked to a project.
+        /// </summary>
+        public static LinkedWorkspace? TryFrom(VWorkspace workspace)
+        {
+            WorkspaceConfig config = workspace.Config;
+            return config is { ProjectId: Guid projectId, BranchId: Guid branchId, WorkspaceId: Guid workspaceId }
+                ? new LinkedWorkspace(workspace, projectId, branchId, workspaceId)
+                : null;
+        }
     }
 
     /// <summary>

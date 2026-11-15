@@ -61,6 +61,19 @@ namespace Vertex.Cli.Files
                 return 0;
             }
 
+            // Lock every change before uploading anything, so a file someone else holds stops the submit right away.
+            // The server checks again when the revision is written.
+            using LockInterface lockClient = new(settings.ServerAddress, settings.Token);
+            WorkspaceLocks locks = LockOutput.Open(linked, index, lockClient, settings);
+            LockReport lockReport = await locks.ReconcileAsync(status.Changes, ct: cancellationToken);
+            List<HeldLock> blocked = lockReport.HeldByOthers.Where(h => filter.Matches(h.Path)).ToList();
+            if (blocked.Count > 0)
+            {
+                string more = blocked.Count > 1 ? $" (and {blocked.Count - 1:N0} more)" : "";
+                AnsiConsole.MarkupLine($"[red]Can't submit '{Markup.Escape(blocked[0].Path)}'{more}: {Markup.Escape(LockOutput.Describe(linked.Workspace, blocked[0]))}.[/]");
+                return 1;
+            }
+
             // Upload content the server doesn't have yet. Files hashed by this scan already have their chunk lists;
             // others are chunked now, and only when the server is missing them.
             using FilesInterface files = new(settings.ServerAddress, settings.Token) { MaxConcurrency = parallel };
@@ -99,7 +112,7 @@ namespace Vertex.Cli.Files
             }
 
             using RevisionInterface revisions = new(settings.ServerAddress, settings.Token);
-            long revision = await revisions.SubmitAsync(linked.ProjectId, linked.BranchId, linked.WorkspaceId, settings.Message.Trim(), changes, cancellationToken);
+            long revision = await revisions.SubmitAsync(linked.ProjectId, linked.BranchId, linked.WorkspaceId, WorkspaceLocks.Host, settings.Message.Trim(), changes, cancellationToken);
 
             // The submitted content is now the base the next changes are measured against.
             List<IndexEntry> upserts = new();
@@ -123,8 +136,13 @@ namespace Vertex.Cli.Files
             if (synced == revision - 1)
                 index.SetMeta(WorkspaceIndex.SyncedRevisionKey, revision.ToString());
 
+            // The server released the submitted files' locks; keep the rest locked and catch up with everyone else's.
+            HashSet<WorkspaceChange> submitted = selected.ToHashSet();
+            LockReport after = await locks.ReconcileAsync(status.Changes.Where(c => !submitted.Contains(c)).ToList(), ct: cancellationToken);
+
             timer.Stop();
             AnsiConsole.MarkupLine($"Submitted [purple]#{revision}[/] ({selected.Count:N0} file(s)).");
+            LockOutput.PrintError(after);
             if (upload is not null)
             {
                 AnsiConsole.MarkupLine($"[grey]Uploaded {upload.CompressedBytesUploaded / (1024.0 * 1024):N1} MB ({upload.ChunksUploaded:N0} chunks, {upload.ChunksDeduplicated:N0} already on the server) in {timer.Elapsed.TotalSeconds:N2}s.[/]");

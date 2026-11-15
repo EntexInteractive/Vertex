@@ -31,13 +31,15 @@ namespace Vertex.Core.Net.Interfaces
         /// <see cref="FilesInterface.UploadAsync"/>.
         /// </summary>
         /// <returns>The new revision number.</returns>
-        public async Task<long> SubmitAsync(Guid projectId, Guid branchId, Guid workspaceId, string message, IEnumerable<FileChange> changes, CancellationToken ct = default)
+        /// <param name="host">The workspace's machine name, which lock messages show.</param>
+        public async Task<long> SubmitAsync(Guid projectId, Guid branchId, Guid workspaceId, string host, string message, IEnumerable<FileChange> changes, CancellationToken ct = default)
         {
             SubmitRequest request = new()
             {
                 ProjectId = projectId.ToString(),
                 BranchId = branchId.ToString(),
                 WorkspaceId = workspaceId.ToString(),
+                Host = host,
                 Message = message
             };
 

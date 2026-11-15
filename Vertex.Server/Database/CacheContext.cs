@@ -56,6 +56,12 @@ namespace Vertex.Server.Database
         }
 
         /// <summary>
+        /// True when Redis is connected. Without it every instance runs alone: <see cref="TrySetKeyAsync"/> always
+        /// fails and shared values aren't available.
+        /// </summary>
+        public bool HasRedis => _redis is not null;
+
+        /// <summary>
         /// Sets a key for a duration of minutes. Used to run on only 1 machine in the cluster.
         /// </summary>
         /// <param name="key">The key to use to retrieve the cached data.</param>
@@ -102,6 +108,48 @@ namespace Vertex.Server.Database
             catch (RedisException ex)
             {
                 _logger.LogWarning(ex, "Could not increment the shared counter '{Key}'.", key);
+                return null;
+            }
+        }
+
+        // Raise the stored number to ARGV[1] unless it is already higher, and refresh the expiry, atomically.
+        private const string SetMaxScript = "local current = tonumber(redis.call('GET', KEYS[1])) " +
+                                            "if current == nil or current < tonumber(ARGV[1]) then redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2]) end";
+
+        /// <summary>
+        /// Stores <paramref name="value"/> under a key shared by every server instance, unless a higher value is
+        /// already stored, so updates that arrive out of order never move it backwards.
+        /// </summary>
+        public async Task SetMaxAsync(string key, long value, TimeSpan expires)
+        {
+            if (_redis is null) return;
+
+            try
+            {
+                await _redis.GetDatabase().ScriptEvaluateAsync(SetMaxScript, [new RedisKey(key)], [value, (long)expires.TotalMilliseconds]);
+            }
+            catch (RedisException ex)
+            {
+                _logger.LogWarning(ex, "Could not update the shared value '{Key}'.", key);
+            }
+        }
+
+        /// <summary>
+        /// Reads a number stored with <see cref="SetMaxAsync"/>.
+        /// </summary>
+        /// <returns>The value, or null when it isn't stored or Redis isn't available.</returns>
+        public async Task<long?> GetInt64Async(string key)
+        {
+            if (_redis is null) return null;
+
+            try
+            {
+                RedisValue value = await _redis.GetDatabase().StringGetAsync(new RedisKey(key));
+                return value.HasValue && long.TryParse(value.ToString(), out long number) ? number : null;
+            }
+            catch (RedisException ex)
+            {
+                _logger.LogWarning(ex, "Could not read the shared value '{Key}'.", key);
                 return null;
             }
         }
