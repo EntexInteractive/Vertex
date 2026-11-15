@@ -3,6 +3,7 @@
 using Dapper;
 using Npgsql;
 using Vertex.Server.Database;
+using Vertex.Server.Events;
 
 namespace Vertex.Server.History
 {
@@ -16,9 +17,9 @@ namespace Vertex.Server.History
     /// The result of a submit: the new revision number, or why nothing was written: the paths that changed on the
     /// branch since the submitter's base, or the locks someone else holds on submitted paths.
     /// </summary>
-    /// <param name="LockSeq">The project's lock seq after the submit released the submitter's locks, or null when
-    /// no lock changed.</param>
-    public sealed record SubmitOutcome(long? Revision, IReadOnlyList<string> OutOfDate, IReadOnlyList<LockRow> LockedByOthers, long? LockSeq = null);
+    /// <param name="EventSeq">The project's event seq after the submit's events, or null when nothing was written.</param>
+    /// <param name="LocksReleased">How many of the submitter's locks the submit released.</param>
+    public sealed record SubmitOutcome(long? Revision, IReadOnlyList<string> OutOfDate, IReadOnlyList<LockRow> LockedByOthers, long? EventSeq = null, int LocksReleased = 0);
 
     /// <summary>
     /// A file on a branch, for sync. <see cref="FileId"/> is null when the file was deleted.
@@ -58,7 +59,8 @@ namespace Vertex.Server.History
         /// Taking the next revision number locks the project row first, so concurrent submits to a project run one
         /// after another and the head can't change between the check and the write.
         /// </remarks>
-        public async Task<SubmitOutcome> SubmitAsync(Guid projectId, Guid branchId, Guid userId, Guid workspaceId, string message, IReadOnlyList<SubmitChange> changes, CancellationToken cancellationToken)
+        public async Task<SubmitOutcome> SubmitAsync(Guid projectId, Guid branchId, Guid userId, Guid workspaceId, string host, string message,
+            IReadOnlyList<SubmitChange> changes, CancellationToken cancellationToken)
         {
             await using NpgsqlConnection connection = (NpgsqlConnection)_database.CreateConnection();
             await connection.OpenAsync(cancellationToken);
@@ -137,12 +139,14 @@ namespace Vertex.Server.History
             const string deleteSql = "DELETE FROM revisions.head WHERE branch_id = @BranchId AND path_key = ANY(@Keys);";
             await connection.ExecuteAsync(new CommandDefinition(deleteSql, new { BranchId = branchId, Keys = deleted }, transaction, cancellationToken: cancellationToken));
 
-            // The submitted changes no longer need their locks.
-            long lockSeq = await LocksRepository.LockProjectAsync(connection, transaction, projectId, cancellationToken);
-            long? latestLockSeq = await LocksRepository.ReleaseAsync(connection, transaction, projectId, branchId, lockSeq, locks, cancellationToken);
+            // The submitted changes no longer need their locks; then tell everyone about the revision. Both events
+            // commit with it (the project row is already locked by the revision counter).
+            await LocksRepository.ReleaseSubmittedAsync(connection, transaction, projectId, branchId, userId, workspaceId, host, locks, cancellationToken);
+            long eventSeq = await EventStore.AppendAsync(connection, transaction, projectId,
+                new NewEvent(EventTypes.RevisionCreated, branchId, userId, workspaceId, host, new RevisionPayload(number, message, applied.Count)), cancellationToken);
 
             await transaction.CommitAsync(cancellationToken);
-            return new SubmitOutcome(number, [], [], latestLockSeq);
+            return new SubmitOutcome(number, [], [], eventSeq, locks.Count);
         }
 
         /// <summary>

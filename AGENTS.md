@@ -50,8 +50,13 @@ building and by running the affected `vx` commands against the local compose sta
 - **Wire protocol:** clients always use **gRPC-Web** (`BaseInterface` wraps `GrpcWebHandler`), because Cloudflare
   Tunnel strips HTTP/2 trailers. gRPC-Web can't stream client to server, so uploads are unary batches (`UploadChunks`,
   at most 4 MB raw per call; see `FileTransferLimits`). Don't add client-streaming RPCs.
-- **Contracts:** `Vertex.Server/Protos/Files.proto` is the single source. `Vertex.Core` generates both client and
-  server code from it. After changing it, build the whole solution.
+- **Contracts** live in `Vertex.Server/Protos/`: `Files.proto` for files, revisions and locks, `Events.proto` for the
+  project event stream. `Vertex.Core` generates both client and server code from them. After changing one, build the
+  whole solution.
+- **Events:** every state change other parts may react to (locks, revisions, later builds) appends a project event
+  with `EventStore.AppendAsync` in the same transaction as the change, then calls `INotificationService.NotifyAsync`
+  after commit. Clients get events pushed over `EventFeed.Subscribe`; server-side reactions (build triggers, plugins)
+  are `IEventHandler`s. Don't add per-feature polling or journals.
 - **Server config** comes only from `VX_*` environment variables, read and validated in
   `Vertex.Server/ServerSettings.cs`. Add new settings there and document them in the README table.
 - **Schema:** until the first release, append changes to `Vertex.Server/Database/Migrations/0001_initial.sql` using

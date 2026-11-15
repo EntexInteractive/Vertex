@@ -6,19 +6,16 @@ using EntexInteractive.Extensions.Diagnostics;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Vertex.Core.Net.Responses;
-using Vertex.Server.Diagnostics;
 
 namespace Vertex.Server.Server
 {
     [Route("api/v1/server")]
     public class ServerController : Controller
     {
-        private readonly DiagnosticRepository _diagnostics;
         private readonly ProcessMonitor _monitor;
 
-        public ServerController(DiagnosticRepository diagnostics, ProcessMonitor monitor)
+        public ServerController(ProcessMonitor monitor)
         {
-            _diagnostics = diagnostics;
             _monitor = monitor;
         }
         
@@ -28,7 +25,7 @@ namespace Vertex.Server.Server
         [HttpGet, AllowAnonymous]
         [Route("info")]
         [ProducesResponseType(StatusCodes.Status200OK)]
-        public async Task<ActionResult<InfoResponse>> GetServerInfoAsync([FromQuery] TimeSpan? time)
+        public ActionResult<InfoResponse> GetServerInfo()
         {
             _monitor.Refresh();
             Assembly assembly = Assembly.GetExecutingAssembly();
@@ -39,7 +36,6 @@ namespace Vertex.Server.Server
                 Address = HttpContext.Connection.LocalIpAddress?.ToString(),
                 BuildTimeUtc = assembly.GetCustomAttributes<AssemblyMetadataAttribute>().FirstOrDefault(x => x.Key == "BuildTimeUtc")?.Value,
                 Date = DateTime.UtcNow,
-                ProcessMs = await _diagnostics.GetProcessTimeAsync(time ?? TimeSpan.FromHours(24)),
                 StartTime = _monitor.StartTime,
                 Uptime = _monitor.Uptime,
                 Version = assemblyName.Version?.ToString()

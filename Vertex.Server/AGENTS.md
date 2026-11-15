@@ -7,13 +7,26 @@ project-wide rules.
   gRPC-Web, static files for the web UI, and controllers. Start here.
 - `ServerSettings.cs` is the only place that reads configuration (`VX_*` environment variables). It validates every
   setting at startup and reports all errors at once. Add new settings here and document them in the README table.
-- Feature folders (`Projects/`, `Branches/`, `Files/`, `History/`, `Server/`, `Diagnostics/`) each pair a controller
-  or gRPC service with a Dapper repository.
-- `History/`: revisions (`RevisionService`, `RevisionsRepository`) and file locks (`LockService`, `LocksRepository`,
-  `LockEventPruner`). Every transaction that changes revisions or locks locks the project row first
-  (`revision_counter` / `lock_seq`), so they serialize per project, lock event seqs are gapless and commit in order,
-  and submit's lock check can't race a new lock. Idle clients poll `GetLockEvents`; keep its no-change path free of
-  PostgreSQL (the latest seq is cached in Redis under `locks:seq:{project}`, branch existence is cached too).
+- Feature folders (`Projects/`, `Branches/`, `Files/`, `History/`, `Events/`, `Server/`) each pair a controller or
+  gRPC service with a Dapper repository.
+- `Telemetry/VertexMetrics.cs`: Vertex's own OpenTelemetry metrics. With `VX_METRICS_PORT` set, `ServerApp` exports
+  them plus the built-in ASP.NET Core, Kestrel, runtime and Npgsql meters for Prometheus on `/metrics`, on that port
+  only. Add a counter or histogram there for anything worth graphing; never write per-request rows to PostgreSQL.
+- `History/`: revisions (`RevisionService`, `RevisionsRepository`) and file locks (`LockService`, `LocksRepository`).
+  Every transaction that changes revisions or locks locks the project row first (`revision_counter`, or
+  `EventStore.LockProjectAsync`), so they serialize per project and submit's lock check can't race a new lock.
+  `GetLockEvents` (for one-off commands) reads lock events from the event journal; keep its no-change path free of
+  PostgreSQL (the latest seq is cached in Redis under `events:seq:{project}`, branch existence is cached too).
+- `Events/`: the project event bus. `EventStore` is the journal (`events.events`, gapless seqs per project from
+  `projects.event_seq`, one event per operation with a JSON payload). Writers append in their transaction and call
+  `INotificationService.NotifyAsync` after commit (see `ProjectCalls.AfterCommitAsync`). `NotificationService` holds
+  one Redis pattern subscription (`events:*`) per instance and one `ProjectFeed` per project with live subscribers,
+  which reads each new event once and fans it out to every local stream; without Redis it wakes its feeds directly.
+  The journal is the truth and Redis only a wake-up, so a lost message delays an event but never loses it.
+  `EventFeedService` streams events (`Events.proto`) with 30 s heartbeats and a 30 min maximum per stream.
+  `EventDispatcher` runs `IEventHandler`s with durable per-project cursors (`events.cursors`, `FOR UPDATE SKIP
+  LOCKED`), at least once and one instance at a time; `LoggingEventHandler` is registered in Development only.
+  `EventPruner` deletes events older than 7 days.
 - `Files/FileTransferService.cs` implements `Protos/Files.proto`: existence checks, batched chunk upload, manifests and
   chunk download. Uploads must stay unary because clients use gRPC-Web. `Storage/TransferBudget.cs` limits
   concurrent transfers.

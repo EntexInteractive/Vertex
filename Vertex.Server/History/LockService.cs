@@ -8,6 +8,8 @@ using Vertex.Core.Storage;
 using Vertex.Server.Access;
 using Vertex.Server.Auth;
 using Vertex.Server.Database;
+using Vertex.Server.Events;
+using Vertex.Server.Telemetry;
 
 namespace Vertex.Server.History
 {
@@ -24,9 +26,12 @@ namespace Vertex.Server.History
         private readonly RevisionsRepository _revisions;
         private readonly AccessService _access;
         private readonly CacheContext _cache;
+        private readonly INotificationService _notifications;
 
-        public LockService(ILogger<LockService> logger, LocksRepository locks, RevisionsRepository revisions, AccessService access, CacheContext cache)
+        public LockService(ILogger<LockService> logger, LocksRepository locks, RevisionsRepository revisions, AccessService access, CacheContext cache,
+            INotificationService notifications)
         {
+            _notifications = notifications;
             _logger = logger;
             _locks = locks;
             _revisions = revisions;
@@ -47,7 +52,8 @@ namespace Vertex.Server.History
             await ProjectCalls.RequireAsync(_access, _revisions, user, projectId, branchId, AccessLevel.Write, ct);
             Guid userId = user.GetUserId();
             LockOutcome outcome = await _locks.LockAsync(projectId, branchId, userId, workspaceId, host, paths, ct);
-            await ProjectCalls.PublishLockSeqAsync(_cache, projectId, outcome.Seq);
+            VertexMetrics.LocksGranted.Add(outcome.Granted.Count);
+            await ProjectCalls.AfterCommitAsync(_cache, _notifications, projectId, outcome.Seq);
 
             LockResponse response = new();
             foreach (string path in request.Paths)
@@ -96,7 +102,8 @@ namespace Vertex.Server.History
             (IReadOnlyList<LockRow> released, long? seq) = await _locks.UnlockAsync(projectId, branchId, user.GetUserId(), workspaceId,
                 paths.Select(p => p.Key).ToArray(), request.Force, isAdmin, ct);
 
-            await ProjectCalls.PublishLockSeqAsync(_cache, projectId, seq);
+            VertexMetrics.LocksReleased.Add(released.Count, new KeyValuePair<string, object?>("reason", request.Force ? "unlocked" : "reverted"));
+            await ProjectCalls.AfterCommitAsync(_cache, _notifications, projectId, seq);
             foreach (LockRow lockRow in released.Where(l => l.UserId != user.GetUserId()))
                 _logger.LogInformation("{User} force-released {Owner}'s lock on {Path} in project {ProjectId}", user.GetUsername(), lockRow.Username, lockRow.Path, projectId);
 
@@ -115,18 +122,18 @@ namespace Vertex.Server.History
 
             // Nothing changed since the client's cursor: answer from the shared cache without touching PostgreSQL.
             // This is the call every idle client makes, so it has to stay this cheap.
-            if (request.AfterSeq > 0 && await _cache.GetInt64Async(ProjectCalls.LockSeqKey(projectId)) == request.AfterSeq)
+            if (request.AfterSeq > 0 && await _cache.GetInt64Async(ProjectCalls.EventSeqKey(projectId)) == request.AfterSeq)
                 return new GetLockEventsResponse { LatestSeq = request.AfterSeq };
 
             LockChanges changes = await _locks.GetChangesAsync(projectId, branchId, request.AfterSeq, ct);
-            await ProjectCalls.PublishLockSeqAsync(_cache, projectId, changes.LatestSeq);
+            await ProjectCalls.CacheEventSeqAsync(_cache, projectId, changes.LatestSeq);
 
             GetLockEventsResponse response = new() { LatestSeq = changes.LatestSeq, Reset = changes.Reset };
             response.Events.AddRange(changes.Events.Select(e => new LockEvent
             {
                 Seq = e.Seq,
                 Released = e.Released,
-                Lock = new LockInfo { Path = e.Path, Username = e.Username, WorkspaceId = e.WorkspaceId.ToString(), Host = e.Host, CreatedAt = e.CreatedAt }
+                Lock = new LockInfo { Path = e.Path, Username = e.Username, WorkspaceId = e.WorkspaceId?.ToString() ?? string.Empty, Host = e.Host ?? string.Empty, CreatedAt = e.CreatedAt }
             }));
 
             response.Locks.AddRange(changes.Locks.Select(l => new LockInfo

@@ -40,9 +40,11 @@ namespace Vertex.Core.Client.Auth
         }
 
         /// <summary>
-        /// The folder holding the credentials file.
+        /// The folder holding the credentials file: <c>VX_CONFIG_DIR</c> when set, otherwise <c>~/.vertex</c>.
         /// </summary>
-        public static string Directory => System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".vertex");
+        public static string Directory => Environment.GetEnvironmentVariable("VX_CONFIG_DIR") is { Length: > 0 } custom
+            ? System.IO.Path.GetFullPath(custom)
+            : System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".vertex");
 
         public static string Path => System.IO.Path.Combine(Directory, "credentials");
 

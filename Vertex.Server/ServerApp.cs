@@ -20,7 +20,10 @@ using Vertex.Server.Access;
 using Vertex.Server.Auth;
 using Vertex.Server.Branches;
 using Vertex.Server.Database;
-using Vertex.Server.Diagnostics;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using Vertex.Server.Events;
+using Vertex.Server.Telemetry;
 using Vertex.Server.FileServices;
 using Vertex.Server.History;
 using Vertex.Server.Groups;
@@ -78,6 +81,9 @@ namespace Vertex.Server
                 // per-stream throughput is bounded by window size / round-trip time.
                 options.Limits.Http2.InitialStreamWindowSize = FileTransferLimits.StreamWindowSize;
                 options.Limits.Http2.InitialConnectionWindowSize = FileTransferLimits.ConnectionWindowSize;
+                // Prometheus scrapes plain HTTP/1.1 on its own port, which isn't put behind the public proxy.
+                if (settings.MetricsPort is int metricsPort) options.ListenAnyIP(metricsPort, listenOptions => listenOptions.Protocols = HttpProtocols.Http1);
+
                 options.ListenAnyIP(settings.HttpPort, listenOptions =>
                 {
                     if (settings.UseTls)
@@ -103,7 +109,6 @@ namespace Vertex.Server
             builder.Services.AddScoped<DapperContext>();
 
             builder.Services.AddScoped<BranchesRepository>();
-            builder.Services.AddScoped<DiagnosticRepository>();
             builder.Services.AddScoped<ProjectsRepository>();
             builder.Services.AddScoped<UsersRepository>();
             builder.Services.AddScoped<GroupsRepository>();
@@ -111,7 +116,15 @@ namespace Vertex.Server
             builder.Services.AddScoped<AccessService>();
             builder.Services.AddScoped<RevisionsRepository>();
             builder.Services.AddScoped<LocksRepository>();
-            builder.Services.AddHostedService<LockEventPruner>();
+
+            // Project events: the journal, pub/sub across instances, server-side handlers and pruning.
+            builder.Services.AddSingleton<EventStore>();
+            builder.Services.AddSingleton<NotificationService>();
+            builder.Services.AddSingleton<INotificationService>(services => services.GetRequiredService<NotificationService>());
+            builder.Services.AddHostedService(services => services.GetRequiredService<NotificationService>());
+            builder.Services.AddHostedService<EventDispatcher>();
+            builder.Services.AddHostedService<EventPruner>();
+            if (builder.Environment.IsDevelopment()) builder.Services.AddSingleton<IEventHandler, LoggingEventHandler>();
 
             // Authentication: opaque bearer tokens from 'vx login'. Every endpoint requires a logged-in user unless it
             // opts out with [AllowAnonymous] (server info, login), which covers REST and gRPC alike.
@@ -150,9 +163,19 @@ namespace Vertex.Server
                 };
             });
 
+            // Metrics for Prometheus/Grafana: request durations and Kestrel connections (ASP.NET Core's built-in meters,
+            // which include gRPC calls by route), the .NET runtime, Npgsql, and Vertex's own (VertexMetrics).
+            if (settings.MetricsPort is not null)
+            {
+                builder.Services.AddOpenTelemetry()
+                    .ConfigureResource(resource => resource.AddService("vertex-server", serviceVersion: typeof(ServerApp).Assembly.GetName().Version?.ToString()))
+                    .WithMetrics(metrics => metrics
+                        .AddMeter("Microsoft.AspNetCore.Hosting", "Microsoft.AspNetCore.Server.Kestrel", "System.Runtime", "Npgsql", VertexMetrics.MeterName)
+                        .AddPrometheusExporter());
+            }
+
             // Background Services
             builder.Services.AddSingleton<ProcessMonitor>();
-            builder.Services.AddScoped<DiagnosticMiddleware>();
 
             // Add services to the container.
             builder.Services.AddGrpc(options =>
@@ -233,7 +256,6 @@ namespace Vertex.Server
 
             // Middleware
             app.UseForwardedHeaders();
-            app.UseMiddleware<DiagnosticMiddleware>();
 
             // Serve only the generated React files, even when development static assets are registered.
             using PhysicalFileProvider reactFiles = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(app.Environment.WebRootPath);
@@ -249,6 +271,8 @@ namespace Vertex.Server
             app.MapGrpcService<FileTransferService>();
             app.MapGrpcService<RevisionService>();
             app.MapGrpcService<LockService>();
+            app.MapGrpcService<EventFeedService>();
+            if (settings.MetricsPort is int scrapePort) app.MapPrometheusScrapingEndpoint().RequireHost($"*:{scrapePort}").AllowAnonymous();
             
             app.UseHttpsRedirection();
             app.MapControllers();

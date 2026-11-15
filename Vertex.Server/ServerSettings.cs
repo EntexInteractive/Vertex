@@ -28,6 +28,7 @@ namespace Vertex.Server
         public const string TlsKeyVariable = "VX_TLS_KEY";
         public const string AdminPasswordVariable = "VX_ADMIN_PASSWORD";
         public const string TrustedProxiesVariable = "VX_TRUSTED_PROXIES";
+        public const string MetricsPortVariable = "VX_METRICS_PORT";
 
         /// <summary>Port Kestrel listens on. Default 5000.</summary>
         public required int HttpPort { get; init; }
@@ -65,6 +66,12 @@ namespace Vertex.Server
         /// share one login limit.
         /// </summary>
         public IReadOnlyList<IPNetwork> TrustedProxies { get; init; } = [];
+
+        /// <summary>
+        /// Port serving Prometheus metrics on <c>/metrics</c> (plain HTTP), or null to turn metrics off. Separate from
+        /// <see cref="HttpPort"/> so a public proxy in front of the server never exposes them.
+        /// </summary>
+        public int? MetricsPort { get; init; }
 
         /// <summary>
         /// Reads and validates all settings from the environment.
@@ -114,6 +121,17 @@ namespace Vertex.Server
                 else errors.Add($"{TrustedProxiesVariable} has '{entry}', which isn't an IP address or CIDR range such as '172.18.0.0/16'.");
             }
 
+            int? metricsPort = null;
+            if (Read(MetricsPortVariable) is string metricsText)
+            {
+                if (!int.TryParse(metricsText, out int parsed) || parsed is < 1 or > 65535)
+                    errors.Add($"{MetricsPortVariable} must be a port number between 1 and 65535 (got '{metricsText}').");
+                else if (parsed == port)
+                    errors.Add($"{MetricsPortVariable} must differ from {HttpPortVariable} ({port}), so metrics stay off the public port.");
+                else
+                    metricsPort = parsed;
+            }
+
             if (errors.Count > 0)
                 throw new InvalidOperationException("Invalid server configuration:" + Environment.NewLine + string.Join(Environment.NewLine, errors.Select(e => "  - " + e)));
 
@@ -126,6 +144,7 @@ namespace Vertex.Server
                 RedisConnectionString = Read(RedisVariable) ?? "redis:6379",
                 AdminPassword = adminPassword,
                 TrustedProxies = trustedProxies,
+                MetricsPort = metricsPort,
                 Storage = new StorageSettings
                 {
                     Endpoint = endpoint,

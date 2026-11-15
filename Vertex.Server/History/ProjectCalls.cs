@@ -6,6 +6,7 @@ using Vertex.Core.Security;
 using Vertex.Server.Access;
 using Vertex.Server.Auth;
 using Vertex.Server.Database;
+using Vertex.Server.Events;
 
 namespace Vertex.Server.History
 {
@@ -32,24 +33,34 @@ namespace Vertex.Server.History
         }
 
         /// <summary>
-        /// The shared key holding a project's latest lock seq, which lets idle clients skip the database.
+        /// The shared key holding a project's latest event seq, which lets idle lock polls skip the database.
         /// </summary>
-        public static string LockSeqKey(Guid projectId)
+        public static string EventSeqKey(Guid projectId)
         {
-            return $"locks:seq:{projectId:N}";
+            return $"events:seq:{projectId:N}";
         }
 
         /// <summary>
-        /// How long the cached lock seq lives. Short, so a lost update can only hide lock changes briefly.
+        /// How long the cached event seq lives. Short, so a lost update can only hide changes briefly.
         /// </summary>
-        public static readonly TimeSpan LockSeqLifetime = TimeSpan.FromSeconds(60);
+        public static readonly TimeSpan EventSeqLifetime = TimeSpan.FromSeconds(60);
 
         /// <summary>
-        /// Publishes a project's new lock seq to the cache after a commit.
+        /// Caches a project's latest event seq for the lock poll's fast path.
         /// </summary>
-        public static Task PublishLockSeqAsync(CacheContext cache, Guid projectId, long? seq)
+        public static Task CacheEventSeqAsync(CacheContext cache, Guid projectId, long? seq)
         {
-            return seq is long value ? cache.SetMaxAsync(LockSeqKey(projectId), value, LockSeqLifetime) : Task.CompletedTask;
+            return seq is long value ? cache.SetMaxAsync(EventSeqKey(projectId), value, EventSeqLifetime) : Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// After a commit that recorded events: caches the new seq and wakes everyone following the project.
+        /// </summary>
+        public static async Task AfterCommitAsync(CacheContext cache, INotificationService notifications, Guid projectId, long? seq)
+        {
+            if (seq is not long value) return;
+            await CacheEventSeqAsync(cache, projectId, value);
+            await notifications.NotifyAsync(projectId, value);
         }
 
         /// <summary>

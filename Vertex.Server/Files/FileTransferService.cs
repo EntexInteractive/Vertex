@@ -5,6 +5,7 @@ using Grpc.Core;
 using Vertex.Core.Net;
 using Vertex.Core.Storage;
 using Vertex.Server.Storage;
+using Vertex.Server.Telemetry;
 
 namespace Vertex.Server.FileServices
 {
@@ -81,6 +82,7 @@ namespace Vertex.Server.FileServices
             });
 
             long received = chunks.Sum(c => (long)c.Chunk.Data.Length);
+            VertexMetrics.BytesReceived.Add(received);
             _logger.LogDebug("Stored {Chunks} chunks ({Bytes} compressed bytes)", stored, received);
             return new UploadChunksResponse { ChunksStored = stored, BytesReceived = received };
         }
@@ -169,6 +171,8 @@ namespace Vertex.Server.FileServices
                         Size = chunk.Size,
                         Data = Google.Protobuf.UnsafeByteOperations.UnsafeWrap(chunk.CompressedData)
                     }, ct);
+
+                    VertexMetrics.BytesSent.Add(chunk.CompressedData.Length);
                 }
                 finally
                 {

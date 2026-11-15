@@ -1,4 +1,4 @@
-﻿-- Initial Vertex schema. The server applies migrations at startup (Database/DatabaseMigrator.cs).
+-- Initial Vertex schema. The server applies migrations at startup (Database/DatabaseMigrator.cs).
 --
 -- This one stays idempotent (IF NOT EXISTS) because it also runs against databases created before migrations existed,
 -- when this file was applied by hand as schema.sql; it adopts them without touching their data. Later migrations run
@@ -127,26 +127,10 @@ CREATE TABLE IF NOT EXISTS branches.branches
 CREATE INDEX IF NOT EXISTS idx_branches_parent_id ON branches.branches (parent_id);
 
 
-CREATE SCHEMA IF NOT EXISTS diagnostics;
-CREATE TABLE IF NOT EXISTS diagnostics.requests
-(
-    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    auth_user   UUID        NULL,
-    method      VARCHAR(10) NOT NULL,
-    endpoint    TEXT        NOT NULL,
-    status_code INTEGER     NOT NULL,
-    process_ms  BIGINT      NOT NULL,
-    length      BIGINT      NOT NULL,
-
-    CONSTRAINT chk_request_logs_status_code CHECK (status_code BETWEEN 100 AND 599),
-    CONSTRAINT chk_request_logs_process_ms CHECK (process_ms >= 0),
-    CONSTRAINT chk_request_logs_length CHECK (length >= 0)
-);
-
-CREATE INDEX IF NOT EXISTS idx_request_logs_received_at ON diagnostics.requests (received_at DESC);
-CREATE INDEX IF NOT EXISTS idx_request_logs_auth_user_received_at ON diagnostics.requests (auth_user, received_at DESC);
-CREATE INDEX IF NOT EXISTS idx_request_logs_endpoint ON diagnostics.requests (endpoint);
+-- Requests used to be logged here, one row per request. Server metrics now come from OpenTelemetry (VX_METRICS_PORT).
+DROP TABLE IF EXISTS diagnostics.requests;
+DROP TABLE IF EXISTS diagnostics.reports;
+DROP SCHEMA IF EXISTS diagnostics;
 
 
 -- Revisions: the project's history. Until the first release, schema changes are appended here idempotently instead
@@ -155,8 +139,10 @@ CREATE INDEX IF NOT EXISTS idx_request_logs_endpoint ON diagnostics.requests (en
 -- Revision numbers (#N) are per project and come from projects.revision_counter, which a submit increments first:
 -- that row lock serializes submits within a project, so checks against the branch head can't race.
 ALTER TABLE projects.projects ADD COLUMN IF NOT EXISTS revision_counter BIGINT NOT NULL DEFAULT 0;
--- Lock journal sequence (file locking, next).
-ALTER TABLE projects.projects ADD COLUMN IF NOT EXISTS lock_seq BIGINT NOT NULL DEFAULT 0;
+-- The project's event sequence (events.events); bumping it also locks the project row. lock_seq was its lock-only
+-- predecessor.
+ALTER TABLE projects.projects ADD COLUMN IF NOT EXISTS event_seq BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE projects.projects DROP COLUMN IF EXISTS lock_seq;
 
 CREATE SCHEMA IF NOT EXISTS revisions;
 CREATE TABLE IF NOT EXISTS revisions.revisions
@@ -231,25 +217,44 @@ CREATE TABLE IF NOT EXISTS locks.locks
 
 CREATE INDEX IF NOT EXISTS idx_locks_workspace ON locks.locks (workspace_id);
 
--- Lock journal, so clients fetch only the lock changes since the last seq they saw. seq comes from
--- projects.lock_seq, incremented in the same transaction as the insert (which locks the project row), so seqs have
--- no gaps and commit in order; a client cursor can never skip an event. kind: 0 = locked, 1 = released. Old events
--- are pruned; a client whose cursor is older gets the full lock list instead.
-CREATE TABLE IF NOT EXISTS locks.events
-(
-    project_id   UUID     NOT NULL,
-    seq          BIGINT   NOT NULL,
-    branch_id    UUID     NOT NULL,
-    path         TEXT     NOT NULL,
-    kind         SMALLINT NOT NULL,
-    user_id      UUID     NOT NULL,
-    workspace_id UUID     NOT NULL,
-    host         TEXT     NOT NULL,
-    created_at   BIGINT   NOT NULL,
+-- The lock-only journal was replaced by events.events.
+DROP TABLE IF EXISTS locks.events;
 
-    CONSTRAINT pk_lock_events PRIMARY KEY (project_id, seq),
-    CONSTRAINT fk_lock_events_project FOREIGN KEY (project_id) REFERENCES projects.projects (id) ON DELETE CASCADE,
-    CONSTRAINT chk_lock_events_kind CHECK (kind IN (0, 1))
+
+-- Project events: everything that happens in a project (files locked, revisions submitted, later builds), so clients,
+-- build triggers and plugins can follow along. Each event is written in the same transaction as the change it
+-- describes, so an event exists exactly when the change committed. seq comes from projects.event_seq, bumped in that
+-- transaction (which locks the project row), so seqs have no gaps and commit in order: a reader resuming after seq N
+-- can never skip one. One event per operation: locking 10,000 files is one event listing them. payload holds the
+-- details as JSON, e.g. {"paths": [...], "reason": "submitted"} or {"revision": 42, "message": "...", "files": 3}.
+-- Old events are pruned; a reader whose cursor is older reloads the state it needs instead.
+CREATE SCHEMA IF NOT EXISTS events;
+CREATE TABLE IF NOT EXISTS events.events
+(
+    project_id   UUID   NOT NULL,
+    seq          BIGINT NOT NULL,
+    type         TEXT   NOT NULL,
+    branch_id    UUID   NULL,
+    user_id      UUID   NOT NULL,
+    workspace_id UUID   NULL,
+    host         TEXT   NULL,
+    payload      JSONB  NOT NULL,
+    created_at   BIGINT NOT NULL,
+
+    CONSTRAINT pk_events PRIMARY KEY (project_id, seq),
+    CONSTRAINT fk_events_project FOREIGN KEY (project_id) REFERENCES projects.projects (id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_lock_events_created_at ON locks.events (created_at);
+CREATE INDEX IF NOT EXISTS idx_events_created_at ON events.events (created_at);
+
+-- How far each server-side event handler (build triggers, plugins) got in each project, so every event is handled
+-- even across restarts and by one instance at a time.
+CREATE TABLE IF NOT EXISTS events.cursors
+(
+    handler    TEXT   NOT NULL,
+    project_id UUID   NOT NULL,
+    seq        BIGINT NOT NULL,
+
+    CONSTRAINT pk_event_cursors PRIMARY KEY (handler, project_id),
+    CONSTRAINT fk_event_cursors_project FOREIGN KEY (project_id) REFERENCES projects.projects (id) ON DELETE CASCADE
+);
