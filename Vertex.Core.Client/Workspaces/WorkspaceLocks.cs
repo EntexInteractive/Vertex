@@ -76,7 +76,19 @@ namespace Vertex.Core.Client.Workspaces
         /// <param name="rewritten">Files just written (e.g. by sync), whose read-only flag must be checked again.</param>
         public Task<LockReport> ReconcileAsync(IReadOnlyCollection<WorkspaceChange> changes, IEnumerable<string>? rewritten = null, CancellationToken ct = default)
         {
-            return RunAsync(changes, rewritten, ct);
+            return RunAsync(changes, null, rewritten, ct);
+        }
+
+        /// <summary>
+        /// Like <see cref="ReconcileAsync"/> for a partial scan (<see cref="WorkspaceScanner.ScanPaths"/>): locks
+        /// <paramref name="changed"/>, and releases this workspace's locks only among <paramref name="unchanged"/>,
+        /// leaving every other lock alone.
+        /// </summary>
+        /// <remarks><see cref="LockReport.HeldByOthers"/> covers only <paramref name="changed"/>.</remarks>
+        public Task<LockReport> UpdateAsync(IReadOnlyCollection<WorkspaceChange> changed, IReadOnlyCollection<string> unchanged, CancellationToken ct = default)
+        {
+            HashSet<string> releasable = unchanged.Select(RepositoryPath.ToKey).ToHashSet(StringComparer.Ordinal);
+            return RunAsync(changed, releasable, null, ct);
         }
 
         /// <summary>
@@ -84,7 +96,66 @@ namespace Vertex.Core.Client.Workspaces
         /// </summary>
         public Task<LockReport> RefreshAsync(CancellationToken ct = default)
         {
-            return RunAsync(null, null, ct);
+            return RunAsync(null, null, null, ct);
+        }
+
+        /// <summary>
+        /// Applies events pushed by the event stream (<c>EventFeed.Subscribe</c>) to the lock mirror, without calling the
+        /// server, and stores the stream's seq. Events at or before the stored seq were already applied and are skipped.
+        /// </summary>
+        public void ApplyStreamed(IReadOnlyList<EventMessage> messages)
+        {
+            if (messages.Count == 0) return;
+            long.TryParse(_index.GetMeta(WorkspaceIndex.EventSeqKey), out long seq);
+            List<EventMessage> fresh = messages.Where(m => m.Seq > seq).ToList();
+            if (fresh.Count == 0) return;
+
+            long latest = fresh.Max(m => m.Seq);
+            if (fresh.All(m => m.Lock is null))
+            {
+                // Heartbeats and other kinds of events only move the cursor.
+                _index.SetMeta(WorkspaceIndex.EventSeqKey, latest.ToString());
+                return;
+            }
+
+            Dictionary<string, LockEntry> before = _index.ReadLocks().ToDictionary(l => l.PathKey, StringComparer.Ordinal);
+            Dictionary<string, LockEntry> locks = new(before, StringComparer.Ordinal);
+            Dictionary<string, string> touched = new(StringComparer.Ordinal);
+            foreach (EventMessage message in fresh.Where(m => m.Lock is not null))
+            {
+                bool mine = Guid.TryParse(message.WorkspaceId, out Guid workspaceId) && workspaceId == _workspaceId;
+                foreach (string path in message.Lock.Paths)
+                {
+                    string key = RepositoryPath.ToKey(path);
+                    touched[key] = path;
+                    if (message.Lock.Released)
+                    {
+                        locks.Remove(key);
+                    }
+                    else
+                    {
+                        bool madeReadOnly = locks.TryGetValue(key, out LockEntry? existing) && existing.MadeReadOnly;
+                        locks[key] = new LockEntry(key, path, mine, message.Username, message.Host, message.CreatedAt, madeReadOnly);
+                    }
+                }
+            }
+
+            UpdateReadOnly(before, locks, touched, (_, path) => IsChangedHere(path));
+            List<LockEntry> upserts = locks.Values.Where(l => !before.TryGetValue(l.PathKey, out LockEntry? old) || old != l).ToList();
+            List<string> deletes = before.Keys.Where(k => !locks.ContainsKey(k)).ToList();
+            _index.ApplyLocks(upserts, deletes, latest);
+        }
+
+        /// <summary>
+        /// True when a file differs from what was last submitted or synced, by the index and a stat; it's never hashed.
+        /// </summary>
+        private bool IsChangedHere(string path)
+        {
+            FileInfo file = new(_workspace.ToFullPath(path));
+            IndexEntry? entry = _index.Find([path], []).FirstOrDefault();
+            if (entry is null) return file.Exists;
+            if (!file.Exists || entry.BaseId != entry.FileId) return true;
+            return file.Length != entry.Size || file.LastWriteTimeUtc.Ticks != entry.LastWriteTicks;
         }
 
         /// <summary>
@@ -95,11 +166,12 @@ namespace Vertex.Core.Client.Workspaces
             return _index.ReadLocks().OrderBy(l => l.Path, StringComparer.OrdinalIgnoreCase).ToList();
         }
 
-        private async Task<LockReport> RunAsync(IReadOnlyCollection<WorkspaceChange>? changes, IEnumerable<string>? rewritten, CancellationToken ct)
+        /// <param name="releasable">Keys this run may release; null releases every lock of ours not in <paramref name="changes"/>.</param>
+        private async Task<LockReport> RunAsync(IReadOnlyCollection<WorkspaceChange>? changes, IReadOnlySet<string>? releasable, IEnumerable<string>? rewritten, CancellationToken ct)
         {
             Dictionary<string, LockEntry> before = _index.ReadLocks().ToDictionary(l => l.PathKey, StringComparer.Ordinal);
             Dictionary<string, LockEntry> locks = new(before, StringComparer.Ordinal);
-            long.TryParse(_index.GetMeta(WorkspaceIndex.LockSeqKey), out long seq);
+            long.TryParse(_index.GetMeta(WorkspaceIndex.EventSeqKey), out long seq);
 
             // Paths to lock: every changed path, both ends of a move, deletions included.
             Dictionary<string, string>? desired = null;
@@ -125,7 +197,7 @@ namespace Vertex.Core.Client.Workspaces
                 if (desired is not null)
                 {
                     await LockChangedAsync(desired, locks, touched, timeout.Token);
-                    await ReleaseUnchangedAsync(desired, locks, touched, timeout.Token);
+                    await ReleaseUnchangedAsync(desired, releasable, locks, touched, timeout.Token);
                 }
 
                 seq = await ApplyEventsAsync(seq, locks, touched, timeout.Token);
@@ -136,7 +208,7 @@ namespace Vertex.Core.Client.Workspaces
                 error = ex;
             }
 
-            UpdateReadOnly(before, locks, touched, desired);
+            UpdateReadOnly(before, locks, touched, (key, _) => desired?.ContainsKey(key) == true);
 
             List<LockEntry> upserts = locks.Values.Where(l => !before.TryGetValue(l.PathKey, out LockEntry? old) || old != l).ToList();
             List<string> deletes = before.Keys.Where(k => !locks.ContainsKey(k)).ToList();
@@ -179,9 +251,10 @@ namespace Vertex.Core.Client.Workspaces
             }
         }
 
-        private async Task ReleaseUnchangedAsync(Dictionary<string, string> desired, Dictionary<string, LockEntry> locks, Dictionary<string, string> touched, CancellationToken ct)
+        private async Task ReleaseUnchangedAsync(Dictionary<string, string> desired, IReadOnlySet<string>? releasable, Dictionary<string, LockEntry> locks,
+            Dictionary<string, string> touched, CancellationToken ct)
         {
-            List<LockEntry> stale = locks.Values.Where(l => l.Mine && !desired.ContainsKey(l.PathKey)).ToList();
+            List<LockEntry> stale = locks.Values.Where(l => l.Mine && !desired.ContainsKey(l.PathKey) && (releasable is null || releasable.Contains(l.PathKey))).ToList();
             if (stale.Count == 0) return;
 
             await _client.UnlockAsync(_projectId, _branchId, _workspaceId, stale.Select(l => l.Path).ToList(), ct: ct);
@@ -238,7 +311,9 @@ namespace Vertex.Core.Client.Workspaces
         /// Makes files locked by others read-only and gives back write access when their lock goes away, but only for
         /// paths whose lock changed in this run.
         /// </summary>
-        private void UpdateReadOnly(Dictionary<string, LockEntry> before, Dictionary<string, LockEntry> locks, Dictionary<string, string> touched, Dictionary<string, string>? desired)
+        /// <param name="changedHere">True for a path changed in this workspace, which is left writable.</param>
+        private void UpdateReadOnly(Dictionary<string, LockEntry> before, Dictionary<string, LockEntry> locks, Dictionary<string, string> touched,
+            Func<string, string, bool> changedHere)
         {
             foreach ((string key, string path) in touched)
             {
@@ -249,7 +324,7 @@ namespace Vertex.Core.Client.Workspaces
                     if (entry is { Mine: false })
                     {
                         // Changed here too: leave it writable so the user's editor can still save; it's reported instead.
-                        if (desired?.ContainsKey(key) == true) continue;
+                        if (changedHere(key, entry.Path)) continue;
 
                         bool made = FileSystemUtility.MakeReadOnly(fullPath);
                         if (made || wasMadeReadOnly) locks[key] = entry with { MadeReadOnly = true };

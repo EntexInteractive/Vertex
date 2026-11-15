@@ -224,6 +224,38 @@ namespace Vertex.Server.Database
 
 
         /// <summary>
+        /// Subscribes to every channel matching a pattern such as <c>events:*</c>, one subscription for all of them.
+        /// </summary>
+        /// <param name="callback">Gets the channel name and the message.</param>
+        public Task SubscribePatternAsync(string pattern, Action<string, string> callback)
+        {
+            return _redis?.GetSubscriber().SubscribeAsync(RedisChannel.Pattern(pattern), (channel, value) =>
+            {
+                if (value.HasValue) callback(channel.ToString(), value.ToString());
+            }) ?? Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Publishes a message, reporting failure instead of throwing.
+        /// </summary>
+        /// <returns>False when Redis isn't available or the publish failed.</returns>
+        public async Task<bool> TryPublishAsync(string channel, RedisValue message)
+        {
+            if (_redis is null) return false;
+
+            try
+            {
+                await _redis.GetSubscriber().PublishAsync(RedisChannel.Literal(channel), message);
+                return true;
+            }
+            catch (RedisException ex)
+            {
+                _logger.LogWarning(ex, "Could not publish to '{Channel}'.", channel);
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Publish a message to a channel.
         /// </summary>
         /// <param name="channel"></param>

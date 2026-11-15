@@ -21,6 +21,7 @@ using Vertex.Server.Auth;
 using Vertex.Server.Branches;
 using Vertex.Server.Database;
 using Vertex.Server.Diagnostics;
+using Vertex.Server.Events;
 using Vertex.Server.FileServices;
 using Vertex.Server.History;
 using Vertex.Server.Groups;
@@ -111,7 +112,15 @@ namespace Vertex.Server
             builder.Services.AddScoped<AccessService>();
             builder.Services.AddScoped<RevisionsRepository>();
             builder.Services.AddScoped<LocksRepository>();
-            builder.Services.AddHostedService<LockEventPruner>();
+
+            // Project events: the journal, pub/sub across instances, server-side handlers and pruning.
+            builder.Services.AddSingleton<EventStore>();
+            builder.Services.AddSingleton<NotificationService>();
+            builder.Services.AddSingleton<INotificationService>(services => services.GetRequiredService<NotificationService>());
+            builder.Services.AddHostedService(services => services.GetRequiredService<NotificationService>());
+            builder.Services.AddHostedService<EventDispatcher>();
+            builder.Services.AddHostedService<EventPruner>();
+            if (builder.Environment.IsDevelopment()) builder.Services.AddSingleton<IEventHandler, LoggingEventHandler>();
 
             // Authentication: opaque bearer tokens from 'vx login'. Every endpoint requires a logged-in user unless it
             // opts out with [AllowAnonymous] (server info, login), which covers REST and gRPC alike.
@@ -249,6 +258,7 @@ namespace Vertex.Server
             app.MapGrpcService<FileTransferService>();
             app.MapGrpcService<RevisionService>();
             app.MapGrpcService<LockService>();
+            app.MapGrpcService<EventFeedService>();
             
             app.UseHttpsRedirection();
             app.MapControllers();

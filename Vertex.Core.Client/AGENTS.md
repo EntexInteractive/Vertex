@@ -17,7 +17,18 @@ rules.
 - `Workspaces/WorkspaceLocks.cs`: the lock step every workspace command runs after scanning. It locks changed files,
   releases locks on files no longer changed, applies everyone's lock events since the stored seq, and flips the
   read-only flag only on files whose lock changed (never on a file changed locally, and it only clears flags it set
-  itself). It has no CLI dependency so the GUI and a future file watcher can drive it.
+  itself). It has no CLI dependency so every host can drive it.
+- `Workspaces/WorkspaceMonitor.cs`: live locking for a host that stays open (the interactive `vx` session today, the
+  GUI later). A `FileSystemWatcher` records touched paths; after 500 ms of quiet it locks them on stats alone
+  (`WorkspaceScanner.ScanPaths(..., hash: false)`), then hashes them and releases the ones that didn't really change,
+  so a multi-GB save or a burst of thousands of files is locked in about a second. Other people's changes arrive on
+  the project event stream (`EventsInterface`), applied with `WorkspaceLocks.ApplyStreamed` and resumed from the
+  stored `event_seq` after any disconnect (back-off 1-60 s); an older server without the stream is polled every 60 s.
+  It re-reads the login token when the old one is revoked and raises events (`LockConflict`, `Activity`,
+  `ProblemChanged`) instead of printing; activity is held for 1 s so a touch (lock, then release) isn't reported.
+  Hosts must `PauseAsync`/`Resume` it around their own scans so the index has one writer.
+- `Workspaces/WorkspaceScanner.ScanPaths`: checks only some paths (files or folders) with the same per-file logic as
+  `Scan`, using the index's case-insensitive path lookups (`WorkspaceIndex.Find`) instead of reading every row.
 - `IO/IgnoreRules.cs`: `.vxignore` matching with gitignore syntax. Ignoring a file that is already tracked doesn't
   delete it from the server, the same as git.
 - `IO/IgnoreTemplates/`: starter `.vxignore` files that `vx init` writes when it detects a project type. Add one by

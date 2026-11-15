@@ -14,19 +14,22 @@ namespace Vertex.Cli.Net
         /// <summary>
         /// Describes errors that every command can hit the same way, such as not being logged in.
         /// </summary>
+        /// <param name="server">The server the failed call went to. Defaults to the running command's server; pass it
+        /// for background work, which runs outside any command.</param>
         /// <returns>The message, or null when the exception isn't one of them.</returns>
-        public static string? Describe(Exception exception)
+        public static string? Describe(Exception exception, string? server = null)
         {
+            server ??= NetworkSettings.Current?.ServerAddress ?? NetworkSettings.DefaultServerAddress;
             switch (exception)
             {
                 case NotLoggedInException notLoggedIn:
                     return NotLoggedIn(notLoggedIn.Server);
                 case RpcException { StatusCode: StatusCode.Unauthenticated }:
-                    return NotLoggedIn(NetworkSettings.Current?.ServerAddress ?? NetworkSettings.DefaultServerAddress);
+                    return NotLoggedIn(server);
                 case RpcException { StatusCode: StatusCode.PermissionDenied } denied:
                     return string.IsNullOrWhiteSpace(denied.Status.Detail) ? "You don't have access to do that." : denied.Status.Detail;
                 case RpcException { StatusCode: StatusCode.Unimplemented }:
-                    return $"The server at {NetworkSettings.Current?.ServerAddress ?? NetworkSettings.DefaultServerAddress} is older than this vx and can't do that yet. Update the server.";
+                    return $"The server at {server} is older than this vx and can't do that yet. Update the server.";
                 case RpcException { StatusCode: StatusCode.FailedPrecondition or StatusCode.InvalidArgument or StatusCode.NotFound or StatusCode.AlreadyExists } rpc
                     when !string.IsNullOrWhiteSpace(rpc.Status.Detail):
                     // The server phrases these for the user, naming the command that fixes them.
@@ -34,7 +37,7 @@ namespace Vertex.Cli.Net
                 case RpcException { StatusCode: StatusCode.Unknown or StatusCode.Internal }:
                     return "The server failed to handle the request. Its log has the details; run the command again later or tell the server admin.";
                 case RpcException { StatusCode: StatusCode.Unavailable }:
-                    return $"Can't reach the server at {NetworkSettings.Current?.ServerAddress ?? NetworkSettings.DefaultServerAddress}. Check the address with 'vx info'.";
+                    return $"Can't reach the server at {server}. Check the address with 'vx info'.";
                 default:
                     return null;
             }

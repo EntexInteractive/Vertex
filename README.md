@@ -118,8 +118,17 @@ To link another folder to an existing project, run `vx fetch <project>` inside i
 
 ### File locking
 
-There is no checkout step. When `vx status` (or `submit`, `sync`, `revert`) sees that a file changed, it locks the
-file on the branch for you, and the lock goes away when you submit the file, revert it, or change it back. Anyone
+There is no checkout step. While `vx` is open in a workspace (run `vx` with no command), it watches the folder and
+locks each file on the branch about a second after you save it. The server pushes what others do, so their locked
+files turn read-only right away and the session tells you about it:
+
+```text
+alice locked Content/Hero.uasset
+alice submitted #42 "Fix jump" (3 file(s)). Run 'vx sync' to get it.
+```
+
+Without an open session, `vx status` (or `submit`, `sync`, `revert`) does the same when you run it. The
+lock goes away when you submit the file, revert it, or change it back. Anyone
 else's copy of a file you hold becomes read-only the next time their `vx` talks to the server, and the server refuses
 to submit a file someone else holds:
 

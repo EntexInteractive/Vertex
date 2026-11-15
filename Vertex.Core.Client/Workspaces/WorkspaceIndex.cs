@@ -36,12 +36,16 @@ namespace Vertex.Core.Client.Workspaces
     /// </summary>
     public sealed class WorkspaceIndex : IDisposable
     {
-        private const int SchemaVersion = 3;
+        private const int SchemaVersion = 4;
+
+        // Case-insensitive lookups by path, for checking single files without reading the whole index.
+        private const string PathIndexSql = "CREATE INDEX IF NOT EXISTS files_path_nocase ON files (path COLLATE NOCASE);";
 
         /// <summary>
-        /// The last lock event seq the workspace has applied, stored in the <c>meta</c> table.
+        /// The last project event seq the workspace's lock mirror has applied, stored in the <c>meta</c> table. (The
+        /// older lock-only seq was stored as <c>lock_seq</c>; it's ignored, so such a workspace reloads its locks once.)
         /// </summary>
-        public const string LockSeqKey = "lock_seq";
+        public const string EventSeqKey = "event_seq";
 
         /// <summary>
         /// The last revision <c>vx sync</c> brought the workspace up to, stored in the <c>meta</c> table.
@@ -90,13 +94,15 @@ namespace Vertex.Core.Client.Workspaces
                                          ) WITHOUT ROWID;
                                          {MetaTableSql}
                                          {LocksTableSql}
+                                         {PathIndexSql}
                                          PRAGMA user_version = {SchemaVersion};
                                          """);
                 }
                 else if (version < SchemaVersion)
                 {
-                    // Upgrade in place: version 2 added the meta table, version 3 the locks table.
-                    Execute(connection, $"{MetaTableSql} {LocksTableSql} PRAGMA user_version = {SchemaVersion};");
+                    // Upgrade in place: version 2 added the meta table, version 3 the locks table, version 4 the
+                    // case-insensitive path index.
+                    Execute(connection, $"{MetaTableSql} {LocksTableSql} {PathIndexSql} PRAGMA user_version = {SchemaVersion};");
                 }
                 else if (version != SchemaVersion)
                 {
@@ -109,6 +115,53 @@ namespace Vertex.Core.Client.Workspaces
             {
                 connection.Dispose();
                 throw;
+            }
+        }
+
+        /// <summary>
+        /// The rows for some paths, matched case-insensitively (the way the scanner compares paths on Windows and
+        /// macOS), and every row under <paramref name="folders"/>.
+        /// </summary>
+        public List<IndexEntry> Find(IEnumerable<string> paths, IEnumerable<string> folders)
+        {
+            List<IndexEntry> entries = new();
+            using (SqliteCommand command = _connection.CreateCommand())
+            {
+                command.CommandText = "SELECT path, size, last_write, file_id, base_id, indexed_at FROM files WHERE path = $path COLLATE NOCASE;";
+                SqliteParameter path = command.Parameters.Add("$path", SqliteType.Text);
+                command.Prepare();
+                foreach (string value in paths)
+                {
+                    path.Value = value;
+                    ReadEntries(command, entries);
+                }
+            }
+
+            using (SqliteCommand command = _connection.CreateCommand())
+            {
+                // A range on the case-insensitive index: every path starting with "folder/".
+                command.CommandText = "SELECT path, size, last_write, file_id, base_id, indexed_at FROM files " +
+                                      "WHERE path COLLATE NOCASE >= $from AND path COLLATE NOCASE < $to;";
+                SqliteParameter from = command.Parameters.Add("$from", SqliteType.Text);
+                SqliteParameter to = command.Parameters.Add("$to", SqliteType.Text);
+                command.Prepare();
+                foreach (string folder in folders)
+                {
+                    from.Value = folder + "/";
+                    to.Value = folder + "0"; // '0' sorts right after '/'.
+                    ReadEntries(command, entries);
+                }
+            }
+
+            return entries;
+        }
+
+        private static void ReadEntries(SqliteCommand command, List<IndexEntry> entries)
+        {
+            using SqliteDataReader reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                entries.Add(new IndexEntry(reader.GetString(0), reader.GetInt64(1), reader.GetInt64(2), reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetInt64(5)));
             }
         }
 
@@ -269,7 +322,7 @@ namespace Vertex.Core.Client.Workspaces
             {
                 meta.Transaction = transaction;
                 meta.CommandText = "INSERT INTO meta (key, value) VALUES ($key, $value) ON CONFLICT (key) DO UPDATE SET value = excluded.value;";
-                meta.Parameters.AddWithValue("$key", LockSeqKey);
+                meta.Parameters.AddWithValue("$key", EventSeqKey);
                 meta.Parameters.AddWithValue("$value", lockSeq.ToString());
                 meta.ExecuteNonQuery();
             }

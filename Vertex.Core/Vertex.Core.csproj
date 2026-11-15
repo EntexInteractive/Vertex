@@ -42,6 +42,7 @@
 
     <ItemGroup>
         <Protobuf Include="..\Vertex.Server\Protos\Files.proto" Link="Protos\Files.proto" GrpcServices="Both"/>
+        <Protobuf Include="..\Vertex.Server\Protos\Events.proto" Link="Protos\Events.proto" GrpcServices="Both"/>
     </ItemGroup>
 
     <ItemGroup>

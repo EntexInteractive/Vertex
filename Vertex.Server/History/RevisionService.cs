@@ -8,6 +8,7 @@ using Vertex.Core.Storage;
 using Vertex.Server.Access;
 using Vertex.Server.Auth;
 using Vertex.Server.Database;
+using Vertex.Server.Events;
 using Vertex.Server.Storage;
 
 namespace Vertex.Server.History
@@ -28,9 +29,12 @@ namespace Vertex.Server.History
         private readonly AccessService _access;
         private readonly IContentStore _store;
         private readonly CacheContext _cache;
+        private readonly INotificationService _notifications;
 
-        public RevisionService(ILogger<RevisionService> logger, RevisionsRepository revisions, AccessService access, IContentStore store, CacheContext cache)
+        public RevisionService(ILogger<RevisionService> logger, RevisionsRepository revisions, AccessService access, IContentStore store, CacheContext cache,
+            INotificationService notifications)
         {
+            _notifications = notifications;
             _cache = cache;
             _logger = logger;
             _revisions = revisions;
@@ -78,7 +82,8 @@ namespace Vertex.Server.History
                 throw new RpcException(new Status(StatusCode.FailedPrecondition, $"The content of '{path}' was not uploaded. Run 'vx submit' again."));
             }
 
-            SubmitOutcome outcome = await _revisions.SubmitAsync(projectId, branchId, user.GetUserId(), workspaceId, message, changes, ct);
+            string host = request.Host.Trim() is { Length: > 0 } given ? given[..Math.Min(given.Length, 255)] : "unknown host";
+            SubmitOutcome outcome = await _revisions.SubmitAsync(projectId, branchId, user.GetUserId(), workspaceId, host, message, changes, ct);
             if (outcome.OutOfDate.Count > 0)
             {
                 string listed = string.Join(", ", outcome.OutOfDate.Take(ListedPaths));
@@ -90,7 +95,7 @@ namespace Vertex.Server.History
             if (outcome.LockedByOthers.Count > 0)
                 throw new RpcException(new Status(StatusCode.FailedPrecondition, ProjectCalls.DescribeLockedByOthers(outcome.LockedByOthers, user.GetUserId())));
 
-            await ProjectCalls.PublishLockSeqAsync(_cache, projectId, outcome.LockSeq);
+            await ProjectCalls.AfterCommitAsync(_cache, _notifications, projectId, outcome.EventSeq);
             if (outcome.Revision is null) throw new RpcException(new Status(StatusCode.FailedPrecondition, "Nothing to submit: the server already has these changes."));
 
             _logger.LogInformation("Revision #{Revision} in project {ProjectId}: {Files} file(s) by {User}", outcome.Revision, projectId, changes.Count, user.GetUsername());
