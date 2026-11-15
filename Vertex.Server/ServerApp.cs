@@ -262,19 +262,28 @@ namespace Vertex.Server
             app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = reactFiles });
             app.UseStaticFiles(new StaticFileOptions { FileProvider = reactFiles });
 
-            // Accept gRPC-Web as well as native gRPC. gRPC-Web carries the call status in the response body instead of
-            // HTTP/2 trailers, which some proxies (Cloudflare Tunnel) drop.
-            app.UseGrpcWeb(new GrpcWebOptions { DefaultEnabled = true });
             app.UseAuthentication();
             app.UseAuthorization();
+            
+            // Accept gRPC-Web as well as native gRPC. gRPC-Web carries the call status in the response body instead of HTTP/2 trailers, which some proxies (Cloudflare Tunnel) drop.
+            app.UseGrpcWeb(new GrpcWebOptions { DefaultEnabled = true });
             app.MapGrpcService<GreeterService>();
             app.MapGrpcService<FileTransferService>();
             app.MapGrpcService<RevisionService>();
             app.MapGrpcService<LockService>();
             app.MapGrpcService<EventFeedService>();
-            if (settings.MetricsPort is int scrapePort) app.MapPrometheusScrapingEndpoint().RequireHost($"*:{scrapePort}").AllowAnonymous();
             
-            app.UseHttpsRedirection();
+            // The metrics port is plain HTTP on purpose (Prometheus scrapes it inside the network), so it must not be redirected to the TLS port.
+            if (settings.MetricsPort is int scrapePort)
+            {
+                app.UseWhen(context => context.Connection.LocalPort != scrapePort, branch => branch.UseHttpsRedirection());
+                app.MapPrometheusScrapingEndpoint().RequireHost($"*:{scrapePort}").AllowAnonymous();
+            }
+            else
+            {
+                app.UseHttpsRedirection();
+            }
+                
             app.MapControllers();
             await app.RunAsync();
         }
