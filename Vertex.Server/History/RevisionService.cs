@@ -10,7 +10,7 @@ using Vertex.Server.Auth;
 using Vertex.Server.Database;
 using Vertex.Server.Events;
 using Vertex.Server.Telemetry;
-using Vertex.Server.Storage;
+using Vertex.Server.FileServices;
 
 namespace Vertex.Server.History
 {
@@ -19,20 +19,17 @@ namespace Vertex.Server.History
     /// </summary>
     public class RevisionService : Revisions.RevisionsBase
     {
-        /// <summary>Concurrent S3 existence checks per submit.</summary>
-        private const int LookupConcurrency = 32;
-
         /// <summary>Outdated paths named in a refused submit before "and N more".</summary>
         private const int ListedPaths = 10;
 
         private readonly ILogger<RevisionService> _logger;
         private readonly RevisionsRepository _revisions;
         private readonly AccessService _access;
-        private readonly IContentStore _store;
+        private readonly FilesRepository _files;
         private readonly CacheContext _cache;
         private readonly INotificationService _notifications;
 
-        public RevisionService(ILogger<RevisionService> logger, RevisionsRepository revisions, AccessService access, IContentStore store, CacheContext cache,
+        public RevisionService(ILogger<RevisionService> logger, RevisionsRepository revisions, AccessService access, FilesRepository files, CacheContext cache,
             INotificationService notifications)
         {
             _notifications = notifications;
@@ -40,7 +37,7 @@ namespace Vertex.Server.History
             _logger = logger;
             _revisions = revisions;
             _access = access;
-            _store = store;
+            _files = files;
         }
 
         public override async Task<SubmitResponse> Submit(SubmitRequest request, ServerCallContext context)
@@ -72,14 +69,11 @@ namespace Vertex.Server.History
 
             // A revision may only point at content the server stores.
             string[] fileIds = changes.Where(c => c.FileId is not null).Select(c => c.FileId!).Distinct(StringComparer.Ordinal).ToArray();
-            bool[] exists = new bool[fileIds.Length];
-            await Parallel.ForAsync(0, fileIds.Length, new ParallelOptions { MaxDegreeOfParallelism = LookupConcurrency, CancellationToken = ct },
-                async (i, token) => exists[i] = await _store.ManifestExistsAsync(fileIds[i], token));
-
-            int missing = Array.IndexOf(exists, false);
-            if (missing >= 0)
+            HashSet<string> stored = await _files.GetStoredManifestsAsync(fileIds, ct);
+            string? missing = fileIds.FirstOrDefault(id => !stored.Contains(id));
+            if (missing is not null)
             {
-                string path = changes.First(c => c.FileId == fileIds[missing]).Path;
+                string path = changes.First(c => c.FileId == missing).Path;
                 throw new RpcException(new Status(StatusCode.FailedPrecondition, $"The content of '{path}' was not uploaded. Run 'vx submit' again."));
             }
 

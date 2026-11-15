@@ -41,6 +41,10 @@ namespace Vertex.Server.Projects
                     new { project.Id, CreatedAt = (long)project.CreatedAt.TotalMilliseconds, project.Name, Visibility = (short)project.Visibility, project.OwnerId },
                     transaction, cancellationToken: cancellationToken));
 
+                // The row every write to the project locks and numbers its revisions and events from.
+                await connection.ExecuteAsync(new CommandDefinition("INSERT INTO projects.counters (project_id) VALUES (@Id);", new { project.Id },
+                    transaction, cancellationToken: cancellationToken));
+
                 const string branchSql = "INSERT INTO branches.branches (id, created_at, name, project_id, parent_id) " +
                                          "VALUES (@Id, @CreatedAt, @Name, @ProjectId, NULL);";
 

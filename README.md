@@ -245,7 +245,9 @@ and Npgsql (query durations, pool usage) metrics, the server reports its own. Du
 
 | Metric | What it tells you |
 |---|---|
-| `vertex_project_lock_wait_seconds` (by `operation`) | Time writes wait for their project. Writes in a project run one at a time; this climbing is the first sign a project is near its write limit (~100 writes/s). |
+| `vertex_project_lock_wait_seconds` (by `operation`) | Time writes wait for their project. Writes in a project run one transaction at a time; this climbing is the first sign a project is near its write limit. |
+| `vertex_project_lock_held_seconds`, `vertex_db_commit_seconds` (by `operation`: locks, submit) | How long each project transaction holds the project, and how much of that is the commit (the database's durable write). A project does at most one transaction per hold time; when the commit dominates, the database's storage is the limit (see [Postgres on ZFS](#postgresql-on-zfs)). |
+| `vertex_project_writes_batch` | Lock and unlock requests that shared one transaction. Concurrent requests for a project are combined, so under load one commit covers many of them. |
 | `vertex_events_delivery_delay_seconds` | Time from a change to it reaching a client's stream: how "live" locks and read-only flags really are. |
 | `vertex_events_delivered_total`, `vertex_events_recorded_total` (by `type`) | Push volume. Delivered ≈ recorded × subscribers, the main CPU cost. |
 | `vertex_event_streams`, `vertex_event_feeds` | Open streams and projects with live subscribers, per instance. |
@@ -253,11 +255,36 @@ and Npgsql (query durations, pool usage) metrics, the server reports its own. Du
 | `vertex_revisions_total`, `vertex_revisions_files` (histogram), `vertex_revisions_refused_total` (by `reason`) | Submits, their size, and people blocked by out-of-date files or others' locks. |
 | `vertex_locks_granted_total`, `vertex_locks_contended_total`, `vertex_locks_released_total` (by `reason`) | Locking activity and contention on shared files. |
 | `vertex_sync_files_total` | Files handed out by `vx sync`. |
-| `vertex_storage_duration_seconds` (by `operation`, `outcome`), `vertex_storage_cache_total` (by `result`) | S3 latency and errors, and how often the in-memory existence cache saves an S3 call. |
+| `vertex_storage_duration_seconds` (by `operation`, `outcome`), `vertex_storage_cache_total` (by `result`) | S3 latency and errors (S3 holds chunk bytes; which chunks and files exist is indexed in PostgreSQL), and how often the in-memory cache answers an existence check without the database. |
 | `vertex_transfer_chunks_total`, `vertex_transfer_files_total` (by `result`: new, deduplicated) | How much content clients didn't have to upload. |
 | `vertex_transfer_received_bytes_total`, `vertex_transfer_sent_bytes_total` | Upload and download bandwidth. |
 | `vertex_redis_connected`, `vertex_redis_errors_total` | Without Redis, cross-instance push falls back to 30 s checks. |
 | `vertex_auth_logins_total` (by `outcome`: success, failed, disabled, throttled) | Login activity and brute-force attempts. |
+
+These come from the server itself. To tell whether a slow server is waiting on its disks or its database, also
+scrape the hosts and the database:
+
+- [node_exporter](https://github.com/prometheus/node_exporter) on every host running Vertex, PostgreSQL or the S3
+  store: disk latency (`node_disk_write_time_seconds_total` / `node_disk_writes_completed_total`), CPU per mode
+  including iowait, and on ZFS the `node_zfs_*` pool and ARC statistics.
+- [postgres_exporter](https://github.com/prometheus-community/postgres_exporter), with `pg_stat_statements` loaded
+  (`shared_preload_libraries`): commits, locks, wait events, WAL and checkpoint timing, and time per statement.
+- [cAdvisor](https://github.com/google/cadvisor) when several services share one machine, to see which one uses the
+  CPU.
+- A 5 s scrape interval while benchmarking, so short spikes and ramps are visible.
+
+#### PostgreSQL on ZFS
+
+Every commit is a synchronous write. On ZFS without a separate log device (SLOG), that write goes to the main pool and
+costs milliseconds to tens of milliseconds, and `vertex_db_commit_seconds` shows it. Writes to one project run one
+transaction at a time, so that cost caps each project's write rate (Vertex combines concurrent lock requests to
+soften it). To make commits fast:
+
+- Add a SLOG on a fast SSD with power-loss protection (`zpool add <pool> log <device>`). This is the big one.
+- Give PostgreSQL its own dataset: `recordsize=16K`, `compression=lz4`, `atime=off`, `logbias=latency`.
+- In `postgresql.conf`: `full_page_writes = off` (safe on ZFS, which never writes a page partially),
+  `wal_init_zero = off` and `wal_recycle = off`.
+- Put the S3 store's data on a separate dataset (`recordsize=1M`), so its object writes don't queue with commits.
 
 ### Benchmarking a deployment
 

@@ -56,7 +56,7 @@ run `dotnet run -c Release --project Vertex.Tests -- all --profile smoke` agains
   project event stream. `Vertex.Core` generates both client and server code from them. After changing one, build the
   whole solution.
 - **Events:** every state change other parts may react to (locks, revisions, later builds) appends a project event
-  with `EventStore.AppendAsync` in the same transaction as the change, then calls `INotificationService.NotifyAsync`
+  with `EventStore.AppendAsync` (or `CreateAppendCommand` in a batch) in the same transaction as the change, then calls `INotificationService.NotifyAsync`
   after commit. Clients get events pushed over `EventFeed.Subscribe`; server-side reactions (build triggers, plugins)
   are `IEventHandler`s. Don't add per-feature polling or journals.
 - **Server config** comes only from `VX_*` environment variables, read and validated in
