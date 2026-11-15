@@ -32,6 +32,12 @@ namespace Vertex.Server.Telemetry
             HistogramBucketBoundaries = [1, 2, 5, 10, 25, 50, 100, 250, 1_000, 10_000, 100_000]
         };
 
+        /// <summary>Bucket boundaries for requests per shared transaction.</summary>
+        private static readonly InstrumentAdvice<long> BatchSizes = new()
+        {
+            HistogramBucketBoundaries = [1, 2, 4, 8, 16, 32, 64]
+        };
+
         // ---- Revisions and locks: what people do.
 
         /// <summary>Revisions submitted.</summary>
@@ -60,6 +66,22 @@ namespace Vertex.Server.Telemetry
         /// a time, so this climbing is the first sign a project is near its write limit.
         /// </summary>
         public static readonly Histogram<double> ProjectLockWait = Meter.CreateHistogram("vertex.project_lock.wait", "s", "Time waiting for a project's write lock.", advice: Seconds);
+
+        /// <summary>
+        /// Time a project's write lock is held, from taking it to the end of the commit, tagged with <c>operation</c>
+        /// (<c>locks</c> for a shared lock/unlock transaction, <c>submit</c>). A project's write throughput is at most one
+        /// transaction per this long.
+        /// </summary>
+        public static readonly Histogram<double> ProjectLockHeld = Meter.CreateHistogram("vertex.project_lock.held", "s", "Time a project's write lock is held, including the commit.", advice: Seconds);
+
+        /// <summary>
+        /// Commit duration of project writes, tagged with <c>operation</c>. This is the database's durable-write (fsync)
+        /// cost; when it dominates <see cref="ProjectLockHeld"/>, the database's storage is the limit.
+        /// </summary>
+        public static readonly Histogram<double> CommitDuration = Meter.CreateHistogram("vertex.db.commit", "s", "Commit duration of project writes.", advice: Seconds);
+
+        /// <summary>Lock and unlock requests that shared one transaction (and one commit).</summary>
+        public static readonly Histogram<long> WriteBatchSize = Meter.CreateHistogram("vertex.project_writes.batch", "{request}", "Lock and unlock requests that shared one commit.", advice: BatchSizes);
 
         // ---- Events: the push pipeline.
 
@@ -92,9 +114,15 @@ namespace Vertex.Server.Telemetry
         /// <summary>S3 calls, tagged with <c>operation</c> and <c>outcome</c> (ok, not_found, error).</summary>
         public static readonly Histogram<double> StorageDuration = Meter.CreateHistogram("vertex.storage.duration", "s", "S3 call duration.", advice: Seconds);
 
-        /// <summary>Existence checks answered from memory instead of S3, tagged <c>result</c> = hit or miss.</summary>
-        public static readonly Counter<long> StorageCache = Meter.CreateCounter<long>("vertex.storage.cache", "{lookup}", "Existence checks answered from memory (hit) or S3 (miss).");
+        /// <summary>Existence checks answered from memory instead of the content index, tagged <c>result</c> = hit or miss.</summary>
+        public static readonly Counter<long> StorageCache = Meter.CreateCounter<long>("vertex.storage.cache", "{lookup}", "Existence checks answered from memory (hit) or the content index (miss).");
 
+        /// <summary>HybridCache lookups, tagged <c>result</c> = hit or miss and <c>category</c> (key prefix).</summary>
+        public static readonly Counter<long> CacheLookups = Meter.CreateCounter<long>("vertex.cache.lookups", "{lookup}", "HybridCache lookups answered from memory or Redis (hit) or the factory (miss).");
+
+        /// <summary>Time spent producing a value on a cache miss, tagged with <c>category</c>.</summary>
+        public static readonly Histogram<double> CacheFactoryDuration = Meter.CreateHistogram("vertex.cache.factory", "s", "Time producing a value on a cache miss.", advice: Seconds);
+        
         // ---- Dependencies and security.
 
         /// <summary>Redis operations that failed, tagged with <c>operation</c>.</summary>
