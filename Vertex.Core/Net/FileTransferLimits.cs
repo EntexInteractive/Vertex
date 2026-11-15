@@ -59,6 +59,16 @@ namespace Vertex.Core.Net
         public const int HeadChangesPageSize = 10_000;
 
         /// <summary>
+        /// Most paths in one Lock or Unlock request.
+        /// </summary>
+        public const int MaximumPathsPerLockRequest = 5_000;
+
+        /// <summary>
+        /// Most lock events one GetLockEvents call returns; a client further behind gets the full lock list instead.
+        /// </summary>
+        public const int MaximumLockEvents = 50_000;
+
+        /// <summary>
         /// HTTP/2 flow-control windows. Throughput on a single stream is capped at roughly
         /// window / round-trip time, so the defaults (64 KB-768 KB) starve high-latency links.
         /// </summary>

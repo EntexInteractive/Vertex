@@ -45,7 +45,7 @@ namespace Vertex.Server.Diagnostics
             _monitor.Refresh();
 
             string endpoint = context.Request.Path + context.Request.QueryString;
-            if (!context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase)) return;
+            //if (!context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase)) return;
             
             string? uuid = context.User.Claims.FirstOrDefault(u => u.Type == ClaimTypes.NameIdentifier)?.Value;
             string method = context.Request.Method.ToUpper();

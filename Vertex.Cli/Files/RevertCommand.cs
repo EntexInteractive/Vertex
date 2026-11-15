@@ -75,7 +75,16 @@ namespace Vertex.Cli.Files
             }
 
             index.Apply(upserts, deletes);
+
+            // Reverted files are no longer changed, so their locks are released; restored files someone else holds
+            // become read-only again.
+            HashSet<WorkspaceChange> reverted = restore.ToHashSet();
+            using LockInterface lockClient = new(settings.ServerAddress, settings.Token);
+            LockReport locks = await LockOutput.Open(linked, index, lockClient, settings)
+                .ReconcileAsync(status.Changes.Where(c => !reverted.Contains(c)).ToList(), downloads.Select(d => d.Path), cancellationToken);
+
             if (restore.Count > 0) AnsiConsole.MarkupLine($"Reverted {restore.Count:N0} file(s).");
+            LockOutput.PrintError(locks);
 
             if (added.Count > 0)
             {

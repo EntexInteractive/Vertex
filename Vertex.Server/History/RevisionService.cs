@@ -7,6 +7,7 @@ using Vertex.Core.Security;
 using Vertex.Core.Storage;
 using Vertex.Server.Access;
 using Vertex.Server.Auth;
+using Vertex.Server.Database;
 using Vertex.Server.Storage;
 
 namespace Vertex.Server.History
@@ -26,9 +27,11 @@ namespace Vertex.Server.History
         private readonly RevisionsRepository _revisions;
         private readonly AccessService _access;
         private readonly IContentStore _store;
+        private readonly CacheContext _cache;
 
-        public RevisionService(ILogger<RevisionService> logger, RevisionsRepository revisions, AccessService access, IContentStore store)
+        public RevisionService(ILogger<RevisionService> logger, RevisionsRepository revisions, AccessService access, IContentStore store, CacheContext cache)
         {
+            _cache = cache;
             _logger = logger;
             _revisions = revisions;
             _access = access;
@@ -41,6 +44,7 @@ namespace Vertex.Server.History
             ClaimsPrincipal user = context.GetHttpContext().User;
             Guid projectId = ParseId(request.ProjectId, "project");
             Guid branchId = ParseId(request.BranchId, "branch");
+            Guid workspaceId = ParseId(request.WorkspaceId, "workspace");
 
             string message = request.Message.Trim();
             if (message.Length == 0) throw Invalid("Describe the revision: vx submit -m \"What changed\".");
@@ -74,7 +78,7 @@ namespace Vertex.Server.History
                 throw new RpcException(new Status(StatusCode.FailedPrecondition, $"The content of '{path}' was not uploaded. Run 'vx submit' again."));
             }
 
-            SubmitOutcome outcome = await _revisions.SubmitAsync(projectId, branchId, user.GetUserId(), message, changes, ct);
+            SubmitOutcome outcome = await _revisions.SubmitAsync(projectId, branchId, user.GetUserId(), workspaceId, message, changes, ct);
             if (outcome.OutOfDate.Count > 0)
             {
                 string listed = string.Join(", ", outcome.OutOfDate.Take(ListedPaths));
@@ -83,6 +87,10 @@ namespace Vertex.Server.History
                     $"Changed on the server since your last sync: {listed}{more}. Run 'vx sync', then submit again."));
             }
 
+            if (outcome.LockedByOthers.Count > 0)
+                throw new RpcException(new Status(StatusCode.FailedPrecondition, ProjectCalls.DescribeLockedByOthers(outcome.LockedByOthers, user.GetUserId())));
+
+            await ProjectCalls.PublishLockSeqAsync(_cache, projectId, outcome.LockSeq);
             if (outcome.Revision is null) throw new RpcException(new Status(StatusCode.FailedPrecondition, "Nothing to submit: the server already has these changes."));
 
             _logger.LogInformation("Revision #{Revision} in project {ProjectId}: {Files} file(s) by {User}", outcome.Revision, projectId, changes.Count, user.GetUsername());
@@ -122,25 +130,14 @@ namespace Vertex.Server.History
             return response;
         }
 
-        /// <summary>
-        /// Throws unless the caller has <paramref name="level"/> in the project and the branch belongs to it.
-        /// </summary>
-        private async Task RequireAsync(ClaimsPrincipal user, Guid projectId, Guid branchId, AccessLevel level, CancellationToken ct)
+        private Task RequireAsync(ClaimsPrincipal user, Guid projectId, Guid branchId, AccessLevel level, CancellationToken ct)
         {
-            AccessCheck check = await _access.CheckAsync(user, projectId, level, ct);
-            if (!check.Allowed)
-            {
-                StatusCode code = check.StatusCode == StatusCodes.Status404NotFound ? StatusCode.NotFound : StatusCode.PermissionDenied;
-                throw new RpcException(new Status(code, check.Message ?? "You don't have access to do that."));
-            }
-
-            if (!await _revisions.BranchExistsAsync(projectId, branchId, ct))
-                throw new RpcException(new Status(StatusCode.NotFound, "The workspace's branch no longer exists. Run 'vx branch list' to see the project's branches."));
+            return ProjectCalls.RequireAsync(_access, _revisions, user, projectId, branchId, level, ct);
         }
 
         private static Guid ParseId(string value, string what)
         {
-            return Guid.TryParse(value, out Guid id) ? id : throw Invalid($"Invalid {what} id.");
+            return ProjectCalls.ParseId(value, what);
         }
 
         private static string? ParseFileId(string value)

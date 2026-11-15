@@ -28,7 +28,7 @@ namespace Vertex.Server.Server
         [HttpGet, AllowAnonymous]
         [Route("info")]
         [ProducesResponseType(StatusCodes.Status200OK)]
-        public async Task<ActionResult<InfoResponse>> GetVersionAsync()
+        public async Task<ActionResult<InfoResponse>> GetServerInfoAsync([FromQuery] TimeSpan? time)
         {
             _monitor.Refresh();
             Assembly assembly = Assembly.GetExecutingAssembly();
@@ -39,7 +39,7 @@ namespace Vertex.Server.Server
                 Address = HttpContext.Connection.LocalIpAddress?.ToString(),
                 BuildTimeUtc = assembly.GetCustomAttributes<AssemblyMetadataAttribute>().FirstOrDefault(x => x.Key == "BuildTimeUtc")?.Value,
                 Date = DateTime.UtcNow,
-                ProcessMs = await _diagnostics.GetProcessTimeAsync(),
+                ProcessMs = await _diagnostics.GetProcessTimeAsync(time ?? TimeSpan.FromHours(24)),
                 StartTime = _monitor.StartTime,
                 Uptime = _monitor.Uptime,
                 Version = assemblyName.Version?.ToString()

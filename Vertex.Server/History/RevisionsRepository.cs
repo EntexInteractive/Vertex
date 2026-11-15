@@ -13,10 +13,12 @@ namespace Vertex.Server.History
     public sealed record SubmitChange(string Path, string PathKey, string? FileId, string? BaseFileId);
 
     /// <summary>
-    /// The result of a submit: the new revision number, or the paths that changed on the branch since the
-    /// submitter's base (nothing was written then).
+    /// The result of a submit: the new revision number, or why nothing was written: the paths that changed on the
+    /// branch since the submitter's base, or the locks someone else holds on submitted paths.
     /// </summary>
-    public sealed record SubmitOutcome(long? Revision, IReadOnlyList<string> OutOfDate);
+    /// <param name="LockSeq">The project's lock seq after the submit released the submitter's locks, or null when
+    /// no lock changed.</param>
+    public sealed record SubmitOutcome(long? Revision, IReadOnlyList<string> OutOfDate, IReadOnlyList<LockRow> LockedByOthers, long? LockSeq = null);
 
     /// <summary>
     /// A file on a branch, for sync. <see cref="FileId"/> is null when the file was deleted.
@@ -26,17 +28,26 @@ namespace Vertex.Server.History
     public class RevisionsRepository
     {
         private readonly PostgresDatabase _database;
+        private readonly CacheContext _cache;
 
-        public RevisionsRepository(PostgresDatabase database)
+        public RevisionsRepository(PostgresDatabase database, CacheContext cache)
         {
             _database = database;
+            _cache = cache;
         }
 
+        /// <summary>
+        /// True when the branch exists in the project. Cached for a minute, because every revision and lock call
+        /// checks it, including the lock poll idle clients make constantly.
+        /// </summary>
         public async Task<bool> BranchExistsAsync(Guid projectId, Guid branchId, CancellationToken cancellationToken)
         {
-            const string sql = "SELECT EXISTS (SELECT 1 FROM branches.branches WHERE id = @BranchId AND project_id = @ProjectId);";
-            await using NpgsqlConnection connection = (NpgsqlConnection)_database.CreateConnection();
-            return await connection.ExecuteScalarAsync<bool>(new CommandDefinition(sql, new { ProjectId = projectId, BranchId = branchId }, cancellationToken: cancellationToken));
+            return await _cache.GetOrSetAsync($"branch:exists:{projectId:N}:{branchId:N}", async ct =>
+            {
+                const string sql = "SELECT EXISTS (SELECT 1 FROM branches.branches WHERE id = @BranchId AND project_id = @ProjectId);";
+                await using NpgsqlConnection connection = (NpgsqlConnection)_database.CreateConnection();
+                return await connection.ExecuteScalarAsync<bool>(new CommandDefinition(sql, new { ProjectId = projectId, BranchId = branchId }, cancellationToken: ct));
+            }, 1, cancellationToken);
         }
 
         /// <summary>
@@ -47,7 +58,7 @@ namespace Vertex.Server.History
         /// Taking the next revision number locks the project row first, so concurrent submits to a project run one
         /// after another and the head can't change between the check and the write.
         /// </remarks>
-        public async Task<SubmitOutcome> SubmitAsync(Guid projectId, Guid branchId, Guid userId, string message, IReadOnlyList<SubmitChange> changes, CancellationToken cancellationToken)
+        public async Task<SubmitOutcome> SubmitAsync(Guid projectId, Guid branchId, Guid userId, Guid workspaceId, string message, IReadOnlyList<SubmitChange> changes, CancellationToken cancellationToken)
         {
             await using NpgsqlConnection connection = (NpgsqlConnection)_database.CreateConnection();
             await connection.OpenAsync(cancellationToken);
@@ -80,8 +91,14 @@ namespace Vertex.Server.History
                 applied.Add((change, action));
             }
 
-            if (outOfDate.Count > 0) return new SubmitOutcome(null, outOfDate);
-            if (applied.Count == 0) return new SubmitOutcome(null, []);
+            if (outOfDate.Count > 0) return new SubmitOutcome(null, outOfDate, []);
+
+            // Paths locked by anyone else (or by the submitter in another workspace) can't be submitted. The project
+            // row is already locked, so no lock can change before this transaction ends.
+            IReadOnlyList<LockRow> locks = await LocksRepository.ReadLocksAsync(connection, transaction, branchId, keys, cancellationToken);
+            LockRow[] others = locks.Where(l => l.WorkspaceId != workspaceId).ToArray();
+            if (others.Length > 0) return new SubmitOutcome(null, [], others);
+            if (applied.Count == 0) return new SubmitOutcome(null, [], []);
 
             const string revisionSql = "INSERT INTO revisions.revisions (project_id, branch_id, number, user_id, message, created_at) " +
                                        "VALUES (@ProjectId, @BranchId, @Number, @UserId, @Message, @CreatedAt) RETURNING id;";
@@ -120,8 +137,12 @@ namespace Vertex.Server.History
             const string deleteSql = "DELETE FROM revisions.head WHERE branch_id = @BranchId AND path_key = ANY(@Keys);";
             await connection.ExecuteAsync(new CommandDefinition(deleteSql, new { BranchId = branchId, Keys = deleted }, transaction, cancellationToken: cancellationToken));
 
+            // The submitted changes no longer need their locks.
+            long lockSeq = await LocksRepository.LockProjectAsync(connection, transaction, projectId, cancellationToken);
+            long? latestLockSeq = await LocksRepository.ReleaseAsync(connection, transaction, projectId, branchId, lockSeq, locks, cancellationToken);
+
             await transaction.CommitAsync(cancellationToken);
-            return new SubmitOutcome(number, []);
+            return new SubmitOutcome(number, [], [], latestLockSeq);
         }
 
         /// <summary>

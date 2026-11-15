@@ -24,7 +24,7 @@ namespace Vertex.Cli.Net
             try
             {
                 using ServerInterface server = new(settings.ServerAddress, settings.Token);
-                ServerResult<InfoResponse> result = await server.GetInfoAsync(cancellationToken);
+                ServerResult<InfoResponse> result = await server.GetInfoAsync(TimeSpan.FromHours(48), cancellationToken);
 
                 if (result.IsSuccessStatusCode) info = result.Data;
                 else serverError = result.Exception?.Message ?? "Server unavailable";
@@ -52,26 +52,26 @@ namespace Vertex.Cli.Net
             VWorkspace? workspace = VWorkspace.Find(Directory.GetCurrentDirectory());
 
             // Local information (always available)
-            AnsiConsole.WriteLine($"Logged in as:      {(info != null ? await GetLoginAsync(settings, cancellationToken) : "Unavailable")}");
+            AnsiConsole.WriteLine($"Logged in as: {(info != null ? await GetLoginAsync(settings, cancellationToken) : "Unavailable")}");
+            AnsiConsole.WriteLine($"Working in: {(string.IsNullOrWhiteSpace(workspace?.Config.Project) ? "(no project found; run 'vx init' to create one)" : workspace.Config.Root)}");
             AnsiConsole.WriteLine($"Current directory: {Directory.GetCurrentDirectory()}");
-            AnsiConsole.WriteLine($"Current Project:   {(string.IsNullOrWhiteSpace(workspace?.Config.Project) ? "(no project found; run vx init to create one)" : workspace.Config.Root)}");
-            AnsiConsole.WriteLine($"Client address:    {info?.Address ?? "Unavailable"}");
-            AnsiConsole.WriteLine($"Client latency:    {(info != null ? $"{sw.ElapsedMilliseconds}ms" : "Unavailable")}");
-            AnsiConsole.WriteLine($"Client version:    {typeof(Program).Assembly.GetName().Version?.ToString() ?? ""} {(clientBuild?.ToLocalTime().ToString("(MM/dd/yyyy)") ?? "")}");
+            AnsiConsole.WriteLine($"Client address: {info?.Address ?? "Unavailable"}");
+            AnsiConsole.WriteLine($"Client latency: {(info != null ? $"{sw.ElapsedMilliseconds}ms" : "Unavailable")}");
+            AnsiConsole.WriteLine($"Client version: {typeof(Program).Assembly.GetName().Version?.ToString() ?? ""} {(clientBuild?.ToLocalTime().ToString("(MM/dd/yyyy)") ?? "")}");
 
             // Server information
-            AnsiConsole.WriteLine($"Server address:    {settings.ServerAddress} ({settings.ServerSource})");
+            AnsiConsole.WriteLine($"Server address: {settings.ServerAddress}");
 
             if (info != null)
             {
-                AnsiConsole.WriteLine($"Server date:       {info.Date.ToLocalTime():MM/dd/yyyy HH:mm:ss zzz}");
-                AnsiConsole.WriteLine($"Server uptime:     {info.Uptime:g}");
-                AnsiConsole.WriteLine($"Server response:   {info.ProcessMs}ms");
-                AnsiConsole.WriteLine($"Server version:    {info.Version} {(serverBuild?.ToLocalTime().ToString("(MM/dd/yyyy)") ?? "")}");
+                AnsiConsole.WriteLine($"Server date: {info.Date.ToLocalTime():MM/dd/yyyy HH:mm:ss zzz}");
+                AnsiConsole.WriteLine($"Server uptime: {info.Uptime:g}");
+                AnsiConsole.WriteLine($"Server response: {info.ProcessMs}ms");
+                AnsiConsole.WriteLine($"Server version: {info.Version} {(serverBuild?.ToLocalTime().ToString("(MM/dd/yyyy)") ?? "")}");
             }
             else
             {
-                AnsiConsole.MarkupLine("[red]Server status:     Offline[/]");
+                AnsiConsole.MarkupLine($"[red]Server status: Offline ({serverError ?? "Unknown error"})[/]");
             }
 
             return 0;

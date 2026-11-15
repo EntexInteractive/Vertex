@@ -30,7 +30,11 @@ namespace Vertex.Cli
             config.AddCommand<SubmitCommand>("submit").WithDescription("Submits the changes in the current folder as one revision.")
                 .WithExample("submit", "-m", "\"Add jump animation\"")
                 .WithExample("submit", "-m", "\"New level\"", "Content/Maps");
+            
             config.AddCommand<SyncCommand>("sync").WithDescription("Gets the latest revision of the branch, keeping local changes.");
+            config.AddCommand<LocksCommand>("locks").WithDescription("Lists who has which files locked on this branch.");
+            config.AddCommand<UnlockCommand>("unlock").WithDescription("Releases locks held elsewhere: yours from another workspace, or anyone's for project admins.")
+                .WithExample("unlock", "Content/Maps/City.umap");
             config.AddCommand<RevertCommand>("revert").WithDescription("Discards local changes to files, restoring them from the server.")
                 .WithExample("revert", "Content/Hero.uasset")
                 .WithExample("revert", ".");
@@ -62,7 +66,7 @@ namespace Vertex.Cli
                 branch.AddCommand<CreateGroupCommand>("create").WithDescription("Creates a group.");
                 branch.AddCommand<DeleteGroupCommand>("delete").WithDescription("Deletes a group and the access it gave.");
                 branch.AddCommand<ListGroupsCommand>("list").WithDescription("Lists groups, or one group's members.");
-                branch.AddCommand<AddGroupMembersCommand>("add").WithDescription("Adds users to a group.").WithExample("group", "add", "Artists", "alice", "bob");
+                branch.AddCommand<AddGroupMembersCommand>("add").WithDescription("Adds users to a group.").WithExample("group", "add", "artists", "alice", "bob");
                 branch.AddCommand<RemoveGroupMembersCommand>("remove").WithDescription("Removes users from a group.");
             });
 
@@ -71,7 +75,7 @@ namespace Vertex.Cli
                 branch.SetDescription("Shows or changes who can read, write or administer the project.");
                 branch.SetDefaultCommand<ListAccessCommand>();
                 branch.AddCommand<GrantAccessCommand>("grant").WithDescription("Gives a user or group read, write or admin access.")
-                    .WithExample("access", "grant", "Artists", "write");
+                    .WithExample("access", "grant", "artists", "write");
                 branch.AddCommand<RevokeAccessCommand>("revoke").WithDescription("Removes a user's or group's access.");
                 branch.AddCommand<SetVisibilityCommand>("visibility").WithDescription("Makes the project internal or private.")
                     .WithExample("access", "visibility", "private");

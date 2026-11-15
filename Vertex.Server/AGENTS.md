@@ -7,8 +7,13 @@ project-wide rules.
   gRPC-Web, static files for the web UI, and controllers. Start here.
 - `ServerSettings.cs` is the only place that reads configuration (`VX_*` environment variables). It validates every
   setting at startup and reports all errors at once. Add new settings here and document them in the README table.
-- Feature folders (`Projects/`, `Branches/`, `Files/`, `Server/`, `Diagnostics/`) each pair a controller or gRPC
-  service with a Dapper repository.
+- Feature folders (`Projects/`, `Branches/`, `Files/`, `History/`, `Server/`, `Diagnostics/`) each pair a controller
+  or gRPC service with a Dapper repository.
+- `History/`: revisions (`RevisionService`, `RevisionsRepository`) and file locks (`LockService`, `LocksRepository`,
+  `LockEventPruner`). Every transaction that changes revisions or locks locks the project row first
+  (`revision_counter` / `lock_seq`), so they serialize per project, lock event seqs are gapless and commit in order,
+  and submit's lock check can't race a new lock. Idle clients poll `GetLockEvents`; keep its no-change path free of
+  PostgreSQL (the latest seq is cached in Redis under `locks:seq:{project}`, branch existence is cached too).
 - `Files/FileTransferService.cs` implements `Protos/Files.proto`: existence checks, batched chunk upload, manifests and
   chunk download. Uploads must stay unary because clients use gRPC-Web. `Storage/TransferBudget.cs` limits
   concurrent transfers.
