@@ -5,6 +5,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using Microsoft.Extensions.Caching.Hybrid;
 using Newtonsoft.Json;
+using Vertex.Server.Telemetry;
 
 namespace Vertex.Server.Database
 {
@@ -31,6 +32,7 @@ namespace Vertex.Server.Database
         private sealed class Serializer<T> : IHybridCacheSerializer<T>
         {
             private static readonly JsonSerializer Json = JsonSerializer.CreateDefault();
+            private static readonly KeyValuePair<string, object?> TypeTag = VertexMetrics.Tag("type", typeof(T).Name);
 
             public T Deserialize(ReadOnlySequence<byte> source)
             {
@@ -43,7 +45,9 @@ namespace Vertex.Server.Database
             {
                 using StringWriter writer = new();
                 Json.Serialize(writer, value);
-                target.Write(Encoding.UTF8.GetBytes(writer.ToString()));
+                byte[] bytes = Encoding.UTF8.GetBytes(writer.ToString());
+                VertexMetrics.CacheValueSize.Record(bytes.Length, TypeTag);
+                target.Write(bytes);
             }
         }
     }

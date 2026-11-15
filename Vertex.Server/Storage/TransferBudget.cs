@@ -1,7 +1,9 @@
 // Copyright 2026 Entex Interactive
 
+using System.Diagnostics;
 using Grpc.Core;
 using Vertex.Core.Storage;
+using Vertex.Server.Telemetry;
 
 namespace Vertex.Server.Storage
 {
@@ -33,6 +35,7 @@ namespace Vertex.Server.Storage
             long available = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
             Slots = (int)Math.Clamp((long)(available * MemoryShare) / perSlot, 4, 512);
             _slots = new SemaphoreSlim(Slots, Slots);
+            VertexMetrics.TransferSlots = () => (Slots - _slots.CurrentCount, Slots);
             logger.LogInformation("Transfer budget: {Slots} concurrent chunks ({AvailableMb} MB available memory)", Slots, available / (1024 * 1024));
         }
 
@@ -42,8 +45,10 @@ namespace Vertex.Server.Storage
         /// <exception cref="RpcException">RESOURCE_EXHAUSTED when the server stays saturated.</exception>
         public async Task<IDisposable> AcquireAsync(CancellationToken cancellationToken)
         {
-            if (!await _slots.WaitAsync(MaximumWait, cancellationToken))
-                throw new RpcException(new Status(StatusCode.ResourceExhausted, "Server is at transfer capacity; retry shortly."));
+            long start = Stopwatch.GetTimestamp();
+            bool acquired = await _slots.WaitAsync(MaximumWait, cancellationToken);
+            VertexMetrics.TransferBudgetWait.Record(Stopwatch.GetElapsedTime(start).TotalSeconds);
+            if (!acquired) throw new RpcException(new Status(StatusCode.ResourceExhausted, "Server is at transfer capacity; retry shortly."));
 
             return new Lease(_slots);
         }

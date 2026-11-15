@@ -167,13 +167,14 @@ namespace Vertex.Server.FileServices
             string fileId = request.FileId.ToLowerInvariant();
 
             // Every client that syncs a file asks for the same manifest, and it never changes, so cache it. Only found
-            // manifests are cached: a file asked for before its upload finished must be found once it has.
+            // manifests are cached: a file asked for before its upload finished must be found once it has. Memory only:
+            // a miss is one primary-key query, so Redis stays out of the download path.
             byte[]? data = await _cache.GetOrSetIfFoundAsync(CacheKeys.Manifest(fileId), async ct =>
             {
                 // Manifests written before the content index existed are only in S3.
                 FileManifest? manifest = await _files.GetManifestAsync(fileId, ct) ?? await _store.GetManifestAsync(fileId, ct);
                 return manifest?.ToByteArray();
-            }, ManifestLifetime, context.CancellationToken);
+            }, ManifestLifetime, context.CancellationToken, CacheContext.MemoryOnly);
 
             return data is not null ? FileManifest.Parser.ParseFrom(data) : throw new RpcException(new Status(StatusCode.NotFound, "File not found."));
         }

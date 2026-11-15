@@ -1,5 +1,6 @@
 ﻿// Copyright 2026 Entex Interactive
 
+using System.Diagnostics;
 using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using StackExchange.Redis;
@@ -50,10 +51,15 @@ namespace Vertex.Server.Database
         }
 
         /// <inheritdoc cref="GetOrSetAsync{T}(string, Func{CancellationToken, ValueTask{T}}, double, CancellationToken)"/>
-        public async Task<T?> GetOrSetAsync<T>(string key, Func<CancellationToken, ValueTask<T>> factory, TimeSpan expires, CancellationToken cancellationToken = default)
+        /// <param name="flags">
+        /// <see cref="MemoryOnly"/> keeps the value out of Redis, for values that are cheap to rebuild on each instance.
+        /// </param>
+        public async Task<T?> GetOrSetAsync<T>(string key, Func<CancellationToken, ValueTask<T>> factory, TimeSpan expires, CancellationToken cancellationToken = default,
+            HybridCacheEntryFlags flags = HybridCacheEntryFlags.None)
         {
             string category = CategoryOf(key);
             bool factoryRan = false;
+            long start = Stopwatch.GetTimestamp();
 
             try
             {
@@ -65,12 +71,16 @@ namespace Vertex.Server.Database
                 }, new HybridCacheEntryOptions
                 {
                     Expiration = expires,
-                    LocalCacheExpiration = expires / 3
+                    LocalCacheExpiration = (flags & HybridCacheEntryFlags.DisableDistributedCache) == HybridCacheEntryFlags.DisableDistributedCache ? expires : expires / 3,
+                    Flags = flags
                 }, cancellationToken: cancellationToken);
             }
             finally
             {
-                VertexMetrics.CacheLookups.Add(1, VertexMetrics.Tag("result", factoryRan ? "miss" : "hit"), VertexMetrics.Tag("category", category));
+                KeyValuePair<string, object?> result = VertexMetrics.Tag("result", factoryRan ? "miss" : "hit");
+                KeyValuePair<string, object?> tag = VertexMetrics.Tag("category", category);
+                VertexMetrics.CacheLookups.Add(1, result, tag);
+                VertexMetrics.CacheDuration.Record(Stopwatch.GetElapsedTime(start).TotalSeconds, result, tag);
             }
         }
 
@@ -79,17 +89,23 @@ namespace Vertex.Server.Database
         /// but only caches values that were found: a null result is returned and not cached, so the next call asks
         /// again. For immutable data that may be added later, such as manifests.
         /// </summary>
-        public async Task<T?> GetOrSetIfFoundAsync<T>(string key, Func<CancellationToken, ValueTask<T?>> factory, TimeSpan expires, CancellationToken cancellationToken = default) where T : class
+        public async Task<T?> GetOrSetIfFoundAsync<T>(string key, Func<CancellationToken, ValueTask<T?>> factory, TimeSpan expires, CancellationToken cancellationToken = default,
+            HybridCacheEntryFlags flags = HybridCacheEntryFlags.None) where T : class
         {
             try
             {
-                return await GetOrSetAsync<T>(key, async ct => await factory(ct) ?? throw new NotFoundSignal(), expires, cancellationToken);
+                return await GetOrSetAsync<T>(key, async ct => await factory(ct) ?? throw new NotFoundSignal(), expires, cancellationToken, flags);
             }
             catch (NotFoundSignal)
             {
                 return null;
             }
         }
+
+        /// <summary>
+        /// Keeps a value in this instance's memory only, never in Redis.
+        /// </summary>
+        public const HybridCacheEntryFlags MemoryOnly = HybridCacheEntryFlags.DisableDistributedCache;
 
         // HybridCache never caches a factory that throws, so throwing is how a miss stays uncached.
         private sealed class NotFoundSignal : Exception;

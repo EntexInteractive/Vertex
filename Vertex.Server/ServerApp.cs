@@ -158,6 +158,9 @@ namespace Vertex.Server
             builder.Services.AddMemoryCache();
             builder.Services.AddHybridCache(options =>
             {
+                // Cached values are small rows and lists; nothing large may reach Redis, which runs one command at a
+                // time. Larger values are logged and not cached.
+                options.MaximumPayloadBytes = 256 * 1024;
                 options.DefaultEntryOptions = new HybridCacheEntryOptions
                 {
                     LocalCacheExpiration = TimeSpan.FromMinutes(5),
