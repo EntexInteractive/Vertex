@@ -50,11 +50,30 @@ namespace Vertex.Server.Database
         /// <returns></returns>
         public async Task<T?> GetOrSetAsync<T>(string key, Func<CancellationToken, ValueTask<T>> factory, double expires, CancellationToken cancellationToken = default)
         {
-            return await _cache.GetOrCreateAsync(key.ToLowerInvariant(), factory, new HybridCacheEntryOptions
+            string cacheKey = key.ToLowerInvariant();
+            string category = CategoryOf(cacheKey);
+            bool factoryRan = false;
+
+            T result = await _cache.GetOrCreateAsync(cacheKey, async ct =>
+            {
+                factoryRan = true;
+                using VertexMetrics.Timer _ = VertexMetrics.Time(VertexMetrics.CacheFactoryDuration, "category", category);
+                return await factory(ct);
+            }, new HybridCacheEntryOptions
             {
                 Expiration = TimeSpan.FromMinutes(expires),
                 LocalCacheExpiration = TimeSpan.FromMinutes(expires / 3)
             }, cancellationToken: cancellationToken);
+
+            VertexMetrics.CacheLookups.Add(1, VertexMetrics.Tag("result", factoryRan ? "miss" : "hit"), VertexMetrics.Tag("category", category));
+            return result;
+        }
+
+        // "project:42:branches" -> "project". Bounded cardinality; never tag with the full key.
+        private static string CategoryOf(string key)
+        {
+            int i = key.IndexOf(':');
+            return i > 0 ? key[..i] : "other";
         }
 
         /// <summary>

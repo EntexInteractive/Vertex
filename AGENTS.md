@@ -28,6 +28,7 @@ Weigh every change against these, in order:
 | `Vertex.Agent`       | Background device agent (Windows Service / systemd).                                      |
 | `Vertex.Web`         | React + TypeScript + Vite UI, served by the server and embedded in the GUI.               |
 | `Vertex.Gui`         | Photino desktop host for the web UI.                                                      |
+| `Vertex.Tests`       | `vx-bench`: load benchmarks that drive a real deployment through the client interfaces.    |
 
 Each project has its own AGENTS.md with details. Read it before changing that project.
 
@@ -40,8 +41,9 @@ docker compose up -d postgres redis rustfs rustfs-init   # dependencies only, to
 ```
 
 The SDK is .NET 10 (pinned in `global.json`). Building `Vertex.Server` or `Vertex.Gui` runs `npm ci` and
-`npm run build` in `Vertex.Web`, so Node.js must be installed. There is no test project yet: verify changes by
-building and by running the affected `vx` commands against the local compose stack.
+`npm run build` in `Vertex.Web`, so Node.js must be installed. There are no unit tests yet: verify changes by
+building and by running the affected `vx` commands against the local compose stack. For anything on a hot path, also
+run `dotnet run -c Release --project Vertex.Tests -- all --profile smoke` against it (see `Vertex.Tests/AGENTS.md`).
 
 ## Cross-cutting rules
 
@@ -54,7 +56,7 @@ building and by running the affected `vx` commands against the local compose sta
   project event stream. `Vertex.Core` generates both client and server code from them. After changing one, build the
   whole solution.
 - **Events:** every state change other parts may react to (locks, revisions, later builds) appends a project event
-  with `EventStore.AppendAsync` in the same transaction as the change, then calls `INotificationService.NotifyAsync`
+  with `EventStore.AppendAsync` (or `CreateAppendCommand` in a batch) in the same transaction as the change, then calls `INotificationService.NotifyAsync`
   after commit. Clients get events pushed over `EventFeed.Subscribe`; server-side reactions (build triggers, plugins)
   are `IEventHandler`s. Don't add per-feature polling or journals.
 - **Server config** comes only from `VX_*` environment variables, read and validated in

@@ -136,12 +136,34 @@ DROP SCHEMA IF EXISTS diagnostics;
 -- Revisions: the project's history. Until the first release, schema changes are appended here idempotently instead
 -- of in new migration files; existing databases apply this file again by hand (see CONTRIBUTING.md).
 --
--- Revision numbers (#N) are per project and come from projects.revision_counter, which a submit increments first:
--- that row lock serializes submits within a project, so checks against the branch head can't race.
-ALTER TABLE projects.projects ADD COLUMN IF NOT EXISTS revision_counter BIGINT NOT NULL DEFAULT 0;
--- The project's event sequence (events.events); bumping it also locks the project row. lock_seq was its lock-only
--- predecessor.
-ALTER TABLE projects.projects ADD COLUMN IF NOT EXISTS event_seq BIGINT NOT NULL DEFAULT 0;
+-- Per-project counters, and the row every write to a project locks. revision_counter numbers revisions (#N) and
+-- event_seq numbers events (events.events). A submit or lock change locks this row first, so writes to one project
+-- run one at a time: checks against the branch head can't race, and event seqs have no gaps and commit in order.
+-- They live in their own narrow table, not on projects.projects, because the row is rewritten on every write: kept
+-- small with free space on its page, each update stays a cheap in-place (HOT) update and vacuum keeps up, and
+-- foreign-key checks against projects.projects never wait on it.
+CREATE TABLE IF NOT EXISTS projects.counters
+(
+    project_id       UUID   PRIMARY KEY,
+    revision_counter BIGINT NOT NULL DEFAULT 0,
+    event_seq        BIGINT NOT NULL DEFAULT 0,
+
+    CONSTRAINT fk_counters_project FOREIGN KEY (project_id) REFERENCES projects.projects (id) ON DELETE CASCADE
+) WITH (fillfactor = 50, autovacuum_vacuum_scale_factor = 0, autovacuum_vacuum_threshold = 1000);
+
+-- Upgrades databases that kept the counters (and lock_seq before them) on projects.projects.
+INSERT INTO projects.counters (project_id) SELECT id FROM projects.projects ON CONFLICT (project_id) DO NOTHING;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'projects' AND table_name = 'projects' AND column_name = 'revision_counter') THEN
+        EXECUTE 'UPDATE projects.counters c SET revision_counter = GREATEST(c.revision_counter, p.revision_counter) FROM projects.projects p WHERE p.id = c.project_id';
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'projects' AND table_name = 'projects' AND column_name = 'event_seq') THEN
+        EXECUTE 'UPDATE projects.counters c SET event_seq = GREATEST(c.event_seq, p.event_seq) FROM projects.projects p WHERE p.id = c.project_id';
+    END IF;
+END $$;
+ALTER TABLE projects.projects DROP COLUMN IF EXISTS revision_counter;
+ALTER TABLE projects.projects DROP COLUMN IF EXISTS event_seq;
 ALTER TABLE projects.projects DROP COLUMN IF EXISTS lock_seq;
 
 CREATE SCHEMA IF NOT EXISTS revisions;
@@ -223,8 +245,8 @@ DROP TABLE IF EXISTS locks.events;
 
 -- Project events: everything that happens in a project (files locked, revisions submitted, later builds), so clients,
 -- build triggers and plugins can follow along. Each event is written in the same transaction as the change it
--- describes, so an event exists exactly when the change committed. seq comes from projects.event_seq, bumped in that
--- transaction (which locks the project row), so seqs have no gaps and commit in order: a reader resuming after seq N
+-- describes, so an event exists exactly when the change committed. seq comes from projects.counters, bumped in that
+-- transaction (which locks the project's counters row), so seqs have no gaps and commit in order: a reader resuming after seq N
 -- can never skip one. One event per operation: locking 10,000 files is one event listing them. payload holds the
 -- details as JSON, e.g. {"paths": [...], "reason": "submitted"} or {"revision": 42, "message": "...", "files": 3}.
 -- Old events are pruned; a reader whose cursor is older reloads the state it needs instead.
@@ -257,4 +279,27 @@ CREATE TABLE IF NOT EXISTS events.cursors
 
     CONSTRAINT pk_event_cursors PRIMARY KEY (handler, project_id),
     CONSTRAINT fk_event_cursors_project FOREIGN KEY (project_id) REFERENCES projects.projects (id) ON DELETE CASCADE
+);
+
+-- The content index: which chunks and file manifests are stored. The bytes stay in S3 (chunks/ in the bucket); these
+-- rows answer "is it already uploaded?" for a whole batch in one query, and record a batch of uploads in one commit,
+-- instead of one S3 call (and one durable object write) per id. Everything here is immutable and content-addressed,
+-- so rows are only ever inserted, and inserting one twice is a no-op. Manifests written before this table existed are
+-- still read from S3 (manifests/ in the bucket).
+CREATE SCHEMA IF NOT EXISTS files;
+CREATE TABLE IF NOT EXISTS files.chunks
+(
+    -- SHA-256 of the raw chunk bytes.
+    id   BYTEA   PRIMARY KEY,
+    -- Raw (uncompressed) size in bytes.
+    size INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS files.manifests
+(
+    -- Lowercase hex file id (the hash over the chunk list), as revisions refer to it.
+    file_id  TEXT   PRIMARY KEY,
+    size     BIGINT NOT NULL,
+    -- The FileManifest protobuf message (Files.proto).
+    manifest BYTEA  NOT NULL
 );

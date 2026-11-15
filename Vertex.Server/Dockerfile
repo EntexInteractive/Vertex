@@ -14,10 +14,12 @@ ARG ASSEMBLY_VERSION=
 WORKDIR /src
 COPY ["Vertex.Server/Vertex.Server.csproj", "Vertex.Server/"]
 COPY ["Vertex.Core/Vertex.Core.csproj", "Vertex.Core/"]
-RUN dotnet restore "Vertex.Server/Vertex.Server.csproj" -a $TARGETARCH
+# ReadyToRun precompiles the server for the target, so a fresh container serves at full speed from the first request
+# instead of JIT-compiling under load (about 90 s on a Raspberry Pi 4). Restore needs it too, for the crossgen package.
+RUN dotnet restore "Vertex.Server/Vertex.Server.csproj" -a $TARGETARCH -p:PublishReadyToRun=true
 COPY . .
 WORKDIR "/src/Vertex.Server"
-RUN dotnet publish "./Vertex.Server.csproj" -c $BUILD_CONFIGURATION -a $TARGETARCH -o /app/publish /p:UseAppHost=false \
+RUN dotnet publish "./Vertex.Server.csproj" -c $BUILD_CONFIGURATION -a $TARGETARCH -o /app/publish /p:UseAppHost=false -p:PublishReadyToRun=true \
     ${VERSION:+-p:Version=$VERSION} \
     ${ASSEMBLY_VERSION:+-p:AssemblyVersion=$ASSEMBLY_VERSION -p:FileVersion=$ASSEMBLY_VERSION}
 

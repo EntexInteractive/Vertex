@@ -8,7 +8,6 @@ using System.Runtime.InteropServices;
 using Amazon.S3;
 using Amazon.S3.Model;
 using Google.Protobuf;
-using Microsoft.Extensions.Caching.Memory;
 using Vertex.Core.Storage;
 
 namespace Vertex.Server.Storage
@@ -19,66 +18,37 @@ namespace Vertex.Server.Storage
     public sealed record StoredChunk(byte[] CompressedData, long Size);
 
     /// <summary>
-    /// Content-addressed storage for chunks and file manifests. Everything stored is immutable and keyed by its
-    /// own hash, so writes are idempotent and safe to repeat or race.
+    /// Content-addressed storage for chunk bytes. Everything stored is immutable and keyed by its own hash, so writes
+    /// are idempotent and safe to repeat or race. Which chunks and manifests exist is answered by the content index
+    /// (<see cref="FileServices.FilesRepository"/>), not by asking this store.
     /// </summary>
     public interface IContentStore
     {
-        /// <summary>Returns a stored chunk's raw size, or null when the chunk is not stored.</summary>
-        Task<long?> GetChunkSizeAsync(byte[] id, CancellationToken cancellationToken);
-
         Task PutChunkAsync(byte[] id, long size, ReadOnlyMemory<byte> compressedData, CancellationToken cancellationToken);
 
         /// <exception cref="FileNotFoundException">The chunk is not stored.</exception>
         Task<StoredChunk> GetChunkAsync(byte[] id, CancellationToken cancellationToken);
 
-        Task<bool> ManifestExistsAsync(string fileId, CancellationToken cancellationToken);
+        /// <summary>
+        /// A manifest written before the content index existed, or null. New manifests are only in the index.
+        /// </summary>
         Task<FileManifest?> GetManifestAsync(string fileId, CancellationToken cancellationToken);
-        Task PutManifestAsync(string fileId, FileManifest manifest, CancellationToken cancellationToken);
     }
 
     /// <summary>
-    /// Stores each chunk as its own S3 object under <c>chunks/</c> and each manifest under <c>manifests/</c>,
-    /// sharded by hash prefix to spread S3 request load across key partitions.
+    /// Stores each chunk as its own S3 object under <c>chunks/</c>, sharded by hash prefix to spread S3 request load
+    /// across key partitions. Older manifests are read from <c>manifests/</c>.
     /// </summary>
     public sealed class S3ContentStore : IContentStore
     {
         private const string RawSizeMetadata = "raw-size";
-        private static readonly MemoryCacheEntryOptions CacheEntryOptions = new() { SlidingExpiration = TimeSpan.FromHours(1), Size = 1 };
         private readonly IAmazonS3 _s3;
         private readonly string _bucket;
-        private readonly IMemoryCache _existence;
 
         public S3ContentStore(IAmazonS3 s3, ServerSettings settings)
         {
             _s3 = s3;
             _bucket = settings.Storage.Bucket;
-            // Positive-only cache: stored content is immutable, so "exists with size N" never goes stale
-            // (until garbage collection exists, which must clear it). Misses are never cached.
-            _existence = new MemoryCache(new MemoryCacheOptions { SizeLimit = 1_000_000 });
-        }
-
-        public async Task<long?> GetChunkSizeAsync(byte[] id, CancellationToken cancellationToken)
-        {
-            string key = ChunkKey(id);
-            if (_existence.TryGetValue(key, out long cached))
-            {
-                VertexMetrics.StorageCache.Add(1, VertexMetrics.Tag("result", "hit"));
-                return cached;
-            }
-
-            VertexMetrics.StorageCache.Add(1, VertexMetrics.Tag("result", "miss"));
-            try
-            {
-                GetObjectMetadataResponse response = await TimedAsync("head_chunk", () => _s3.GetObjectMetadataAsync(_bucket, key, cancellationToken));
-                long size = ReadRawSize(response.Metadata);
-                _existence.Set(key, size, CacheEntryOptions);
-                return size;
-            }
-            catch (AmazonS3Exception exception) when (IsNotFound(exception))
-            {
-                return null;
-            }
         }
 
         public async Task PutChunkAsync(byte[] id, long size, ReadOnlyMemory<byte> compressedData, CancellationToken cancellationToken)
@@ -92,7 +62,6 @@ namespace Vertex.Server.Storage
 
             request.Metadata.Add(RawSizeMetadata, size.ToString(CultureInfo.InvariantCulture));
             await TimedAsync("put_chunk", () => _s3.PutObjectAsync(request, cancellationToken));
-            _existence.Set(key, size, CacheEntryOptions);
         }
 
         public async Task<StoredChunk> GetChunkAsync(byte[] id, CancellationToken cancellationToken)
@@ -112,29 +81,6 @@ namespace Vertex.Server.Storage
                 throw new FileNotFoundException("Chunk not found.", exception);
             }
         }
-
-        public async Task<bool> ManifestExistsAsync(string fileId, CancellationToken cancellationToken)
-        {
-            string key = ManifestKey(fileId);
-            if (_existence.TryGetValue(key, out _))
-            {
-                VertexMetrics.StorageCache.Add(1, VertexMetrics.Tag("result", "hit"));
-                return true;
-            }
-
-            VertexMetrics.StorageCache.Add(1, VertexMetrics.Tag("result", "miss"));
-            try
-            {
-                await TimedAsync("head_manifest", () => _s3.GetObjectMetadataAsync(_bucket, key, cancellationToken));
-                _existence.Set(key, 0L, CacheEntryOptions);
-                return true;
-            }
-            catch (AmazonS3Exception exception) when (IsNotFound(exception))
-            {
-                return false;
-            }
-        }
-
         public async Task<FileManifest?> GetManifestAsync(string fileId, CancellationToken cancellationToken)
         {
             try
@@ -179,19 +125,6 @@ namespace Vertex.Server.Storage
                 VertexMetrics.StorageDuration.Record(Stopwatch.GetElapsedTime(start).TotalSeconds, VertexMetrics.Tag("operation", operation), VertexMetrics.Tag("outcome", outcome));
             }
         }
-
-        public async Task PutManifestAsync(string fileId, FileManifest manifest, CancellationToken cancellationToken)
-        {
-            string key = ManifestKey(fileId);
-            await TimedAsync("put_manifest", () => _s3.PutObjectAsync(new PutObjectRequest
-            {
-                BucketName = _bucket, Key = key, ContentType = "application/x-protobuf",
-                InputStream = new MemoryStream(manifest.ToByteArray(), false)
-            }, cancellationToken));
-
-            _existence.Set(key, 0L, CacheEntryOptions);
-        }
-
         private static Stream AsStream(ReadOnlyMemory<byte> data)
         {
             return MemoryMarshal.TryGetArray(data, out ArraySegment<byte> segment)

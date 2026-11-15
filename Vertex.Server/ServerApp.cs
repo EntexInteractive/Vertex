@@ -75,6 +75,7 @@ namespace Vertex.Server
             builder.Services.AddSingleton(settings);
             builder.Services.AddSingleton<IContentStore, S3ContentStore>();
             builder.Services.AddSingleton<TransferBudget>();
+            builder.Services.AddSingleton<FilesRepository>();
             builder.WebHost.ConfigureKestrel(options =>
             {
                 // Larger HTTP/2 flow-control windows let a single upload stream fill high-latency links;
@@ -116,6 +117,7 @@ namespace Vertex.Server
             builder.Services.AddScoped<AccessService>();
             builder.Services.AddScoped<RevisionsRepository>();
             builder.Services.AddScoped<LocksRepository>();
+            builder.Services.AddSingleton<ProjectWriteQueue>();
 
             // Project events: the journal, pub/sub across instances, server-side handlers and pruning.
             builder.Services.AddSingleton<EventStore>();

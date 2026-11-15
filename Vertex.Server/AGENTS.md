@@ -13,12 +13,17 @@ project-wide rules.
   them plus the built-in ASP.NET Core, Kestrel, runtime and Npgsql meters for Prometheus on `/metrics`, on that port
   only. Add a counter or histogram there for anything worth graphing; never write per-request rows to PostgreSQL.
 - `History/`: revisions (`RevisionService`, `RevisionsRepository`) and file locks (`LockService`, `LocksRepository`).
-  Every transaction that changes revisions or locks locks the project row first (`revision_counter`, or
-  `EventStore.LockProjectAsync`), so they serialize per project and submit's lock check can't race a new lock.
+  Every transaction that changes revisions or locks first locks the project's row in `projects.counters` (the
+  `revision_counter` update, or `EventStore.LockProjectAsync`), so they serialize per project and submit's lock check
+  can't race a new lock. That row is held until the commit, so a project does at most one write transaction per
+  commit latency: keep the work done while holding it to as few round trips as possible (batch statements with
+  `NpgsqlBatch`, never call S3 or other services inside). Lock and unlock requests go through `ProjectWriteQueue`,
+  which runs the requests that arrive together for a project in one transaction (one statement each, one commit);
+  `vertex.project_lock.held` and `vertex.db.commit` show where the time goes.
   `GetLockEvents` (for one-off commands) reads lock events from the event journal; keep its no-change path free of
   PostgreSQL (the latest seq is cached in Redis under `events:seq:{project}`, branch existence is cached too).
 - `Events/`: the project event bus. `EventStore` is the journal (`events.events`, gapless seqs per project from
-  `projects.event_seq`, one event per operation with a JSON payload). Writers append in their transaction and call
+  `projects.counters.event_seq`, one event per operation with a JSON payload). Writers append in their transaction and call
   `INotificationService.NotifyAsync` after commit (see `ProjectCalls.AfterCommitAsync`). `NotificationService` holds
   one Redis pattern subscription (`events:*`) per instance and one `ProjectFeed` per project with live subscribers,
   which reads each new event once and fans it out to every local stream; without Redis it wakes its feeds directly.
@@ -29,9 +34,11 @@ project-wide rules.
   `EventPruner` deletes events older than 7 days.
 - `Files/FileTransferService.cs` implements `Protos/Files.proto`: existence checks, batched chunk upload, manifests and
   chunk download. Uploads must stay unary because clients use gRPC-Web. `Storage/TransferBudget.cs` limits
-  concurrent transfers.
-- `Storage/S3ContentStore.cs` stores content-addressed chunks and file manifests in S3. Keep the server stateless:
-  any instance must be able to serve any request.
+  concurrent transfers. `Files/FilesRepository.cs` is the content index (`files.chunks`, `files.manifests`): which
+  chunks and manifests are stored, answered for a whole request with one query and recorded with one commit per call.
+  Never check existence with one S3 call per id.
+- `Storage/S3ContentStore.cs` stores content-addressed chunk bytes in S3 (and reads manifests written before the
+  content index existed). Keep the server stateless: any instance must be able to serve any request.
 - `Database/` holds PostgreSQL access (`PostgresDatabase`, `DapperContext`), the Redis-backed cache (`CacheContext`,
   `RedisSubscriber`) and the schema migrations. Redis is optional; without it the server uses a memory-only cache.
 - Schema migrations (`Database/Migrations/NNNN_name.sql`) are embedded in the assembly and applied by
