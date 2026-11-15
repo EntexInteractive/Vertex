@@ -3,6 +3,7 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using Vertex.Server.Database;
+using Vertex.Server.Telemetry;
 
 namespace Vertex.Server.Events
 {
@@ -63,6 +64,7 @@ namespace Vertex.Server.Events
         {
             _logger = logger;
             _cache = cache;
+            VertexMetrics.ActiveFeeds = () => _feeds.Count;
             _store = store;
         }
 

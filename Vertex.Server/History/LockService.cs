@@ -53,6 +53,8 @@ namespace Vertex.Server.History
             Guid userId = user.GetUserId();
             LockOutcome outcome = await _locks.LockAsync(projectId, branchId, userId, workspaceId, host, paths, ct);
             VertexMetrics.LocksGranted.Add(outcome.Granted.Count);
+            VertexMetrics.LocksContended.Add(outcome.Existing.Values.Count(l => l.WorkspaceId != workspaceId));
+            if (outcome.Seq is not null) VertexMetrics.EventsRecorded.Add(1, VertexMetrics.Tag("type", EventTypes.LockLocked));
             await ProjectCalls.AfterCommitAsync(_cache, _notifications, projectId, outcome.Seq);
 
             LockResponse response = new();
@@ -103,6 +105,7 @@ namespace Vertex.Server.History
                 paths.Select(p => p.Key).ToArray(), request.Force, isAdmin, ct);
 
             VertexMetrics.LocksReleased.Add(released.Count, new KeyValuePair<string, object?>("reason", request.Force ? "unlocked" : "reverted"));
+            if (seq is not null) VertexMetrics.EventsRecorded.Add(1, VertexMetrics.Tag("type", EventTypes.LockReleased));
             await ProjectCalls.AfterCommitAsync(_cache, _notifications, projectId, seq);
             foreach (LockRow lockRow in released.Where(l => l.UserId != user.GetUserId()))
                 _logger.LogInformation("{User} force-released {Owner}'s lock on {Path} in project {ProjectId}", user.GetUsername(), lockRow.Username, lockRow.Path, projectId);

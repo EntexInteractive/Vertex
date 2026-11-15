@@ -4,6 +4,7 @@ using Dapper;
 using Npgsql;
 using Vertex.Server.Database;
 using Vertex.Server.Events;
+using Vertex.Server.Telemetry;
 
 namespace Vertex.Server.History
 {
@@ -67,7 +68,9 @@ namespace Vertex.Server.History
             await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(cancellationToken);
 
             const string numberSql = "UPDATE projects.projects SET revision_counter = revision_counter + 1 WHERE id = @ProjectId RETURNING revision_counter;";
-            long number = await connection.ExecuteScalarAsync<long>(new CommandDefinition(numberSql, new { ProjectId = projectId }, transaction, cancellationToken: cancellationToken));
+            long number;
+            using (VertexMetrics.Time(VertexMetrics.ProjectLockWait, "operation", "submit"))
+                number = await connection.ExecuteScalarAsync<long>(new CommandDefinition(numberSql, new { ProjectId = projectId }, transaction, cancellationToken: cancellationToken));
 
             string[] keys = changes.Select(c => c.PathKey).ToArray();
             const string headSql = "SELECT path_key, file_id FROM revisions.head WHERE branch_id = @BranchId AND path_key = ANY(@Keys);";

@@ -52,7 +52,7 @@ namespace Vertex.Server.History
             await using NpgsqlConnection connection = (NpgsqlConnection)_database.CreateConnection();
             await connection.OpenAsync(ct);
             await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(ct);
-            await EventStore.LockProjectAsync(connection, transaction, projectId, ct);
+            await EventStore.LockProjectAsync(connection, transaction, projectId, "lock", ct);
 
             long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             const string insertSql = "INSERT INTO locks.locks (branch_id, path_key, path, user_id, workspace_id, host, created_at) " +
@@ -90,7 +90,7 @@ namespace Vertex.Server.History
             await using NpgsqlConnection connection = (NpgsqlConnection)_database.CreateConnection();
             await connection.OpenAsync(ct);
             await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(ct);
-            await EventStore.LockProjectAsync(connection, transaction, projectId, ct);
+            await EventStore.LockProjectAsync(connection, transaction, projectId, "unlock", ct);
 
             const string deleteSql = "WITH deleted AS (DELETE FROM locks.locks l WHERE l.branch_id = @BranchId AND l.path_key = ANY(@Keys) " +
                                      "AND (l.workspace_id = @WorkspaceId OR (@Force AND (l.user_id = @UserId OR @IsAdmin))) RETURNING l.*) " +

@@ -41,6 +41,8 @@ namespace Vertex.Server.FileServices
 
             FindMissingFilesResponse response = new();
             response.FileIds.AddRange(ids.Where((_, i) => !exists[i]));
+            VertexMetrics.Files.Add(response.FileIds.Count, VertexMetrics.Tag("result", "new"));
+            VertexMetrics.Files.Add(ids.Length - response.FileIds.Count, VertexMetrics.Tag("result", "deduplicated"));
             return response;
         }
 
@@ -56,6 +58,9 @@ namespace Vertex.Server.FileServices
             for (int i = 0; i < ids.Length; i++)
                 if (!exists[i])
                     response.Ids.Add(Google.Protobuf.UnsafeByteOperations.UnsafeWrap(ids[i]));
+
+            VertexMetrics.Chunks.Add(response.Ids.Count, VertexMetrics.Tag("result", "new"));
+            VertexMetrics.Chunks.Add(ids.Length - response.Ids.Count, VertexMetrics.Tag("result", "deduplicated"));
 
             return response;
         }

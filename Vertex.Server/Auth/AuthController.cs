@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Vertex.Core.Data;
 using Vertex.Core.Net.Requests;
 using Vertex.Core.Net.Responses;
+using Vertex.Server.Telemetry;
 using Vertex.Server.Users;
 
 namespace Vertex.Server.Auth
@@ -37,18 +38,25 @@ namespace Vertex.Server.Auth
 
             string username = request.Username.Trim();
             string? blocked = await _throttle.CheckAsync(username, HttpContext);
-            if (blocked is not null) return StatusCode(StatusCodes.Status429TooManyRequests, blocked);
+            if (blocked is not null)
+            {
+                VertexMetrics.Logins.Add(1, VertexMetrics.Tag("outcome", "throttled"));
+                return StatusCode(StatusCodes.Status429TooManyRequests, blocked);
+            }
 
             UserCredentials? credentials = await _users.GetCredentialsAsync(username, cancellationToken);
             if (!PasswordHasher.Verify(request.Password, credentials?.PasswordHash) || credentials is null)
             {
                 await _throttle.RecordFailureAsync(username, HttpContext);
+                VertexMetrics.Logins.Add(1, VertexMetrics.Tag("outcome", "failed"));
                 return Unauthorized("Incorrect username or password.");
             }
 
+            if (credentials.Disabled) VertexMetrics.Logins.Add(1, VertexMetrics.Tag("outcome", "disabled"));
             if (credentials.Disabled) return Unauthorized($"The account '{username}' is disabled. Ask a server admin to run 'vx user enable {username}'.");
 
             await _throttle.RecordSuccessAsync(username);
+            VertexMetrics.Logins.Add(1, VertexMetrics.Tag("outcome", "success"));
             string device = string.IsNullOrWhiteSpace(request.DeviceName) ? "unknown device" : request.DeviceName.Trim();
             string token = await _tokens.CreateAsync(credentials.Id, device, cancellationToken);
             await _users.SetLastLoginAsync(credentials.Id, cancellationToken);

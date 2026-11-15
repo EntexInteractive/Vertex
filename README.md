@@ -241,10 +241,23 @@ scrape_configs:
 ```
 
 Besides the standard ASP.NET Core (request durations per endpoint and gRPC method, Kestrel connections), .NET runtime
-and Npgsql (query durations, pool usage) metrics, the server reports `vertex_revisions_total`,
-`vertex_revisions_files_total`, `vertex_revisions_refused_total` (by `reason`), `vertex_locks_granted_total`,
-`vertex_locks_released_total` (by `reason`), `vertex_event_streams` (open streams per instance), and
-`vertex_transfer_received_bytes_total` / `vertex_transfer_sent_bytes_total`.
+and Npgsql (query durations, pool usage) metrics, the server reports its own. Durations are histograms in seconds.
+
+| Metric | What it tells you |
+|---|---|
+| `vertex_project_lock_wait_seconds` (by `operation`) | Time writes wait for their project. Writes in a project run one at a time; this climbing is the first sign a project is near its write limit (~100 writes/s). |
+| `vertex_events_delivery_delay_seconds` | Time from a change to it reaching a client's stream: how "live" locks and read-only flags really are. |
+| `vertex_events_delivered_total`, `vertex_events_recorded_total` (by `type`) | Push volume. Delivered ≈ recorded × subscribers, the main CPU cost. |
+| `vertex_event_streams`, `vertex_event_feeds` | Open streams and projects with live subscribers, per instance. |
+| `vertex_events_handler_lag` (by `handler`) | How many events a server-side handler (builds, plugins) is behind. |
+| `vertex_revisions_total`, `vertex_revisions_files` (histogram), `vertex_revisions_refused_total` (by `reason`) | Submits, their size, and people blocked by out-of-date files or others' locks. |
+| `vertex_locks_granted_total`, `vertex_locks_contended_total`, `vertex_locks_released_total` (by `reason`) | Locking activity and contention on shared files. |
+| `vertex_sync_files_total` | Files handed out by `vx sync`. |
+| `vertex_storage_duration_seconds` (by `operation`, `outcome`), `vertex_storage_cache_total` (by `result`) | S3 latency and errors, and how often the in-memory existence cache saves an S3 call. |
+| `vertex_transfer_chunks_total`, `vertex_transfer_files_total` (by `result`: new, deduplicated) | How much content clients didn't have to upload. |
+| `vertex_transfer_received_bytes_total`, `vertex_transfer_sent_bytes_total` | Upload and download bandwidth. |
+| `vertex_redis_connected`, `vertex_redis_errors_total` | Without Redis, cross-instance push falls back to 30 s checks. |
+| `vertex_auth_logins_total` (by `outcome`: success, failed, disabled, throttled) | Login activity and brute-force attempts. |
 
 ## Contributing
 

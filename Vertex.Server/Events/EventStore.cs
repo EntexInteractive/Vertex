@@ -4,6 +4,7 @@ using System.Text.Json;
 using Dapper;
 using Npgsql;
 using Vertex.Server.Database;
+using Vertex.Server.Telemetry;
 
 namespace Vertex.Server.Events
 {
@@ -31,8 +32,10 @@ namespace Vertex.Server.Events
         /// Locks the project row and returns its current event seq. Transactions that read state before changing it
         /// (locks) take this first, so they serialize per project and never deadlock with each other.
         /// </summary>
-        public static async Task<long> LockProjectAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid projectId, CancellationToken ct)
+        /// <param name="operation">What the lock is for, recorded with the wait time (<c>vertex.project_lock.wait</c>).</param>
+        public static async Task<long> LockProjectAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid projectId, string operation, CancellationToken ct)
         {
+            using VertexMetrics.Timer wait = VertexMetrics.Time(VertexMetrics.ProjectLockWait, "operation", operation);
             return await connection.ExecuteScalarAsync<long>(new CommandDefinition("SELECT event_seq FROM projects.projects WHERE id = @ProjectId FOR UPDATE;",
                 new { ProjectId = projectId }, transaction, cancellationToken: ct));
         }

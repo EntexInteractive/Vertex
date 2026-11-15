@@ -3,6 +3,7 @@
 using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using StackExchange.Redis;
+using Vertex.Server.Telemetry;
 
 namespace Vertex.Server.Database
 {
@@ -24,6 +25,7 @@ namespace Vertex.Server.Database
         {
             _logger = logger;
             _cache = cache;
+            VertexMetrics.RedisState = () => _redis?.IsConnected == true ? 1 : 0;
 
             try
             {
@@ -107,6 +109,7 @@ namespace Vertex.Server.Database
             }
             catch (RedisException ex)
             {
+                VertexMetrics.RedisErrors.Add(1, VertexMetrics.Tag("operation", "increment"));
                 _logger.LogWarning(ex, "Could not increment the shared counter '{Key}'.", key);
                 return null;
             }
@@ -130,6 +133,7 @@ namespace Vertex.Server.Database
             }
             catch (RedisException ex)
             {
+                VertexMetrics.RedisErrors.Add(1, VertexMetrics.Tag("operation", "set_max"));
                 _logger.LogWarning(ex, "Could not update the shared value '{Key}'.", key);
             }
         }
@@ -149,6 +153,7 @@ namespace Vertex.Server.Database
             }
             catch (RedisException ex)
             {
+                VertexMetrics.RedisErrors.Add(1, VertexMetrics.Tag("operation", "get"));
                 _logger.LogWarning(ex, "Could not read the shared value '{Key}'.", key);
                 return null;
             }
@@ -169,6 +174,7 @@ namespace Vertex.Server.Database
             }
             catch (RedisException ex)
             {
+                VertexMetrics.RedisErrors.Add(1, VertexMetrics.Tag("operation", "get_counters"));
                 _logger.LogWarning(ex, "Could not read shared counters.");
                 return null;
             }
@@ -189,6 +195,7 @@ namespace Vertex.Server.Database
             }
             catch (RedisException ex)
             {
+                VertexMetrics.RedisErrors.Add(1, VertexMetrics.Tag("operation", "delete"));
                 _logger.LogWarning(ex, "Could not delete the shared counter '{Key}'.", key);
                 return false;
             }
@@ -250,6 +257,7 @@ namespace Vertex.Server.Database
             }
             catch (RedisException ex)
             {
+                VertexMetrics.RedisErrors.Add(1, VertexMetrics.Tag("operation", "publish"));
                 _logger.LogWarning(ex, "Could not publish to '{Channel}'.", channel);
                 return false;
             }

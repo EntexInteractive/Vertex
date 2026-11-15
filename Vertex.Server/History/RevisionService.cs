@@ -102,8 +102,10 @@ namespace Vertex.Server.History
             if (outcome.Revision is null) throw new RpcException(new Status(StatusCode.FailedPrecondition, "Nothing to submit: the server already has these changes."));
 
             VertexMetrics.Revisions.Add(1);
-            VertexMetrics.RevisionFiles.Add(changes.Count);
+            VertexMetrics.RevisionFiles.Record(changes.Count);
             VertexMetrics.LocksReleased.Add(outcome.LocksReleased, new KeyValuePair<string, object?>("reason", "submitted"));
+            VertexMetrics.EventsRecorded.Add(1, VertexMetrics.Tag("type", EventTypes.RevisionCreated));
+            if (outcome.LocksReleased > 0) VertexMetrics.EventsRecorded.Add(1, VertexMetrics.Tag("type", EventTypes.LockReleased));
             _logger.LogInformation("Revision #{Revision} in project {ProjectId}: {Files} file(s) by {User}", outcome.Revision, projectId, changes.Count, user.GetUsername());
             return new SubmitResponse { Revision = outcome.Revision.Value };
         }
@@ -137,6 +139,7 @@ namespace Vertex.Server.History
 
             IReadOnlyList<HeadFileRow> rows = await _revisions.GetHeadChangesAsync(branchId, request.AfterRevision, head, cursor, FileTransferLimits.HeadChangesPageSize, ct);
             response.Files.AddRange(rows.Select(row => new HeadFile { Path = row.Path, FileId = row.FileId ?? string.Empty, Revision = row.Revision }));
+            VertexMetrics.SyncFiles.Add(rows.Count);
             if (rows.Count == FileTransferLimits.HeadChangesPageSize) response.NextPageToken = $"{head}:{rows[^1].PathKey}";
             return response;
         }

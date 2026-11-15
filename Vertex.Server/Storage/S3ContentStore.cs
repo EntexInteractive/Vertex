@@ -1,5 +1,7 @@
 // Copyright 2026 Entex Interactive
 
+using System.Diagnostics;
+using Vertex.Server.Telemetry;
 using System.Globalization;
 using System.Net;
 using System.Runtime.InteropServices;
@@ -59,11 +61,16 @@ namespace Vertex.Server.Storage
         public async Task<long?> GetChunkSizeAsync(byte[] id, CancellationToken cancellationToken)
         {
             string key = ChunkKey(id);
-            if (_existence.TryGetValue(key, out long cached)) return cached;
+            if (_existence.TryGetValue(key, out long cached))
+            {
+                VertexMetrics.StorageCache.Add(1, VertexMetrics.Tag("result", "hit"));
+                return cached;
+            }
 
+            VertexMetrics.StorageCache.Add(1, VertexMetrics.Tag("result", "miss"));
             try
             {
-                GetObjectMetadataResponse response = await _s3.GetObjectMetadataAsync(_bucket, key, cancellationToken);
+                GetObjectMetadataResponse response = await TimedAsync("head_chunk", () => _s3.GetObjectMetadataAsync(_bucket, key, cancellationToken));
                 long size = ReadRawSize(response.Metadata);
                 _existence.Set(key, size, CacheEntryOptions);
                 return size;
@@ -84,7 +91,7 @@ namespace Vertex.Server.Storage
             };
 
             request.Metadata.Add(RawSizeMetadata, size.ToString(CultureInfo.InvariantCulture));
-            await _s3.PutObjectAsync(request, cancellationToken);
+            await TimedAsync("put_chunk", () => _s3.PutObjectAsync(request, cancellationToken));
             _existence.Set(key, size, CacheEntryOptions);
         }
 
@@ -92,7 +99,7 @@ namespace Vertex.Server.Storage
         {
             try
             {
-                using GetObjectResponse response = await _s3.GetObjectAsync(_bucket, ChunkKey(id), cancellationToken);
+                using GetObjectResponse response = await TimedAsync("get_chunk", () => _s3.GetObjectAsync(_bucket, ChunkKey(id), cancellationToken));
                 if (response.ContentLength < 0 || response.ContentLength > ChunkCodec.MaximumCompressedSize)
                     throw new InvalidDataException("Stored chunk has an invalid size.");
 
@@ -109,11 +116,16 @@ namespace Vertex.Server.Storage
         public async Task<bool> ManifestExistsAsync(string fileId, CancellationToken cancellationToken)
         {
             string key = ManifestKey(fileId);
-            if (_existence.TryGetValue(key, out _)) return true;
+            if (_existence.TryGetValue(key, out _))
+            {
+                VertexMetrics.StorageCache.Add(1, VertexMetrics.Tag("result", "hit"));
+                return true;
+            }
 
+            VertexMetrics.StorageCache.Add(1, VertexMetrics.Tag("result", "miss"));
             try
             {
-                await _s3.GetObjectMetadataAsync(_bucket, key, cancellationToken);
+                await TimedAsync("head_manifest", () => _s3.GetObjectMetadataAsync(_bucket, key, cancellationToken));
                 _existence.Set(key, 0L, CacheEntryOptions);
                 return true;
             }
@@ -127,7 +139,7 @@ namespace Vertex.Server.Storage
         {
             try
             {
-                using GetObjectResponse response = await _s3.GetObjectAsync(_bucket, ManifestKey(fileId), cancellationToken);
+                using GetObjectResponse response = await TimedAsync("get_manifest", () => _s3.GetObjectAsync(_bucket, ManifestKey(fileId), cancellationToken));
                 return FileManifest.Parser.ParseFrom(response.ResponseStream);
             }
             catch (AmazonS3Exception exception) when (IsNotFound(exception))
@@ -136,14 +148,46 @@ namespace Vertex.Server.Storage
             }
         }
 
+        /// <summary>
+        /// Runs one S3 call and records its duration and outcome (<c>vertex.storage.duration</c>).
+        /// </summary>
+        private static async Task<T> TimedAsync<T>(string operation, Func<Task<T>> call)
+        {
+            long start = Stopwatch.GetTimestamp();
+            string outcome = "ok";
+            try
+            {
+                return await call();
+            }
+            catch (AmazonS3Exception exception) when (IsNotFound(exception))
+            {
+                outcome = "not_found";
+                throw;
+            }
+            catch (OperationCanceledException)
+            {
+                outcome = "cancelled";
+                throw;
+            }
+            catch
+            {
+                outcome = "error";
+                throw;
+            }
+            finally
+            {
+                VertexMetrics.StorageDuration.Record(Stopwatch.GetElapsedTime(start).TotalSeconds, VertexMetrics.Tag("operation", operation), VertexMetrics.Tag("outcome", outcome));
+            }
+        }
+
         public async Task PutManifestAsync(string fileId, FileManifest manifest, CancellationToken cancellationToken)
         {
             string key = ManifestKey(fileId);
-            await _s3.PutObjectAsync(new PutObjectRequest
+            await TimedAsync("put_manifest", () => _s3.PutObjectAsync(new PutObjectRequest
             {
                 BucketName = _bucket, Key = key, ContentType = "application/x-protobuf",
                 InputStream = new MemoryStream(manifest.ToByteArray(), false)
-            }, cancellationToken);
+            }, cancellationToken));
 
             _existence.Set(key, 0L, CacheEntryOptions);
         }
