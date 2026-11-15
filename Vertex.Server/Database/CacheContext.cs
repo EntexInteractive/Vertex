@@ -40,34 +40,78 @@ namespace Vertex.Server.Database
         }
 
         /// <summary>
-        /// Gets cached data.
+        /// Returns the cached value for <paramref name="key"/>, or runs <paramref name="factory"/> and caches what it
+        /// returns, null included. Keys are case-sensitive; build them with <see cref="CacheKeys"/>.
         /// </summary>
-        /// <param name="key"></param>
-        /// <param name="factory"></param>
-        /// <param name="expires"></param>
-        /// <param name="cancellationToken"></param>
-        /// <typeparam name="T"></typeparam>
-        /// <returns></returns>
-        public async Task<T?> GetOrSetAsync<T>(string key, Func<CancellationToken, ValueTask<T>> factory, double expires, CancellationToken cancellationToken = default)
+        /// <param name="expires">How long the value lives, in minutes. Each instance keeps it in memory for a third of that.</param>
+        public Task<T?> GetOrSetAsync<T>(string key, Func<CancellationToken, ValueTask<T>> factory, double expires, CancellationToken cancellationToken = default)
         {
-            string cacheKey = key.ToLowerInvariant();
-            string category = CategoryOf(cacheKey);
+            return GetOrSetAsync(key, factory, TimeSpan.FromMinutes(expires), cancellationToken);
+        }
+
+        /// <inheritdoc cref="GetOrSetAsync{T}(string, Func{CancellationToken, ValueTask{T}}, double, CancellationToken)"/>
+        public async Task<T?> GetOrSetAsync<T>(string key, Func<CancellationToken, ValueTask<T>> factory, TimeSpan expires, CancellationToken cancellationToken = default)
+        {
+            string category = CategoryOf(key);
             bool factoryRan = false;
 
-            T result = await _cache.GetOrCreateAsync(cacheKey, async ct =>
+            try
             {
-                factoryRan = true;
-                using VertexMetrics.Timer _ = VertexMetrics.Time(VertexMetrics.CacheFactoryDuration, "category", category);
-                return await factory(ct);
-            }, new HybridCacheEntryOptions
+                return await _cache.GetOrCreateAsync(key, async ct =>
+                {
+                    factoryRan = true;
+                    using VertexMetrics.Timer _ = VertexMetrics.Time(VertexMetrics.CacheFactoryDuration, "category", category);
+                    return await factory(ct);
+                }, new HybridCacheEntryOptions
+                {
+                    Expiration = expires,
+                    LocalCacheExpiration = expires / 3
+                }, cancellationToken: cancellationToken);
+            }
+            finally
             {
-                Expiration = TimeSpan.FromMinutes(expires),
-                LocalCacheExpiration = TimeSpan.FromMinutes(expires / 3)
-            }, cancellationToken: cancellationToken);
-
-            VertexMetrics.CacheLookups.Add(1, VertexMetrics.Tag("result", factoryRan ? "miss" : "hit"), VertexMetrics.Tag("category", category));
-            return result;
+                VertexMetrics.CacheLookups.Add(1, VertexMetrics.Tag("result", factoryRan ? "miss" : "hit"), VertexMetrics.Tag("category", category));
+            }
         }
+
+        /// <summary>
+        /// Like <see cref="GetOrSetAsync{T}(string, Func{CancellationToken, ValueTask{T}}, TimeSpan, CancellationToken)"/>,
+        /// but only caches values that were found: a null result is returned and not cached, so the next call asks
+        /// again. For immutable data that may be added later, such as manifests.
+        /// </summary>
+        public async Task<T?> GetOrSetIfFoundAsync<T>(string key, Func<CancellationToken, ValueTask<T?>> factory, TimeSpan expires, CancellationToken cancellationToken = default) where T : class
+        {
+            try
+            {
+                return await GetOrSetAsync<T>(key, async ct => await factory(ct) ?? throw new NotFoundSignal(), expires, cancellationToken);
+            }
+            catch (NotFoundSignal)
+            {
+                return null;
+            }
+        }
+
+        // HybridCache never caches a factory that throws, so throwing is how a miss stays uncached.
+        private sealed class NotFoundSignal : Exception;
+
+        /// <summary>
+        /// The current value of a generation key. Put it in other keys so one <see cref="BumpGenerationAsync"/> makes
+        /// all of them miss, for values that too many writes affect to delete one by one (lists, access levels).
+        /// </summary>
+        public async Task<string> GetGenerationAsync(string key)
+        {
+            return await GetOrSetAsync(key, _ => ValueTask.FromResult(Guid.NewGuid().ToString("N")), GenerationLifetime) ?? string.Empty;
+        }
+
+        /// <summary>
+        /// Starts new generations, so every key built from them misses on every instance.
+        /// </summary>
+        public Task BumpGenerationAsync(params string[] keys)
+        {
+            return DeleteCachedValuesAsync(keys);
+        }
+
+        private static readonly TimeSpan GenerationLifetime = TimeSpan.FromDays(1);
 
         // "project:42:branches" -> "project". Bounded cardinality; never tag with the full key.
         private static string CategoryOf(string key)
@@ -95,17 +139,20 @@ namespace Vertex.Server.Database
         }
 
         /// <summary>
-        /// Deletes cached data.
+        /// Deletes cached values on every instance: from Redis, from this instance's memory, and (through the
+        /// invalidation channel) from every other instance's memory.
         /// </summary>
-        /// <param name="key"></param>
-        /// <param name="cancellationToken"></param>
         public async Task DeleteCachedValueAsync(string key, CancellationToken cancellationToken = default)
         {
-            string cacheKey = key.ToLowerInvariant();
-            _logger.LogDebug("Removed redis key: {CacheKey}", cacheKey);
-            await (_redis?.GetDatabase().KeyDeleteAsync(new RedisKey(cacheKey)) ?? Task.CompletedTask);
-            await PublishAsync(CacheInvalidateChannel, cacheKey.ToLowerInvariant());
-            await _cache.RemoveAsync(cacheKey, cancellationToken);
+            _logger.LogDebug("Removed cache key: {CacheKey}", key);
+            await _cache.RemoveAsync(key, cancellationToken);
+            await PublishAsync(CacheInvalidateChannel, key);
+        }
+
+        /// <inheritdoc cref="DeleteCachedValueAsync"/>
+        public async Task DeleteCachedValuesAsync(params string[] keys)
+        {
+            foreach (string key in keys.Distinct(StringComparer.Ordinal)) await DeleteCachedValueAsync(key);
         }
 
         // INCR and start the expiry on the first increment, atomically, so a crash between the two can't leave a

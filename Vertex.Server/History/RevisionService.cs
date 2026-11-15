@@ -92,6 +92,7 @@ namespace Vertex.Server.History
             if (outcome.LockedByOthers.Count > 0)
                 throw new RpcException(new Status(StatusCode.FailedPrecondition, ProjectCalls.DescribeLockedByOthers(outcome.LockedByOthers, user.GetUserId())));
 
+            if (outcome.Revision is long revision) await _revisions.CacheHeadRevisionAsync(branchId, revision);
             await ProjectCalls.AfterCommitAsync(_cache, _notifications, projectId, outcome.EventSeq);
             if (outcome.Revision is null) throw new RpcException(new Status(StatusCode.FailedPrecondition, "Nothing to submit: the server already has these changes."));
 

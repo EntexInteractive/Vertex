@@ -106,8 +106,8 @@ namespace Vertex.Server
             // Database services
             Dapper.DefaultTypeMap.MatchNamesWithUnderscores = true;
             builder.Services.AddSingleton<DatabaseMigrator>();
-            builder.Services.AddScoped<PostgresDatabase>();
-            builder.Services.AddScoped<DapperContext>();
+            builder.Services.AddSingleton<PostgresDatabase>();
+            builder.Services.AddSingleton<DapperContext>();
 
             builder.Services.AddScoped<BranchesRepository>();
             builder.Services.AddScoped<ProjectsRepository>();
@@ -163,7 +163,7 @@ namespace Vertex.Server
                     LocalCacheExpiration = TimeSpan.FromMinutes(5),
                     Expiration = TimeSpan.FromMinutes(15)
                 };
-            });
+            }).AddSerializerFactory(new NewtonsoftCacheSerializerFactory());
 
             // Metrics for Prometheus/Grafana: request durations and Kestrel connections (ASP.NET Core's built-in meters,
             // which include gRPC calls by route), the .NET runtime, Npgsql, and Vertex's own (VertexMetrics).

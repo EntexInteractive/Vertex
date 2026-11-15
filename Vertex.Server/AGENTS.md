@@ -41,6 +41,15 @@ project-wide rules.
   content index existed). Keep the server stateless: any instance must be able to serve any request.
 - `Database/` holds PostgreSQL access (`PostgresDatabase`, `DapperContext`), the Redis-backed cache (`CacheContext`,
   `RedisSubscriber`) and the schema migrations. Redis is optional; without it the server uses a memory-only cache.
+- Caching: simple reads go through `DapperContext` with a key from `CacheKeys` (memory, then Redis, then PostgreSQL),
+  and every write invalidates the keys it makes stale: `ExecuteAsync(..., invalidate)`, or `InvalidateAsync` after a
+  transaction commits. Null results are cached too, so creating a row must invalidate its lookup keys. Values that
+  many writes affect (lists, access levels) go under a generation key (`GenerationAsync`/`BumpAsync`). Cache a read
+  when it is read far more than written and every write can invalidate it. Never cache reads that make a security
+  decision (credentials, password hashes, the active-admin count) or reads inside a transaction that needs a
+  snapshot. Monotonic counters (event seq, head revision) live in Redis with `SetMaxAsync`, so a slow reader can't
+  write an older value back. Keys are case-sensitive: lowercase only names the database compares ignoring case.
+  Cached values are serialized with Newtonsoft.Json (`NewtonsoftCacheSerializerFactory`), like the REST API.
 - Schema migrations (`Database/Migrations/NNNN_name.sql`) are embedded in the assembly and applied by
   `DatabaseMigrator` (DbUp) before the server starts listening, each in its own transaction, under a PostgreSQL
   advisory lock so concurrent instances don't race. Applied names are recorded in `public.schema_migrations`. Until

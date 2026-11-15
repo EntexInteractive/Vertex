@@ -42,8 +42,6 @@ namespace Vertex.Server.Access
     public class AccessService
     {
         private const double LevelCacheMinutes = 5;
-        private const double GenerationCacheMinutes = 24 * 60;
-        private const string GlobalGenerationKey = "access:gen";
 
         private readonly PostgresDatabase _database;
         private readonly CacheContext _cache;
@@ -75,9 +73,9 @@ namespace Vertex.Server.Access
         /// <returns>Null when the project doesn't exist.</returns>
         public async Task<AccessDecision?> GetDecisionAsync(Guid userId, Guid projectId, CancellationToken cancellationToken)
         {
-            string global = await GetGenerationAsync(GlobalGenerationKey);
-            string project = await GetGenerationAsync(ProjectGenerationKey(projectId));
-            string key = $"access:{global}:{project}:{projectId:N}:{userId:N}";
+            string global = await _cache.GetGenerationAsync(CacheKeys.AccessGeneration);
+            string project = await _cache.GetGenerationAsync(CacheKeys.ProjectAccessGeneration(projectId));
+            string key = CacheKeys.Access(global, project, projectId, userId);
 
             return await _cache.GetOrSetAsync(key, async ct =>
             {
@@ -89,7 +87,7 @@ namespace Vertex.Server.Access
                                    ")::SMALLINT AS level " +
                                    "FROM projects.projects p CROSS JOIN auth.users u WHERE p.id = @ProjectId AND u.id = @UserId;";
 
-                await using NpgsqlConnection connection = (NpgsqlConnection)_database.CreateConnection();
+                await using NpgsqlConnection connection = _database.CreateConnection();
                 return await connection.QuerySingleOrDefaultAsync<AccessDecision>(new CommandDefinition(sql, new { ProjectId = projectId, UserId = userId }, cancellationToken: ct));
             }, LevelCacheMinutes);
         }
@@ -102,8 +100,14 @@ namespace Vertex.Server.Access
                                "LEFT JOIN auth.groups g ON a.principal_kind = 1 AND g.id = a.principal_id " +
                                "WHERE a.project_id = @ProjectId ORDER BY a.level DESC, lower(COALESCE(u.username, g.name));";
 
-            await using NpgsqlConnection connection = (NpgsqlConnection)_database.CreateConnection();
-            return (await connection.QueryAsync<VAccessGrant>(new CommandDefinition(sql, new { ProjectId = projectId }, cancellationToken: cancellationToken))).ToReadOnly();
+            // Under the global generation too: deleting a group removes its grants in every project.
+            string global = await _cache.GetGenerationAsync(CacheKeys.AccessGeneration);
+            string project = await _cache.GetGenerationAsync(CacheKeys.ProjectAccessGeneration(projectId));
+            return await _cache.GetOrSetAsync<IReadOnlyList<VAccessGrant>>(CacheKeys.Grants(global, project, projectId), async ct =>
+            {
+                await using NpgsqlConnection connection = _database.CreateConnection();
+                return (await connection.QueryAsync<VAccessGrant>(new CommandDefinition(sql, new { ProjectId = projectId }, cancellationToken: ct))).ToReadOnly();
+            }, LevelCacheMinutes, cancellationToken) ?? [];
         }
 
         /// <summary>
@@ -112,7 +116,7 @@ namespace Vertex.Server.Access
         /// <returns>The grant, or null when no user or group has that name.</returns>
         public async Task<VAccessGrant?> GrantAsync(Guid projectId, string name, AccessLevel level, CancellationToken cancellationToken)
         {
-            await using NpgsqlConnection connection = (NpgsqlConnection)_database.CreateConnection();
+            await using NpgsqlConnection connection = _database.CreateConnection();
             await connection.OpenAsync(cancellationToken);
             await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(cancellationToken);
 
@@ -149,7 +153,7 @@ namespace Vertex.Server.Access
                                "SELECT id FROM auth.users WHERE lower(username) = lower(@Name) " +
                                "UNION ALL SELECT id FROM auth.groups WHERE lower(name) = lower(@Name));";
 
-            await using NpgsqlConnection connection = (NpgsqlConnection)_database.CreateConnection();
+            await using NpgsqlConnection connection = _database.CreateConnection();
             bool removed = await connection.ExecuteAsync(new CommandDefinition(sql, new { ProjectId = projectId, Name = name }, cancellationToken: cancellationToken)) > 0;
             if (removed) await InvalidateProjectAsync(projectId);
             return removed;
@@ -159,34 +163,33 @@ namespace Vertex.Server.Access
         public async Task<VProject?> SetVisibilityAsync(Guid projectId, ProjectVisibility visibility, CancellationToken cancellationToken)
         {
             const string sql = "UPDATE projects.projects SET visibility = @Visibility WHERE id = @Id RETURNING id, created_at, name, visibility, owner_id;";
-            await using NpgsqlConnection connection = (NpgsqlConnection)_database.CreateConnection();
+            await using NpgsqlConnection connection = _database.CreateConnection();
             VProject? project = await connection.QuerySingleOrDefaultAsync<VProject>(new CommandDefinition(sql, new { Id = projectId, Visibility = (short)visibility }, cancellationToken: cancellationToken));
-            if (project is not null) await InvalidateProjectAsync(projectId);
+            if (project is not null)
+            {
+                await InvalidateProjectAsync(projectId);
+                await _cache.DeleteCachedValuesAsync(CacheKeys.ProjectById(projectId), CacheKeys.ProjectByName(project.Name));
+            }
+
             return project;
         }
 
         /// <summary>
-        /// Drops every cached level. Call after changes that can affect any project: group membership, a user's
-        /// admin flag, deleting a group.
+        /// Drops every cached level and project list. Call after changes that can affect any project: group
+        /// membership, a user's admin flag, deleting a group.
         /// </summary>
         public Task InvalidateAllAsync()
         {
-            return _cache.DeleteCachedValueAsync(GlobalGenerationKey);
+            return _cache.BumpGenerationAsync(CacheKeys.AccessGeneration, CacheKeys.ProjectListGeneration);
         }
 
+        /// <summary>
+        /// Drops a project's cached levels and grants, and every user's project list (the project may have appeared
+        /// in or disappeared from them).
+        /// </summary>
         private Task InvalidateProjectAsync(Guid projectId)
         {
-            return _cache.DeleteCachedValueAsync(ProjectGenerationKey(projectId));
-        }
-
-        private async Task<string> GetGenerationAsync(string key)
-        {
-            return await _cache.GetOrSetAsync(key, _ => ValueTask.FromResult(Guid.NewGuid().ToString("N")), GenerationCacheMinutes) ?? string.Empty;
-        }
-
-        private static string ProjectGenerationKey(Guid projectId)
-        {
-            return $"access:gen:{projectId:N}";
+            return _cache.BumpGenerationAsync(CacheKeys.ProjectAccessGeneration(projectId), CacheKeys.ProjectListGeneration);
         }
 
         private static async Task<VAccessGrant?> FindPrincipalAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, string name, CancellationToken cancellationToken)

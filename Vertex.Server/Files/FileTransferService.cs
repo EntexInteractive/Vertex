@@ -1,9 +1,11 @@
 // Copyright 2026 Entex Interactive
 
 using System.Buffers;
+using Google.Protobuf;
 using Grpc.Core;
 using Vertex.Core.Net;
 using Vertex.Core.Storage;
+using Vertex.Server.Database;
 using Vertex.Server.Storage;
 using Vertex.Server.Telemetry;
 
@@ -24,17 +26,25 @@ namespace Vertex.Server.FileServices
         /// </summary>
         private const int SmallChunksPerCall = 32;
 
+        /// <summary>
+        /// How long a manifest stays cached. Manifests are content-addressed and never change, so this only bounds memory
+        /// and Redis use for files nobody downloads any more.
+        /// </summary>
+        private static readonly TimeSpan ManifestLifetime = TimeSpan.FromHours(6);
+
         private readonly ILogger<FileTransferService> _logger;
         private readonly IContentStore _store;
         private readonly FilesRepository _files;
         private readonly TransferBudget _budget;
+        private readonly CacheContext _cache;
 
-        public FileTransferService(ILogger<FileTransferService> logger, IContentStore store, FilesRepository files, TransferBudget budget)
+        public FileTransferService(ILogger<FileTransferService> logger, IContentStore store, FilesRepository files, TransferBudget budget, CacheContext cache)
         {
             _logger = logger;
             _store = store;
             _files = files;
             _budget = budget;
+            _cache = cache;
         }
 
         public override async Task<FindMissingFilesResponse> FindMissingFiles(FindMissingFilesRequest request, ServerCallContext context)
@@ -156,10 +166,16 @@ namespace Vertex.Server.FileServices
             if (!ContentId.IsValidFileId(request.FileId)) throw Invalid("Invalid file id.");
             string fileId = request.FileId.ToLowerInvariant();
 
-            // Manifests written before the content index existed are only in S3.
-            return await _files.GetManifestAsync(fileId, context.CancellationToken)
-                   ?? await _store.GetManifestAsync(fileId, context.CancellationToken)
-                   ?? throw new RpcException(new Status(StatusCode.NotFound, "File not found."));
+            // Every client that syncs a file asks for the same manifest, and it never changes, so cache it. Only found
+            // manifests are cached: a file asked for before its upload finished must be found once it has.
+            byte[]? data = await _cache.GetOrSetIfFoundAsync(CacheKeys.Manifest(fileId), async ct =>
+            {
+                // Manifests written before the content index existed are only in S3.
+                FileManifest? manifest = await _files.GetManifestAsync(fileId, ct) ?? await _store.GetManifestAsync(fileId, ct);
+                return manifest?.ToByteArray();
+            }, ManifestLifetime, context.CancellationToken);
+
+            return data is not null ? FileManifest.Parser.ParseFrom(data) : throw new RpcException(new Status(StatusCode.NotFound, "File not found."));
         }
 
         public override async Task DownloadChunks(DownloadChunksRequest request, IServerStreamWriter<ChunkData> responseStream, ServerCallContext context)
