@@ -72,7 +72,12 @@ namespace Vertex.Server.Events
                         if (!await next) return;
                         ProjectEvent projectEvent = events.Current;
                         cursor = projectEvent.Seq;
-                        if (IsVisible(projectEvent, branchId)) await responseStream.WriteAsync(ToMessage(projectEvent), ct);
+                        if (IsVisible(projectEvent, branchId))
+                        {
+                            await responseStream.WriteAsync(ToMessage(projectEvent), ct);
+                            VertexMetrics.EventsDelivered.Add(1, VertexMetrics.Tag("type", projectEvent.Type));
+                            VertexMetrics.EventDeliveryDelay.Record(Math.Max(0, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - projectEvent.CreatedAt) / 1000.0);
+                        }
                         next = events.MoveNextAsync().AsTask();
                         continue;
                     }

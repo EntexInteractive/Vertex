@@ -1,7 +1,9 @@
 // Copyright 2026 Entex Interactive
 
+using System.Collections.Concurrent;
 using Dapper;
 using Npgsql;
+using Vertex.Server.Telemetry;
 
 namespace Vertex.Server.Events
 {
@@ -40,11 +42,13 @@ namespace Vertex.Server.Events
         private readonly IReadOnlyList<IEventHandler> _handlers;
         private readonly EventStore _store;
         private readonly INotificationService _notifications;
+        private readonly ConcurrentDictionary<string, long> _lag = new();
 
         public EventDispatcher(ILogger<EventDispatcher> logger, IEnumerable<IEventHandler> handlers, EventStore store, INotificationService notifications)
         {
             _logger = logger;
             _handlers = handlers.ToList();
+            VertexMetrics.HandlerLag = () => _lag.ToArray();
             _store = store;
             _notifications = notifications;
         }
@@ -87,11 +91,11 @@ namespace Vertex.Server.Events
 
             // New projects (and new handlers) start at the current event, so history isn't replayed.
             await connection.ExecuteAsync(new CommandDefinition(
-                "INSERT INTO events.cursors (handler, project_id, seq) SELECT @Handler, p.id, p.event_seq FROM projects.projects p ON CONFLICT DO NOTHING;",
+                "INSERT INTO events.cursors (handler, project_id, seq) SELECT @Handler, p.project_id, p.event_seq FROM projects.counters p ON CONFLICT DO NOTHING;",
                 new { Handler = handler.Name }, cancellationToken: ct));
 
             Guid[] pending = (await connection.QueryAsync<Guid>(new CommandDefinition(
-                "SELECT c.project_id FROM events.cursors c JOIN projects.projects p ON p.id = c.project_id WHERE c.handler = @Handler AND p.event_seq > c.seq;",
+                "SELECT c.project_id FROM events.cursors c JOIN projects.counters p ON p.project_id = c.project_id WHERE c.handler = @Handler AND p.event_seq > c.seq;",
                 new { Handler = handler.Name }, cancellationToken: ct))).ToArray();
 
             foreach (Guid projectId in pending)
@@ -101,6 +105,10 @@ namespace Vertex.Server.Events
                     // Keep going while full batches come back.
                 }
             }
+
+            _lag[handler.Name] = await connection.ExecuteScalarAsync<long>(new CommandDefinition(
+                "SELECT COALESCE(MAX(p.event_seq - c.seq), 0) FROM events.cursors c JOIN projects.counters p ON p.project_id = c.project_id WHERE c.handler = @Handler;",
+                new { Handler = handler.Name }, cancellationToken: ct));
         }
 
         /// <returns>True when a full batch was handled and there may be more.</returns>

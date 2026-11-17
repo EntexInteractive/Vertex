@@ -1,6 +1,5 @@
 ﻿// Copyright 2026 Entex Interactive
 
-using System.Data;
 using Dapper;
 using Npgsql;
 using Vertex.Core.Data;
@@ -28,7 +27,7 @@ namespace Vertex.Server.Projects
         /// <returns>False when a project with the same name already exists; nothing is created.</returns>
         public async Task<bool> CreateProjectAsync(VProject project, VBranch defaultBranch, CancellationToken cancellationToken)
         {
-            await using NpgsqlConnection connection = (NpgsqlConnection)_database.CreateConnection();
+            await using NpgsqlConnection connection = _database.CreateConnection();
             await connection.OpenAsync(cancellationToken);
             await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(cancellationToken);
 
@@ -41,6 +40,10 @@ namespace Vertex.Server.Projects
                     new { project.Id, CreatedAt = (long)project.CreatedAt.TotalMilliseconds, project.Name, Visibility = (short)project.Visibility, project.OwnerId },
                     transaction, cancellationToken: cancellationToken));
 
+                // The row every write to the project locks and numbers its revisions and events from.
+                await connection.ExecuteAsync(new CommandDefinition("INSERT INTO projects.counters (project_id) VALUES (@Id);", new { project.Id },
+                    transaction, cancellationToken: cancellationToken));
+
                 const string branchSql = "INSERT INTO branches.branches (id, created_at, name, project_id, parent_id) " +
                                          "VALUES (@Id, @CreatedAt, @Name, @ProjectId, NULL);";
 
@@ -50,6 +53,10 @@ namespace Vertex.Server.Projects
 
                 await AccessService.GrantAsync(connection, transaction, project.Id, project.OwnerId, PrincipalKind.User, AccessLevel.Admin, cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
+
+                // A lookup before the project existed may have cached "not found".
+                await _dapper.InvalidateAsync(CacheKeys.ProjectByName(project.Name));
+                await _dapper.BumpAsync(CacheKeys.ProjectListGeneration);
                 return true;
             }
             catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
@@ -62,9 +69,12 @@ namespace Vertex.Server.Projects
         /// Lists the projects a user can read: all of them for a server admin, otherwise internal projects and
         /// projects granted to the user or one of their groups.
         /// </summary>
+        /// <remarks>
+        /// Cached per user under <see cref="CacheKeys.ProjectListGeneration"/>, which every change to who can see what
+        /// bumps: new projects, grants, visibility, group membership and admin flags.
+        /// </remarks>
         public async Task<IReadOnlyList<VProject>> ListProjectsForUserAsync(Guid userId, CancellationToken cancellationToken)
         {
-            Func<IDbConnection> conn = () => _database.CreateConnection();
             const string sql = "SELECT p.id, p.created_at, p.name, p.visibility, p.owner_id FROM projects.projects p " +
                                "WHERE p.visibility = 1 " +
                                "OR EXISTS (SELECT 1 FROM auth.users u WHERE u.id = @UserId AND u.is_admin) " +
@@ -72,21 +82,20 @@ namespace Vertex.Server.Projects
                                "OR a.principal_id IN (SELECT m.group_id FROM auth.group_members m WHERE m.user_id = @UserId))) " +
                                "ORDER BY p.name;";
 
-            return await _dapper.QueryAsync<VProject>(conn, sql, new { UserId = userId });
+            string generation = await _dapper.GenerationAsync(CacheKeys.ProjectListGeneration);
+            return await _dapper.QueryAsync<VProject>(sql, new { UserId = userId }, CacheKeys.ProjectList(generation, userId), cancellationToken: cancellationToken);
         }
 
         public async Task<VProject?> GetProjectByIdAsync(Guid id, CancellationToken cancellationToken)
         {
-            Func<IDbConnection> conn = () => _database.CreateConnection();
             const string sql = "SELECT id, created_at, name, visibility, owner_id FROM projects.projects WHERE id = @Id;";
-            return await _dapper.QuerySingleAsync<VProject>(conn, sql, new { id }, cancellationToken: cancellationToken);
+            return await _dapper.QuerySingleAsync<VProject>(sql, new { Id = id }, CacheKeys.ProjectById(id), cancellationToken: cancellationToken);
         }
 
         public async Task<VProject?> GetProjectByNameAsync(string name, CancellationToken cancellationToken)
         {
-            Func<IDbConnection> conn = () => _database.CreateConnection();
             const string sql = "SELECT id, created_at, name, visibility, owner_id FROM projects.projects WHERE name = @Name;";
-            return await _dapper.QuerySingleAsync<VProject>(conn, sql, new { Name = name }, cancellationToken: cancellationToken);
+            return await _dapper.QuerySingleAsync<VProject>(sql, new { Name = name }, CacheKeys.ProjectByName(name), cancellationToken: cancellationToken);
         }
     }
 }

@@ -77,14 +77,15 @@ namespace Vertex.Server.Groups
         }
 
         /// <summary>
-        /// Adds users to a group. Users who are already members are skipped, so re-running is safe.
+        /// Adds users to a group. Users who are already members are skipped, so re-running is safe. The usernames are a
+        /// JSON array in the body, so large groups don't run into URL length limits.
         /// </summary>
         /// <return>200 with how many users were added, or 404 naming the group or users that don't exist.</return>
         [HttpPost("members")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        public async Task<ActionResult<int>> AddMembersAsync([FromQuery] string name, [FromQuery] string[] users, CancellationToken cancellationToken)
+        public async Task<ActionResult<int>> AddMembersAsync([FromQuery] string name, [FromBody] string[] users, CancellationToken cancellationToken)
         {
             if (!User.IsServerAdmin()) return StatusCode(StatusCodes.Status403Forbidden, AdminOnly);
             if (users.Length == 0) return BadRequest("Name at least one user to add.");
@@ -107,7 +108,7 @@ namespace Vertex.Server.Groups
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        public async Task<ActionResult<int>> RemoveMembersAsync([FromQuery] string name, [FromQuery] string[] users, CancellationToken cancellationToken)
+        public async Task<ActionResult<int>> RemoveMembersAsync([FromQuery] string name, [FromBody] string[] users, CancellationToken cancellationToken)
         {
             if (!User.IsServerAdmin()) return StatusCode(StatusCodes.Status403Forbidden, AdminOnly);
             if (users.Length == 0) return BadRequest("Name at least one user to remove.");

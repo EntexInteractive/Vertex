@@ -11,6 +11,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vertex.Cli", "Vertex.Cli\Ve
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vertex.Core.Client", "Vertex.Core.Client\Vertex.Core.Client.csproj", "{54872F06-DFB7-46C5-8BFC-33F1C315795D}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vertex.Tests", "Vertex.Tests\Vertex.Tests.csproj", "{8E0890DB-B727-4D3D-8113-9501227BA65F}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -33,6 +35,10 @@ Global
 		{54872F06-DFB7-46C5-8BFC-33F1C315795D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{54872F06-DFB7-46C5-8BFC-33F1C315795D}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{54872F06-DFB7-46C5-8BFC-33F1C315795D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8E0890DB-B727-4D3D-8113-9501227BA65F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8E0890DB-B727-4D3D-8113-9501227BA65F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8E0890DB-B727-4D3D-8113-9501227BA65F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8E0890DB-B727-4D3D-8113-9501227BA65F}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

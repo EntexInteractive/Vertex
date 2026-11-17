@@ -65,10 +65,11 @@ services:
   redis:
     image: redis:8-alpine
     restart: unless-stopped
+    # Only a cache: everything in it can be rebuilt, so no snapshots or append-only file (they fork and write the whole
+    # dataset to disk), and the least recently used keys go first when it's full.
+    command: [ "redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru" ]
     ports:
       - "127.0.0.1:6379:6379"
-    volumes:
-      - redis-data:/data
     healthcheck:
       test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
@@ -112,5 +113,4 @@ services:
 
 volumes:
   postgres-data:
-  redis-data:
   rustfs-data:

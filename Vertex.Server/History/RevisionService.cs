@@ -10,7 +10,7 @@ using Vertex.Server.Auth;
 using Vertex.Server.Database;
 using Vertex.Server.Events;
 using Vertex.Server.Telemetry;
-using Vertex.Server.Storage;
+using Vertex.Server.FileServices;
 
 namespace Vertex.Server.History
 {
@@ -19,20 +19,17 @@ namespace Vertex.Server.History
     /// </summary>
     public class RevisionService : Revisions.RevisionsBase
     {
-        /// <summary>Concurrent S3 existence checks per submit.</summary>
-        private const int LookupConcurrency = 32;
-
         /// <summary>Outdated paths named in a refused submit before "and N more".</summary>
         private const int ListedPaths = 10;
 
         private readonly ILogger<RevisionService> _logger;
         private readonly RevisionsRepository _revisions;
         private readonly AccessService _access;
-        private readonly IContentStore _store;
+        private readonly FilesRepository _files;
         private readonly CacheContext _cache;
         private readonly INotificationService _notifications;
 
-        public RevisionService(ILogger<RevisionService> logger, RevisionsRepository revisions, AccessService access, IContentStore store, CacheContext cache,
+        public RevisionService(ILogger<RevisionService> logger, RevisionsRepository revisions, AccessService access, FilesRepository files, CacheContext cache,
             INotificationService notifications)
         {
             _notifications = notifications;
@@ -40,7 +37,7 @@ namespace Vertex.Server.History
             _logger = logger;
             _revisions = revisions;
             _access = access;
-            _store = store;
+            _files = files;
         }
 
         public override async Task<SubmitResponse> Submit(SubmitRequest request, ServerCallContext context)
@@ -72,14 +69,11 @@ namespace Vertex.Server.History
 
             // A revision may only point at content the server stores.
             string[] fileIds = changes.Where(c => c.FileId is not null).Select(c => c.FileId!).Distinct(StringComparer.Ordinal).ToArray();
-            bool[] exists = new bool[fileIds.Length];
-            await Parallel.ForAsync(0, fileIds.Length, new ParallelOptions { MaxDegreeOfParallelism = LookupConcurrency, CancellationToken = ct },
-                async (i, token) => exists[i] = await _store.ManifestExistsAsync(fileIds[i], token));
-
-            int missing = Array.IndexOf(exists, false);
-            if (missing >= 0)
+            HashSet<string> stored = await _files.GetStoredManifestsAsync(fileIds, ct);
+            string? missing = fileIds.FirstOrDefault(id => !stored.Contains(id));
+            if (missing is not null)
             {
-                string path = changes.First(c => c.FileId == fileIds[missing]).Path;
+                string path = changes.First(c => c.FileId == missing).Path;
                 throw new RpcException(new Status(StatusCode.FailedPrecondition, $"The content of '{path}' was not uploaded. Run 'vx submit' again."));
             }
 
@@ -98,12 +92,15 @@ namespace Vertex.Server.History
             if (outcome.LockedByOthers.Count > 0)
                 throw new RpcException(new Status(StatusCode.FailedPrecondition, ProjectCalls.DescribeLockedByOthers(outcome.LockedByOthers, user.GetUserId())));
 
+            if (outcome.Revision is long revision) await _revisions.CacheHeadRevisionAsync(branchId, revision);
             await ProjectCalls.AfterCommitAsync(_cache, _notifications, projectId, outcome.EventSeq);
             if (outcome.Revision is null) throw new RpcException(new Status(StatusCode.FailedPrecondition, "Nothing to submit: the server already has these changes."));
 
             VertexMetrics.Revisions.Add(1);
-            VertexMetrics.RevisionFiles.Add(changes.Count);
+            VertexMetrics.RevisionFiles.Record(changes.Count);
             VertexMetrics.LocksReleased.Add(outcome.LocksReleased, new KeyValuePair<string, object?>("reason", "submitted"));
+            VertexMetrics.EventsRecorded.Add(1, VertexMetrics.Tag("type", EventTypes.RevisionCreated));
+            if (outcome.LocksReleased > 0) VertexMetrics.EventsRecorded.Add(1, VertexMetrics.Tag("type", EventTypes.LockReleased));
             _logger.LogInformation("Revision #{Revision} in project {ProjectId}: {Files} file(s) by {User}", outcome.Revision, projectId, changes.Count, user.GetUsername());
             return new SubmitResponse { Revision = outcome.Revision.Value };
         }
@@ -137,6 +134,7 @@ namespace Vertex.Server.History
 
             IReadOnlyList<HeadFileRow> rows = await _revisions.GetHeadChangesAsync(branchId, request.AfterRevision, head, cursor, FileTransferLimits.HeadChangesPageSize, ct);
             response.Files.AddRange(rows.Select(row => new HeadFile { Path = row.Path, FileId = row.FileId ?? string.Empty, Revision = row.Revision }));
+            VertexMetrics.SyncFiles.Add(rows.Count);
             if (rows.Count == FileTransferLimits.HeadChangesPageSize) response.NextPageToken = $"{head}:{rows[^1].PathKey}";
             return response;
         }

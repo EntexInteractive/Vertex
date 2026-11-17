@@ -27,6 +27,7 @@ using Vertex.Server.Telemetry;
 using Vertex.Server.FileServices;
 using Vertex.Server.History;
 using Vertex.Server.Groups;
+using Vertex.Server.Grpc;
 using Vertex.Server.Projects;
 using Vertex.Server.Services;
 using Vertex.Server.Storage;
@@ -64,7 +65,14 @@ namespace Vertex.Server
             string serviceUrl = settings.Storage.Endpoint;
             builder.Services.AddSingleton<IAmazonS3>(_ =>
             {
-                AmazonS3Config s3Config = new() { RegionEndpoint = RegionEndpoint.GetBySystemName(region) };
+                // Bounded, so one stuck S3 call can't hold a transfer slot for minutes: a chunk is at most 4 MB, and a
+                // failed call surfaces to the client as Unavailable (see ExceptionInterceptor).
+                AmazonS3Config s3Config = new()
+                {
+                    RegionEndpoint = RegionEndpoint.GetBySystemName(region),
+                    Timeout = TimeSpan.FromSeconds(30),
+                    MaxErrorRetry = 3
+                };
                 s3Config.ServiceURL = serviceUrl;
                 s3Config.ForcePathStyle = true;
 
@@ -75,6 +83,7 @@ namespace Vertex.Server
             builder.Services.AddSingleton(settings);
             builder.Services.AddSingleton<IContentStore, S3ContentStore>();
             builder.Services.AddSingleton<TransferBudget>();
+            builder.Services.AddSingleton<FilesRepository>();
             builder.WebHost.ConfigureKestrel(options =>
             {
                 // Larger HTTP/2 flow-control windows let a single upload stream fill high-latency links;
@@ -105,8 +114,8 @@ namespace Vertex.Server
             // Database services
             Dapper.DefaultTypeMap.MatchNamesWithUnderscores = true;
             builder.Services.AddSingleton<DatabaseMigrator>();
-            builder.Services.AddScoped<PostgresDatabase>();
-            builder.Services.AddScoped<DapperContext>();
+            builder.Services.AddSingleton<PostgresDatabase>();
+            builder.Services.AddSingleton<DapperContext>();
 
             builder.Services.AddScoped<BranchesRepository>();
             builder.Services.AddScoped<ProjectsRepository>();
@@ -116,6 +125,7 @@ namespace Vertex.Server
             builder.Services.AddScoped<AccessService>();
             builder.Services.AddScoped<RevisionsRepository>();
             builder.Services.AddScoped<LocksRepository>();
+            builder.Services.AddSingleton<ProjectWriteQueue>();
 
             // Project events: the journal, pub/sub across instances, server-side handlers and pruning.
             builder.Services.AddSingleton<EventStore>();
@@ -156,12 +166,15 @@ namespace Vertex.Server
             builder.Services.AddMemoryCache();
             builder.Services.AddHybridCache(options =>
             {
+                // Cached values are small rows and lists; nothing large may reach Redis, which runs one command at a
+                // time. Larger values are logged and not cached.
+                options.MaximumPayloadBytes = 256 * 1024;
                 options.DefaultEntryOptions = new HybridCacheEntryOptions
                 {
                     LocalCacheExpiration = TimeSpan.FromMinutes(5),
                     Expiration = TimeSpan.FromMinutes(15)
                 };
-            });
+            }).AddSerializerFactory(new NewtonsoftCacheSerializerFactory());
 
             // Metrics for Prometheus/Grafana: request durations and Kestrel connections (ASP.NET Core's built-in meters,
             // which include gRPC calls by route), the .NET runtime, Npgsql, and Vertex's own (VertexMetrics).
@@ -180,6 +193,9 @@ namespace Vertex.Server
             // Add services to the container.
             builder.Services.AddGrpc(options =>
             {
+                // Exceptions become a status the client can act on (Unavailable, Cancelled, Internal), not Unknown.
+                options.Interceptors.Add<ExceptionInterceptor>();
+
                 // Transfers are streamed in bounded messages; file size is not tied to a gRPC message limit.
                 options.MaxReceiveMessageSize = FileTransferLimits.MaximumMessageSize;
                 options.MaxSendMessageSize = FileTransferLimits.MaximumMessageSize;
@@ -262,19 +278,28 @@ namespace Vertex.Server
             app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = reactFiles });
             app.UseStaticFiles(new StaticFileOptions { FileProvider = reactFiles });
 
-            // Accept gRPC-Web as well as native gRPC. gRPC-Web carries the call status in the response body instead of
-            // HTTP/2 trailers, which some proxies (Cloudflare Tunnel) drop.
-            app.UseGrpcWeb(new GrpcWebOptions { DefaultEnabled = true });
             app.UseAuthentication();
             app.UseAuthorization();
+            
+            // Accept gRPC-Web as well as native gRPC. gRPC-Web carries the call status in the response body instead of HTTP/2 trailers, which some proxies (Cloudflare Tunnel) drop.
+            app.UseGrpcWeb(new GrpcWebOptions { DefaultEnabled = true });
             app.MapGrpcService<GreeterService>();
             app.MapGrpcService<FileTransferService>();
             app.MapGrpcService<RevisionService>();
             app.MapGrpcService<LockService>();
             app.MapGrpcService<EventFeedService>();
-            if (settings.MetricsPort is int scrapePort) app.MapPrometheusScrapingEndpoint().RequireHost($"*:{scrapePort}").AllowAnonymous();
             
-            app.UseHttpsRedirection();
+            // The metrics port is plain HTTP on purpose (Prometheus scrapes it inside the network), so it must not be redirected to the TLS port.
+            if (settings.MetricsPort is int scrapePort)
+            {
+                app.UseWhen(context => context.Connection.LocalPort != scrapePort, branch => branch.UseHttpsRedirection());
+                app.MapPrometheusScrapingEndpoint().RequireHost($"*:{scrapePort}").AllowAnonymous();
+            }
+            else
+            {
+                app.UseHttpsRedirection();
+            }
+                
             app.MapControllers();
             await app.RunAsync();
         }

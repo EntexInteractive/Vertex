@@ -204,8 +204,8 @@ The server is configured entirely through environment variables. At startup, it 
 | Variable                 | Required | Default                    | Description                                                                                              |
 |--------------------------|----------|----------------------------|----------------------------------------------------------------------------------------------------------|
 | `VX_HTTP_PORT`           | No       | `5000`                     | Port the server listens on. Clear-text HTTP/2 only, unless TLS is configured below.                      |
-| `VX_POSTGRES_CONNECTION` | **Yes**  | —                          | Npgsql connection string, e.g. `Host=postgres;Port=5432;Database=vertex;Username=...;Password=...`.      |
-| `VX_REDIS_CONNECTION`    | No       | `redis:6379`               | StackExchange.Redis connection string. The server uses a memory-only cache when Redis is unreachable. |
+| `VX_POSTGRES_CONNECTION` | **Yes**  | —                          | Npgsql connection string, e.g. `Host=postgres;Port=5432;Database=vertex;Username=...;Password=...`. Pool settings go here too: `Maximum Pool Size` (default 100, per instance), `Timeout` (seconds to wait for a free connection, default 15) and `Command Timeout` (default 30). Watch `db_client_connection_*` before raising them. |
+| `VX_REDIS_CONNECTION`    | No       | `redis:6379`               | StackExchange.Redis connection string. The server uses a memory-only cache when Redis is unreachable. Run Redis as a pure cache: see below. |
 | `VX_S3_ENDPOINT`         | No       | `https://s3.amazonaws.com` | S3 or S3-compatible endpoint URL (e.g. MinIO, RustFS). Path-style addressing is used.                    |
 | `VX_S3_REGION`           | No       | `us-east-1`                | S3 region.                                                                                               |
 | `VX_S3_BUCKET`           | No       | `vertex-storage`           | Bucket for file chunks and manifests.                                                                    |
@@ -218,6 +218,12 @@ The server is configured entirely through environment variables. At startup, it 
 | `VX_METRICS_PORT`        | No       | —                          | Serves Prometheus metrics on `/metrics` over plain HTTP on this port (e.g. `9464`). Off when unset. Must differ from `VX_HTTP_PORT`; don't expose it publicly. |
 
 When the S3 keys are unset, the AWS SDK default credential chain is used (`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, EKS IRSA or pod identity, instance profile). In Kubernetes, prefer workload identity, or load the keys from a Secret. Standard ASP.NET Core variables such as `ASPNETCORE_ENVIRONMENT` also apply; `Development` enables Swagger and gRPC reflection.
+
+Redis only holds values the server can rebuild (cached rows, counters, cross-instance wake-ups), so run it as a pure
+cache: `redis-server --save "" --appendonly no --maxmemory 256mb --maxmemory-policy allkeys-lru`, as
+`docker-compose.yml` does. Snapshots and append-only rewrites fork Redis and write the whole dataset to disk, which
+on a busy host stalls everything sharing that disk. Give each deployment its own Redis (or its own database number),
+since cache keys aren't namespaced per server.
 
 ### Behind a reverse proxy
 
@@ -241,10 +247,77 @@ scrape_configs:
 ```
 
 Besides the standard ASP.NET Core (request durations per endpoint and gRPC method, Kestrel connections), .NET runtime
-and Npgsql (query durations, pool usage) metrics, the server reports `vertex_revisions_total`,
-`vertex_revisions_files_total`, `vertex_revisions_refused_total` (by `reason`), `vertex_locks_granted_total`,
-`vertex_locks_released_total` (by `reason`), `vertex_event_streams` (open streams per instance), and
-`vertex_transfer_received_bytes_total` / `vertex_transfer_sent_bytes_total`.
+and Npgsql (query durations, pool usage) metrics, the server reports its own. Durations are histograms in seconds.
+
+| Metric | What it tells you |
+|---|---|
+| `vertex_project_lock_wait_seconds` (by `operation`) | Time writes wait for their project. Writes in a project run one transaction at a time; this climbing is the first sign a project is near its write limit. |
+| `vertex_project_lock_held_seconds`, `vertex_db_commit_seconds` (by `operation`: locks, submit) | How long each project transaction holds the project, and how much of that is the commit (the database's durable write). A project does at most one transaction per hold time; when the commit dominates, the database's storage is the limit (see [Postgres on ZFS](#postgresql-on-zfs)). |
+| `vertex_project_writes_batch` | Lock and unlock requests that shared one transaction. Concurrent requests for a project are combined, so under load one commit covers many of them. |
+| `vertex_events_delivery_delay_seconds` | Time from a change to it reaching a client's stream: how "live" locks and read-only flags really are. |
+| `vertex_events_delivered_total`, `vertex_events_recorded_total` (by `type`) | Push volume. Delivered ≈ recorded × subscribers, the main CPU cost. |
+| `vertex_event_streams`, `vertex_event_feeds` | Open streams and projects with live subscribers, per instance. |
+| `vertex_events_handler_lag` (by `handler`) | How many events a server-side handler (builds, plugins) is behind. |
+| `vertex_revisions_total`, `vertex_revisions_files` (histogram), `vertex_revisions_refused_total` (by `reason`) | Submits, their size, and people blocked by out-of-date files or others' locks. |
+| `vertex_locks_granted_total`, `vertex_locks_contended_total`, `vertex_locks_released_total` (by `reason`) | Locking activity and contention on shared files. |
+| `vertex_sync_files_total` | Files handed out by `vx sync`. |
+| `vertex_storage_duration_seconds` (by `operation`, `outcome`), `vertex_storage_cache_total` (by `result`) | S3 latency and errors (S3 holds chunk bytes; which chunks and files exist is indexed in PostgreSQL), and how often the in-memory cache answers an existence check without the database. |
+| `vertex_transfer_chunks_total`, `vertex_transfer_files_total` (by `result`: new, deduplicated) | How much content clients didn't have to upload. |
+| `vertex_transfer_received_bytes_total`, `vertex_transfer_sent_bytes_total` | Upload and download bandwidth. |
+| `vertex_transfer_budget_wait_seconds`, `vertex_transfer_slots_used`, `vertex_transfer_slots` | Time transfers wait for a slot before touching S3, and slots in use. Slow transfers with long waits mean the instance is at its memory-based limit; slow transfers without waits mean S3 itself is slow (see `vertex_storage_duration_seconds`). |
+| `vertex_cache_lookups_total`, `vertex_cache_duration_seconds` (by `category`, `result`), `vertex_cache_factory_seconds`, `vertex_cache_value_size_bytes` (by `type`) | Cache hit rate, lookup time (a hit taking milliseconds came from Redis), the cost of misses, and the size of cached values. `category="gen"` are cheap generation lookups; leave them out of hit-rate panels. |
+| `vertex_grpc_errors_total` (by `method`, `status`, `exception`) | Calls that failed with an exception. `Unavailable` means overload (database pool or timeouts, S3 errors or timeouts) and is logged as a warning naming the cause; `Internal` is a server bug. Slow S3 calls (over 2 s) are also logged. |
+| `vertex_redis_connected`, `vertex_redis_errors_total` | Without Redis, cross-instance push falls back to 30 s checks. |
+| `vertex_auth_logins_total` (by `outcome`: success, failed, disabled, throttled) | Login activity and brute-force attempts. |
+
+These come from the server itself. To tell whether a slow server is waiting on its disks or its database, also
+scrape the hosts and the database:
+
+- [node_exporter](https://github.com/prometheus/node_exporter) on every host running Vertex, PostgreSQL or the S3
+  store: disk latency (`node_disk_write_time_seconds_total` / `node_disk_writes_completed_total`), CPU per mode
+  including iowait, and on ZFS the `node_zfs_*` pool and ARC statistics.
+- [postgres_exporter](https://github.com/prometheus-community/postgres_exporter), with `pg_stat_statements` loaded
+  (`shared_preload_libraries`): commits, locks, wait events, WAL and checkpoint timing, and time per statement.
+- [cAdvisor](https://github.com/google/cadvisor) when several services share one machine, to see which one uses the
+  CPU.
+- A 5 s scrape interval while benchmarking, so short spikes and ramps are visible.
+
+#### PostgreSQL on ZFS
+
+Every commit is a synchronous write. On ZFS without a separate log device (SLOG), that write goes to the main pool and
+costs milliseconds to tens of milliseconds, and `vertex_db_commit_seconds` shows it. Writes to one project run one
+transaction at a time, so that cost caps each project's write rate (Vertex combines concurrent lock requests to
+soften it). To make commits fast:
+
+- Add a SLOG on a fast SSD with power-loss protection (`zpool add <pool> log <device>`). This is the big one.
+- Give PostgreSQL its own dataset: `recordsize=16K`, `compression=lz4`, `atime=off`, `logbias=latency`.
+- In `postgresql.conf`: `full_page_writes = off` (safe on ZFS, which never writes a page partially),
+  `wal_init_zero = off` and `wal_recycle = off`.
+- Put the S3 store's data on a separate dataset (`recordsize=1M`), so its object writes don't queue with commits.
+
+### Benchmarking a deployment
+
+`Vertex.Tests` builds `vx-bench`, which loads a server the way real clients do (same gRPC-Web calls as `vx`) and
+reports client-side latency percentiles and throughput, with each scenario's UTC window so you can line it up with the
+metrics above. It uses your `vx login` for the server and creates a `bench-<time>` project per run.
+
+```sh
+vx login https://vertex.example.com
+dotnet run -c Release --project Vertex.Tests -- all --server https://vertex.example.com --profile standard
+dotnet run -c Release --project Vertex.Tests -- soak --server https://vertex.example.com --duration 30m
+dotnet run -c Release --project Vertex.Tests -- soak --server https://vertex.example.com --profile team --duration 10m
+```
+
+Scenarios: `latency`, `upload`, `dedup`, `download`, `submit` (one large first submit and sync), `submitters`
+(concurrent revisions), `locks`, `events` (stream fan-out) and `soak` (all of it at once, until Ctrl+C). Profiles are
+`smoke` (about 2 minutes), `standard` (2 GB of assets, 100,000 files, 16 clients) and `stress` (10 GB, 250,000 files, 64
+clients); `--clients`, `--concurrency`, `--duration` and the size flags override them. These three run flat out: every
+simulated developer submits or locks again the moment the last call returns, so they measure the server's ceiling.
+`team` paces 100 clients like people (a submit every 30-60 s, a lock every 10-30 s, everyone with an event stream
+open): its numbers are what users feel. `--think 30-60` and `--lock-think 10-30` (seconds, `0` for none) set the
+pacing for any profile. Reports are saved as Markdown and
+JSON in `./bench-results`. Run it from a machine outside the server's network to include the proxy, or against the
+origin directly to leave it out.
 
 ## Contributing
 

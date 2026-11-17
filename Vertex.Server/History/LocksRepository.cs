@@ -27,6 +27,22 @@ namespace Vertex.Server.History
     public sealed record LockOutcome(IReadOnlySet<string> Granted, IReadOnlyDictionary<string, LockRow> Existing, long? Seq);
 
     /// <summary>
+    /// The outcome of an unlock request: the locks released and the project's event seq after the change, or null when
+    /// nothing was released.
+    /// </summary>
+    public sealed record UnlockOutcome(IReadOnlyList<LockRow> Released, long? Seq);
+
+    /// <summary>
+    /// One validated lock request. <see cref="Paths"/> are distinct path keys with the path as the client spells it.
+    /// </summary>
+    public sealed record LockWrite(Guid ProjectId, Guid BranchId, Guid UserId, Guid WorkspaceId, string Host, IReadOnlyList<(string Key, string Path)> Paths);
+
+    /// <summary>
+    /// One validated unlock request.
+    /// </summary>
+    public sealed record UnlockWrite(Guid ProjectId, Guid BranchId, Guid UserId, Guid WorkspaceId, IReadOnlyList<string> Keys, bool Force, bool IsAdmin);
+
+    /// <summary>
     /// What changed since a client's cursor: events after it, or (when <see cref="Reset"/>) the branch's full list.
     /// </summary>
     public sealed record LockChanges(long LatestSeq, bool Reset, IReadOnlyList<LockEventRow> Events, IReadOnlyList<LockRow> Locks);
@@ -43,72 +59,131 @@ namespace Vertex.Server.History
         }
 
         /// <summary>
-        /// Locks every free path for one workspace and reports who holds the rest, in one transaction.
+        /// Locks every free path of one request and returns, in one result set: the keys granted (kind 0), the current
+        /// lock on every other requested key (kind 1), and the event seq when anything was locked (kind 2, in
+        /// created_at). Runs inside a transaction that already holds the project's counters row
+        /// (<see cref="EventStore.LockProjectSql"/>), so the locks it reads are exactly the committed ones, and several
+        /// requests can share that transaction (<see cref="ProjectWriteQueue"/>).
         /// </summary>
-        /// <param name="paths">Distinct path keys with the path as the client spells it.</param>
-        public async Task<LockOutcome> LockAsync(Guid projectId, Guid branchId, Guid userId, Guid workspaceId, string host,
-            IReadOnlyList<(string Key, string Path)> paths, CancellationToken ct)
+        private const string LockSql =
+            "WITH req AS (SELECT t.path_key, t.path, t.ord FROM unnest(@Keys::TEXT[], @Paths::TEXT[]) WITH ORDINALITY AS t(path_key, path, ord)), " +
+            "ins AS (INSERT INTO locks.locks (branch_id, path_key, path, user_id, workspace_id, host, created_at) " +
+            "  SELECT @BranchId, r.path_key, r.path, @UserId, @WorkspaceId, @Host, @Now FROM req r ORDER BY r.ord " +
+            "  ON CONFLICT (branch_id, path_key) DO NOTHING RETURNING path_key), " +
+            "next AS (UPDATE projects.counters SET event_seq = event_seq + 1 WHERE project_id = @ProjectId AND EXISTS (SELECT 1 FROM ins) RETURNING event_seq), " +
+            "ev AS (INSERT INTO events.events (project_id, seq, type, branch_id, user_id, workspace_id, host, payload, created_at) " +
+            "  SELECT @ProjectId, next.event_seq, @Type, @BranchId, @UserId, @WorkspaceId, @Host, " +
+            "  jsonb_build_object('paths', (SELECT jsonb_agg(r.path ORDER BY r.ord) FROM req r JOIN ins i ON i.path_key = r.path_key), 'reason', NULL), @Now " +
+            "  FROM next RETURNING seq) " +
+            "SELECT 0 AS kind, i.path_key, NULL::TEXT AS path, NULL::UUID AS user_id, NULL::UUID AS workspace_id, NULL::TEXT AS host, NULL::TEXT AS username, NULL::BIGINT AS created_at FROM ins i " +
+            "UNION ALL SELECT 1, l.path_key, l.path, l.user_id, l.workspace_id, l.host, u.username, l.created_at FROM locks.locks l JOIN auth.users u ON u.id = l.user_id " +
+            "  WHERE l.branch_id = @BranchId AND l.path_key IN (SELECT path_key FROM req) AND l.path_key NOT IN (SELECT path_key FROM ins) " +
+            "UNION ALL SELECT 2, NULL, NULL, NULL, NULL, NULL, NULL, ev.seq FROM ev;";
+
+        /// <summary>
+        /// Releases one request's locks and returns, in one result set: the released locks (kind 0) and the event seq
+        /// when anything was released (kind 1, in created_at). Same transaction rules as <see cref="LockSql"/>.
+        /// Without force a workspace releases only its own locks; with force also the caller's locks from other
+        /// workspaces, or anyone's for a project admin.
+        /// </summary>
+        private const string UnlockSql =
+            "WITH del AS (DELETE FROM locks.locks l WHERE l.branch_id = @BranchId AND l.path_key = ANY(@Keys::TEXT[]) " +
+            "  AND (l.workspace_id = @WorkspaceId OR (@Force AND (l.user_id = @UserId OR @IsAdmin))) " +
+            "  RETURNING l.path_key, l.path, l.user_id, l.workspace_id, l.host, l.created_at), " +
+            "next AS (UPDATE projects.counters SET event_seq = event_seq + 1 WHERE project_id = @ProjectId AND EXISTS (SELECT 1 FROM del) RETURNING event_seq), " +
+            "ev AS (INSERT INTO events.events (project_id, seq, type, branch_id, user_id, workspace_id, host, payload, created_at) " +
+            "  SELECT @ProjectId, next.event_seq, @Type, @BranchId, @UserId, @WorkspaceId, CASE WHEN @Force THEN NULL ELSE (SELECT host FROM del LIMIT 1) END, " +
+            "  jsonb_build_object('paths', (SELECT jsonb_agg(path) FROM del), 'reason', @Reason::TEXT), @Now " +
+            "  FROM next RETURNING seq) " +
+            "SELECT 0 AS kind, d.path_key, d.path, d.user_id, d.workspace_id, d.host, u.username, d.created_at FROM del d JOIN auth.users u ON u.id = d.user_id " +
+            "UNION ALL SELECT 1, NULL, NULL, NULL, NULL, NULL, NULL, ev.seq FROM ev;";
+
+        /// <summary>
+        /// The statement for one lock request, for a batch that already holds the project's counters row.
+        /// </summary>
+        internal static NpgsqlBatchCommand CreateLockCommand(LockWrite write, long now)
         {
-            await using NpgsqlConnection connection = (NpgsqlConnection)_database.CreateConnection();
-            await connection.OpenAsync(ct);
-            await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(ct);
-            await EventStore.LockProjectAsync(connection, transaction, projectId, ct);
-
-            long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            const string insertSql = "INSERT INTO locks.locks (branch_id, path_key, path, user_id, workspace_id, host, created_at) " +
-                                     "SELECT @BranchId, t.path_key, t.path, @UserId, @WorkspaceId, @Host, @Now FROM unnest(@Keys, @Paths) AS t(path_key, path) " +
-                                     "ON CONFLICT (branch_id, path_key) DO NOTHING RETURNING path_key;";
-
-            HashSet<string> granted = (await connection.QueryAsync<string>(new CommandDefinition(insertSql, new
-            {
-                BranchId = branchId, UserId = userId, WorkspaceId = workspaceId, Host = host, Now = now,
-                Keys = paths.Select(p => p.Key).ToArray(), Paths = paths.Select(p => p.Path).ToArray()
-            }, transaction, cancellationToken: ct))).ToHashSet(StringComparer.Ordinal);
-
-            string[] rest = paths.Select(p => p.Key).Where(k => !granted.Contains(k)).ToArray();
-            Dictionary<string, LockRow> existing = (await ReadLocksAsync(connection, transaction, branchId, rest, ct)).ToDictionary(l => l.PathKey, StringComparer.Ordinal);
-
-            // One event for the whole operation, however many files it locked.
-            string[] lockedPaths = paths.Where(p => granted.Contains(p.Key)).Select(p => p.Path).ToArray();
-            long? latest = lockedPaths.Length == 0
-                ? null
-                : await EventStore.AppendAsync(connection, transaction, projectId,
-                    new NewEvent(EventTypes.LockLocked, branchId, userId, workspaceId, host, new LockPayload(lockedPaths)), ct);
-
-            await transaction.CommitAsync(ct);
-            return new LockOutcome(granted, existing, latest);
+            NpgsqlBatchCommand command = new(LockSql);
+            NpgsqlParameterCollection p = command.Parameters;
+            p.Add(new NpgsqlParameter<string[]>("Keys", write.Paths.Select(x => x.Key).ToArray()));
+            p.Add(new NpgsqlParameter<string[]>("Paths", write.Paths.Select(x => x.Path).ToArray()));
+            p.Add(new NpgsqlParameter<Guid>("ProjectId", write.ProjectId));
+            p.Add(new NpgsqlParameter<Guid>("BranchId", write.BranchId));
+            p.Add(new NpgsqlParameter<Guid>("UserId", write.UserId));
+            p.Add(new NpgsqlParameter<Guid>("WorkspaceId", write.WorkspaceId));
+            p.Add(new NpgsqlParameter<string>("Host", write.Host));
+            p.Add(new NpgsqlParameter<string>("Type", EventTypes.LockLocked));
+            p.Add(new NpgsqlParameter<long>("Now", now));
+            return command;
         }
 
         /// <summary>
-        /// Releases locks on the given keys held by <paramref name="workspaceId"/>; with <paramref name="force"/>,
-        /// also the user's locks from other workspaces, or anyone's when <paramref name="isAdmin"/>.
+        /// Reads the result set of <see cref="CreateLockCommand"/>.
         /// </summary>
-        /// <returns>The released locks and the project's event seq after the change (null when nothing was released).</returns>
-        public async Task<(IReadOnlyList<LockRow> Released, long? Seq)> UnlockAsync(Guid projectId, Guid branchId, Guid userId, Guid workspaceId,
-            IReadOnlyList<string> keys, bool force, bool isAdmin, CancellationToken ct)
+        internal static async Task<LockOutcome> ReadLockAsync(NpgsqlDataReader reader, CancellationToken ct)
         {
-            await using NpgsqlConnection connection = (NpgsqlConnection)_database.CreateConnection();
-            await connection.OpenAsync(ct);
-            await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(ct);
-            await EventStore.LockProjectAsync(connection, transaction, projectId, ct);
+            HashSet<string> granted = new(StringComparer.Ordinal);
+            Dictionary<string, LockRow> existing = new(StringComparer.Ordinal);
+            long? seq = null;
+            while (await reader.ReadAsync(ct))
+            {
+                switch (reader.GetInt32(0))
+                {
+                    case 0:
+                        granted.Add(reader.GetString(1));
+                        break;
+                    case 1:
+                        LockRow row = ReadLockRow(reader);
+                        existing[row.PathKey] = row;
+                        break;
+                    default:
+                        seq = reader.GetInt64(7);
+                        break;
+                }
+            }
 
-            const string deleteSql = "WITH deleted AS (DELETE FROM locks.locks l WHERE l.branch_id = @BranchId AND l.path_key = ANY(@Keys) " +
-                                     "AND (l.workspace_id = @WorkspaceId OR (@Force AND (l.user_id = @UserId OR @IsAdmin))) RETURNING l.*) " +
-                                     "SELECT " + LockColumns + " FROM deleted l JOIN auth.users u ON u.id = l.user_id;";
+            return new LockOutcome(granted, existing, seq);
+        }
 
-            LockRow[] freed = (await connection.QueryAsync<LockRow>(new CommandDefinition(deleteSql,
-                new { BranchId = branchId, Keys = keys.ToArray(), WorkspaceId = workspaceId, Force = force, UserId = userId, IsAdmin = isAdmin },
-                transaction, cancellationToken: ct))).ToArray();
+        /// <summary>
+        /// The statement for one unlock request, for a batch that already holds the project's counters row.
+        /// </summary>
+        internal static NpgsqlBatchCommand CreateUnlockCommand(UnlockWrite write, long now)
+        {
+            NpgsqlBatchCommand command = new(UnlockSql);
+            NpgsqlParameterCollection p = command.Parameters;
+            p.Add(new NpgsqlParameter<string[]>("Keys", write.Keys.ToArray()));
+            p.Add(new NpgsqlParameter<Guid>("ProjectId", write.ProjectId));
+            p.Add(new NpgsqlParameter<Guid>("BranchId", write.BranchId));
+            p.Add(new NpgsqlParameter<Guid>("UserId", write.UserId));
+            p.Add(new NpgsqlParameter<Guid>("WorkspaceId", write.WorkspaceId));
+            p.Add(new NpgsqlParameter<bool>("Force", write.Force));
+            p.Add(new NpgsqlParameter<bool>("IsAdmin", write.IsAdmin));
+            p.Add(new NpgsqlParameter<string>("Type", EventTypes.LockReleased));
+            p.Add(new NpgsqlParameter<string>("Reason", write.Force ? LockReleaseReasons.Unlocked : LockReleaseReasons.Reverted));
+            p.Add(new NpgsqlParameter<long>("Now", now));
+            return command;
+        }
 
-            // Without force the workspace releases its own locks on files it no longer changes; with force someone
-            // cleared locks held elsewhere.
-            long? latest = freed.Length == 0
-                ? null
-                : await EventStore.AppendAsync(connection, transaction, projectId, new NewEvent(EventTypes.LockReleased, branchId, userId, workspaceId,
-                    force ? null : freed[0].Host, new LockPayload(freed.Select(l => l.Path).ToArray(), force ? LockReleaseReasons.Unlocked : LockReleaseReasons.Reverted)), ct);
+        /// <summary>
+        /// Reads the result set of <see cref="CreateUnlockCommand"/>.
+        /// </summary>
+        internal static async Task<UnlockOutcome> ReadUnlockAsync(NpgsqlDataReader reader, CancellationToken ct)
+        {
+            List<LockRow> released = new();
+            long? seq = null;
+            while (await reader.ReadAsync(ct))
+            {
+                if (reader.GetInt32(0) == 0) released.Add(ReadLockRow(reader));
+                else seq = reader.GetInt64(7);
+            }
 
-            await transaction.CommitAsync(ct);
-            return (freed, latest);
+            return new UnlockOutcome(released, seq);
+        }
+
+        private static LockRow ReadLockRow(NpgsqlDataReader reader)
+        {
+            return new LockRow(reader.GetString(1), reader.GetString(2), reader.GetGuid(3), reader.GetGuid(4), reader.GetString(5), reader.GetString(6), reader.GetInt64(7));
         }
 
         /// <summary>
@@ -122,7 +197,7 @@ namespace Vertex.Server.History
 
             // One snapshot, so the list or the events match latest_seq exactly.
             await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(IsolationLevel.RepeatableRead, ct);
-            long latest = await connection.ExecuteScalarAsync<long>(new CommandDefinition("SELECT event_seq FROM projects.projects WHERE id = @ProjectId;",
+            long latest = await connection.ExecuteScalarAsync<long>(new CommandDefinition("SELECT event_seq FROM projects.counters WHERE project_id = @ProjectId;",
                 new { ProjectId = projectId }, transaction, cancellationToken: ct));
 
             if (afterSeq == latest) return new LockChanges(latest, false, [], []);
@@ -151,37 +226,30 @@ namespace Vertex.Server.History
         }
 
         /// <summary>
-        /// Current locks on some keys of a branch.
+        /// Current locks on some keys of a branch (<c>@BranchId</c>, <c>@Keys</c>), as <see cref="LockRow"/> columns.
         /// </summary>
-        internal static async Task<IReadOnlyList<LockRow>> ReadLocksAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid branchId, string[] keys, CancellationToken ct)
-        {
-            if (keys.Length == 0) return [];
-            const string sql = "SELECT " + LockColumns + " FROM locks.locks l JOIN auth.users u ON u.id = l.user_id WHERE l.branch_id = @BranchId AND l.path_key = ANY(@Keys);";
-            return (await connection.QueryAsync<LockRow>(new CommandDefinition(sql, new { BranchId = branchId, Keys = keys }, transaction, cancellationToken: ct))).ToArray();
-        }
+        internal const string ReadLocksSql = "SELECT " + LockColumns + " FROM locks.locks l JOIN auth.users u ON u.id = l.user_id WHERE l.branch_id = @BranchId AND l.path_key = ANY(@Keys);";
 
         /// <summary>
-        /// Releases a submitter's <paramref name="locks"/> in the submit's transaction and records one event for them.
-        /// The project row must already be locked.
+        /// Adds the commands that release a submitter's <paramref name="locks"/> to the submit's write batch and record
+        /// events for them. The batch's transaction must already hold the project's counters row.
         /// </summary>
-        /// <returns>The event's seq, or null when there was nothing to release.</returns>
-        internal static async Task<long?> ReleaseSubmittedAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid projectId, Guid branchId,
-            Guid userId, Guid workspaceId, string host, IReadOnlyList<LockRow> locks, CancellationToken ct)
+        internal static void AddReleaseSubmittedCommands(NpgsqlBatch batch, Guid projectId, Guid branchId, Guid userId, Guid workspaceId, string host,
+            IReadOnlyList<LockRow> locks)
         {
-            if (locks.Count == 0) return null;
-            await connection.ExecuteAsync(new CommandDefinition("DELETE FROM locks.locks WHERE branch_id = @BranchId AND path_key = ANY(@Keys);",
-                new { BranchId = branchId, Keys = locks.Select(l => l.PathKey).ToArray() }, transaction, cancellationToken: ct));
+            if (locks.Count == 0) return;
+            NpgsqlBatchCommand delete = new("DELETE FROM locks.locks WHERE branch_id = @BranchId AND path_key = ANY(@Keys);");
+            delete.Parameters.Add(new NpgsqlParameter<Guid>("BranchId", branchId));
+            delete.Parameters.Add(new NpgsqlParameter<string[]>("Keys", locks.Select(l => l.PathKey).ToArray()));
+            batch.BatchCommands.Add(delete);
 
             // A submit can hold far more files than one stream message may carry, so its release is split into events of
             // at most one lock request's worth of paths.
-            long? seq = null;
             foreach (string[] paths in locks.Select(l => l.Path).Chunk(FileTransferLimits.MaximumPathsPerLockRequest))
             {
-                seq = await EventStore.AppendAsync(connection, transaction, projectId, new NewEvent(EventTypes.LockReleased, branchId, userId, workspaceId, host,
-                    new LockPayload(paths, LockReleaseReasons.Submitted)), ct);
+                batch.BatchCommands.Add(EventStore.CreateAppendCommand(projectId,
+                    new NewEvent(EventTypes.LockReleased, branchId, userId, workspaceId, host, new LockPayload(paths, LockReleaseReasons.Submitted))));
             }
-
-            return seq;
         }
     }
 }

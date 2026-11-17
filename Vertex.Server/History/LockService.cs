@@ -23,14 +23,16 @@ namespace Vertex.Server.History
 
         private readonly ILogger<LockService> _logger;
         private readonly LocksRepository _locks;
+        private readonly ProjectWriteQueue _writes;
         private readonly RevisionsRepository _revisions;
         private readonly AccessService _access;
         private readonly CacheContext _cache;
         private readonly INotificationService _notifications;
 
-        public LockService(ILogger<LockService> logger, LocksRepository locks, RevisionsRepository revisions, AccessService access, CacheContext cache,
+        public LockService(ILogger<LockService> logger, LocksRepository locks, ProjectWriteQueue writes, RevisionsRepository revisions, AccessService access, CacheContext cache,
             INotificationService notifications)
         {
+            _writes = writes;
             _notifications = notifications;
             _logger = logger;
             _locks = locks;
@@ -51,8 +53,10 @@ namespace Vertex.Server.History
 
             await ProjectCalls.RequireAsync(_access, _revisions, user, projectId, branchId, AccessLevel.Write, ct);
             Guid userId = user.GetUserId();
-            LockOutcome outcome = await _locks.LockAsync(projectId, branchId, userId, workspaceId, host, paths, ct);
+            LockOutcome outcome = await _writes.LockAsync(new LockWrite(projectId, branchId, userId, workspaceId, host, paths), ct);
             VertexMetrics.LocksGranted.Add(outcome.Granted.Count);
+            VertexMetrics.LocksContended.Add(outcome.Existing.Values.Count(l => l.WorkspaceId != workspaceId));
+            if (outcome.Seq is not null) VertexMetrics.EventsRecorded.Add(1, VertexMetrics.Tag("type", EventTypes.LockLocked));
             await ProjectCalls.AfterCommitAsync(_cache, _notifications, projectId, outcome.Seq);
 
             LockResponse response = new();
@@ -99,10 +103,11 @@ namespace Vertex.Server.History
 
             // Forcing other people's locks open is a project admin's call; your own stale locks are always yours.
             bool isAdmin = request.Force && (await _access.CheckAsync(user, projectId, AccessLevel.Admin, ct)).Allowed;
-            (IReadOnlyList<LockRow> released, long? seq) = await _locks.UnlockAsync(projectId, branchId, user.GetUserId(), workspaceId,
-                paths.Select(p => p.Key).ToArray(), request.Force, isAdmin, ct);
+            (IReadOnlyList<LockRow> released, long? seq) = await _writes.UnlockAsync(new UnlockWrite(projectId, branchId, user.GetUserId(), workspaceId,
+                paths.Select(p => p.Key).ToArray(), request.Force, isAdmin), ct);
 
             VertexMetrics.LocksReleased.Add(released.Count, new KeyValuePair<string, object?>("reason", request.Force ? "unlocked" : "reverted"));
+            if (seq is not null) VertexMetrics.EventsRecorded.Add(1, VertexMetrics.Tag("type", EventTypes.LockReleased));
             await ProjectCalls.AfterCommitAsync(_cache, _notifications, projectId, seq);
             foreach (LockRow lockRow in released.Where(l => l.UserId != user.GetUserId()))
                 _logger.LogInformation("{User} force-released {Owner}'s lock on {Path} in project {ProjectId}", user.GetUsername(), lockRow.Username, lockRow.Path, projectId);

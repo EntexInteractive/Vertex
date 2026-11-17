@@ -3,6 +3,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
+using Newtonsoft.Json.Linq;
 using Spectre.Console;
 using Vertex.Core.Client.Workspaces;
 using Vertex.Core.Data;

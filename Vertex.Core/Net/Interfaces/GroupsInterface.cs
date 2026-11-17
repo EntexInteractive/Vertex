@@ -27,19 +27,20 @@ namespace Vertex.Core.Net.Interfaces
             return SendAsync<IReadOnlyList<VUser>>(HttpMethod.Get, $"api/v1/groups/members?name={Uri.EscapeDataString(name)}", cancellationToken: ct);
         }
 
+        /// <remarks>The usernames go in the request body, so a group of any size fits (a URL is limited to ~8 KB).</remarks>
         public Task<ServerResult<int>> AddMembersAsync(string name, IEnumerable<string> usernames, CancellationToken ct = default)
         {
-            return SendAsync<int>(HttpMethod.Post, MembersQuery(name, usernames), cancellationToken: ct);
+            return SendAsync<int>(HttpMethod.Post, MembersEndpoint(name), usernames.ToArray(), cancellationToken: ct);
         }
 
         public Task<ServerResult<int>> RemoveMembersAsync(string name, IEnumerable<string> usernames, CancellationToken ct = default)
         {
-            return SendAsync<int>(HttpMethod.Delete, MembersQuery(name, usernames), cancellationToken: ct);
+            return SendAsync<int>(HttpMethod.Delete, MembersEndpoint(name), usernames.ToArray(), cancellationToken: ct);
         }
 
-        private static string MembersQuery(string name, IEnumerable<string> usernames)
+        private static string MembersEndpoint(string name)
         {
-            return $"api/v1/groups/members?name={Uri.EscapeDataString(name)}" + string.Concat(usernames.Select(u => "&users=" + Uri.EscapeDataString(u)));
+            return $"api/v1/groups/members?name={Uri.EscapeDataString(name)}";
         }
     }
 }
