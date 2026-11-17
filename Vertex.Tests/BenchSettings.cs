@@ -85,7 +85,7 @@ namespace Vertex.Tests
         public override ValidationResult Validate()
         {
             if (!BenchProfile.TryGet(Profile, out _))
-                return ValidationResult.Error($"Unknown profile '{Profile}'. Use smoke, standard, stress or team.");
+                return ValidationResult.Error($"Unknown profile '{Profile}'. Use smoke, standard, stress, busy or team.");
 
             if (Duration is not null && ParseDuration(Duration) is null)
                 return ValidationResult.Error($"Can't read duration '{Duration}'. Use a number with s, m or h, e.g. --duration 5m.");

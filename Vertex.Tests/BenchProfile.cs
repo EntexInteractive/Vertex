@@ -33,12 +33,13 @@ namespace Vertex.Tests
 
         public static readonly BenchProfile Stress = new("stress", 20, 512 * Megabyte, 250_000, 64, 200, TimeSpan.FromMinutes(5), [1, 4, 8, 16, 32], ThinkTime.None, ThinkTime.None);
 
+        public static readonly BenchProfile Busy = new("busy", 20, 512 * Megabyte, 250_000, 64, 200, TimeSpan.FromMinutes(10), [1, 4, 8, 16, 32], new ThinkTime(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(5)), new ThinkTime(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30)));
+
         /// <summary>
         /// What a real team feels: everyone has vx open (one event stream each), developers submit every 30-60 s and
         /// lock files as they save every 10-30 s. Small data sets, so it's about latency under realistic load.
         /// </summary>
-        public static readonly BenchProfile Team = new("team", 4, 64 * Megabyte, 2_000, 100, 100, TimeSpan.FromMinutes(10), [1, 4],
-            new ThinkTime(TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(60)), new ThinkTime(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30)));
+        public static readonly BenchProfile Team = new("team", 4, 64 * Megabyte, 2_000, 100, 100, TimeSpan.FromMinutes(10), [1, 4], new ThinkTime(TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(60)), new ThinkTime(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30)));
 
         public long LargeTotalBytes => LargeFiles * LargeFileSize;
 
@@ -51,6 +52,7 @@ namespace Vertex.Tests
                 "smoke" => Smoke,
                 "standard" => Standard,
                 "stress" => Stress,
+                "busy" => Busy,
                 "team" => Team,
                 _ => null
             };

@@ -85,7 +85,7 @@ namespace Vertex.Tests.Metrics
             var document = new
             {
                 run = context.RunId,
-                server = context.Server,
+                server = ServerDescription(context),
                 serverVersion = context.ServerInfo?.Version,
                 serverBuild = context.ServerInfo?.BuildTimeUtc,
                 user = context.Username,
@@ -118,7 +118,7 @@ namespace Vertex.Tests.Metrics
             StringBuilder md = new();
             md.AppendLine($"# Vertex benchmark {context.RunId}");
             md.AppendLine();
-            md.AppendLine($"- Server: {context.Server} (version {context.ServerInfo?.Version ?? "?"})");
+            md.AppendLine($"- Server: {ServerDescription(context)}");
             md.AppendLine($"- Project: {context.ProjectName}, paths under `{context.PathPrefix}/`");
             md.AppendLine($"- Profile: {context.Profile}");
             md.AppendLine($"- Client: {ClientDescription()}");
@@ -177,7 +177,7 @@ namespace Vertex.Tests.Metrics
         
         private static string ServerDescription(BenchContext context)
         {
-            return $"{context.Server}, {context.ServerInfo?.ProcessorCount} cores, {context.ServerInfo?.OperatingSystem} ({context.ServerInfo?.Architecture}), .NET {context.ServerInfo?.Framework}";
+            return $"{context.Server}, {context.ServerInfo?.ProcessorCount} cores, {context.ServerInfo?.OperatingSystem} ({context.ServerInfo?.Architecture}), {context.ServerInfo?.Framework}";
         }
     }
 }

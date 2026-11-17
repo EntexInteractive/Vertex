@@ -31,15 +31,16 @@ namespace Vertex.Server.Server
             return Ok(new InfoResponse
             {
                 Address = HttpContext.Connection.LocalIpAddress?.ToString(),
+                Architecture = RuntimeInformation.ProcessArchitecture.ToString(),
                 BuildTimeUtc = assembly.GetCustomAttributes<AssemblyMetadataAttribute>().FirstOrDefault(x => x.Key == "BuildTimeUtc")?.Value,
                 Date = DateTime.UtcNow,
+                Encrypted = HttpContext.Request.IsHttps,
+                Framework = RuntimeInformation.FrameworkDescription,
                 MachineName = Environment.MachineName,
                 OperatingSystem = RuntimeInformation.OSDescription,
-                Architecture = RuntimeInformation.ProcessArchitecture.ToString(),
-                Framework = RuntimeInformation.FrameworkDescription,
+                ProcessUptime = DateTime.Now - process.StartTime,
                 ProcessorCount = Environment.ProcessorCount,
                 SystemUptime = TimeSpan.FromMilliseconds(Environment.TickCount64),
-                ProcessUptime = DateTime.Now - process.StartTime,
                 Version = assemblyName.Version?.ToString()
             });
         }
