@@ -1,9 +1,11 @@
 ﻿// Copyright 2026 Entex Interactive
 
 using Grpc.Core;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Vertex.Server.Services
 {
+    [AllowAnonymous]
     public class GreeterService : Greeter.GreeterBase
     {
         private readonly ILogger<GreeterService> _logger;

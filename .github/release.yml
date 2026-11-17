@@ -1,0 +1,16 @@
+# Groups the automatically generated notes on GitHub releases (used by the Release workflow's --generate-notes).
+changelog:
+  exclude:
+    authors:
+      - github-actions[bot]
+  categories:
+    - title: Breaking changes
+      labels: [ breaking ]
+    - title: New features
+      labels: [ enhancement, feature ]
+    - title: Fixes
+      labels: [ bug, fix ]
+    - title: Dependencies
+      labels: [ dependencies ]
+    - title: Other changes
+      labels: [ "*" ]

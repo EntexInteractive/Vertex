@@ -1,4 +1,7 @@
-// Copyright 2026 Entex Interactive
+﻿// Copyright 2026 Entex Interactive
+
+using System.Net;
+using System.Net.Sockets;
 
 namespace Vertex.Server
 {
@@ -23,6 +26,9 @@ namespace Vertex.Server
         public const string S3SecretKeyVariable = "VX_S3_SECRET_KEY";
         public const string TlsCertificateVariable = "VX_TLS_CERT";
         public const string TlsKeyVariable = "VX_TLS_KEY";
+        public const string AdminPasswordVariable = "VX_ADMIN_PASSWORD";
+        public const string TrustedProxiesVariable = "VX_TRUSTED_PROXIES";
+        public const string MetricsPortVariable = "VX_METRICS_PORT";
 
         /// <summary>Port Kestrel listens on. Default 5000.</summary>
         public required int HttpPort { get; init; }
@@ -46,6 +52,26 @@ namespace Vertex.Server
         public required string RedisConnectionString { get; init; }
 
         public required StorageSettings Storage { get; init; }
+
+        /// <summary>
+        /// Password for the <c>admin</c> account the server creates on first start, while no users exist. Ignored
+        /// once any user exists, so it can stay set or be removed after the first start.
+        /// </summary>
+        public string? AdminPassword { get; init; }
+
+        /// <summary>
+        /// Proxies whose <c>X-Forwarded-For</c> header is trusted for the client's address, as addresses or CIDR
+        /// ranges. Loopback is always trusted. Set it when the server sits behind a proxy or tunnel (for example
+        /// Cloudflare Tunnel in another container); otherwise every client appears to come from the proxy, and they
+        /// share one login limit.
+        /// </summary>
+        public IReadOnlyList<IPNetwork> TrustedProxies { get; init; } = [];
+
+        /// <summary>
+        /// Port serving Prometheus metrics on <c>/metrics</c> (plain HTTP), or null to turn metrics off. Separate from
+        /// <see cref="HttpPort"/> so a public proxy in front of the server never exposes them.
+        /// </summary>
+        public int? MetricsPort { get; init; }
 
         /// <summary>
         /// Reads and validates all settings from the environment.
@@ -83,6 +109,29 @@ namespace Vertex.Server
             if (tlsKey is not null && !File.Exists(tlsKey))
                 errors.Add($"{TlsKeyVariable} points to '{tlsKey}', which does not exist.");
 
+            string? adminPassword = Environment.GetEnvironmentVariable(AdminPasswordVariable);
+            if (string.IsNullOrEmpty(adminPassword)) adminPassword = null;
+            if (adminPassword is not null && adminPassword.Length < Auth.PasswordHasher.MinimumLength)
+                errors.Add($"{AdminPasswordVariable} must be at least {Auth.PasswordHasher.MinimumLength} characters.");
+
+            List<IPNetwork> trustedProxies = new();
+            foreach (string entry in (Read(TrustedProxiesVariable) ?? "").Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (TryParseNetwork(entry, out IPNetwork network)) trustedProxies.Add(network);
+                else errors.Add($"{TrustedProxiesVariable} has '{entry}', which isn't an IP address or CIDR range such as '172.18.0.0/16'.");
+            }
+
+            int? metricsPort = null;
+            if (Read(MetricsPortVariable) is string metricsText)
+            {
+                if (!int.TryParse(metricsText, out int parsed) || parsed is < 1 or > 65535)
+                    errors.Add($"{MetricsPortVariable} must be a port number between 1 and 65535 (got '{metricsText}').");
+                else if (parsed == port)
+                    errors.Add($"{MetricsPortVariable} must differ from {HttpPortVariable} ({port}), so metrics stay off the public port.");
+                else
+                    metricsPort = parsed;
+            }
+
             if (errors.Count > 0)
                 throw new InvalidOperationException("Invalid server configuration:" + Environment.NewLine + string.Join(Environment.NewLine, errors.Select(e => "  - " + e)));
 
@@ -93,6 +142,9 @@ namespace Vertex.Server
                 TlsKeyPath = tlsKey,
                 PostgresConnectionString = postgres!,
                 RedisConnectionString = Read(RedisVariable) ?? "redis:6379",
+                AdminPassword = adminPassword,
+                TrustedProxies = trustedProxies,
+                MetricsPort = metricsPort,
                 Storage = new StorageSettings
                 {
                     Endpoint = endpoint,
@@ -102,6 +154,22 @@ namespace Vertex.Server
                     SecretKey = secretKey
                 }
             };
+        }
+
+        /// <summary>
+        /// Parses a CIDR range, or a single address as a range holding just that address.
+        /// </summary>
+        private static bool TryParseNetwork(string text, out IPNetwork network)
+        {
+            if (text.Contains('/')) return IPNetwork.TryParse(text, out network);
+            if (IPAddress.TryParse(text, out IPAddress? address))
+            {
+                network = new IPNetwork(address, address.AddressFamily == AddressFamily.InterNetwork ? 32 : 128);
+                return true;
+            }
+
+            network = default;
+            return false;
         }
 
         /// <summary>

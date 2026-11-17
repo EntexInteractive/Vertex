@@ -19,6 +19,64 @@ These priorities decide most design questions, so keep them in mind for any chan
 3. **Perforce's model, git's feel.** History is central and linear and lives on the server; workspaces hold files,
    not history. The server is stateless and scales out.
 
+## AI-Assisted Contributions Policy
+
+Vertex welcomes contributions developed with the assistance of artificial intelligence (AI) tools, including GitHub Copilot, ChatGPT, Claude, and similar technologies. However, AI-generated code must meet the same quality, security, and maintainability standards as human-written code.
+
+**AI is a development tool, not a substitute for understanding your contributions.**
+
+### Guidelines
+
+1. **Understand Your Code**
+   - Contributors must understand and be able to explain all code they submit, regardless of whether AI was involved.
+   - Do not submit AI-generated code without reviewing its implementation, behavior, and potential consequences.
+   - Contributors are responsible for identifying and correcting errors, vulnerabilities, and inefficient implementations.
+
+2. **Maintain Code Quality**
+   - AI-assisted contributions must follow Vertex's existing architecture, coding conventions, and development practices.
+   - Avoid unnecessary abstractions, excessive dependencies, duplicated functionality, and overly complex solutions.
+   - All contributions should be tested where applicable, particularly changes involving source control, data integrity, authentication, or storage.
+
+3. **Security and Data Integrity**
+   - Never submit secrets, credentials, proprietary information, or sensitive data to external AI services without proper authorization.
+   - Carefully review AI-generated code for security vulnerabilities, concurrency issues, data corruption risks, and unsafe file operations.
+   - Changes involving file synchronization, revision history, content-addressable storage, or permissions require particular attention.
+
+4. **Transparency**
+   - Disclose substantial AI involvement in your pull request description.
+   - Briefly explain how AI was used, such as generating an initial implementation, refactoring existing code, or creating tests.
+   - Minor assistance, such as autocomplete, formatting, grammar corrections, or documentation suggestions, does not require disclosure.
+
+5. **Licensing and Intellectual Property**
+   - Contributors must ensure their submissions are legally compatible with Vertex's **GNU Affero General Public License v3.0 (AGPL-3.0)**.
+   - Do not submit AI-generated content that reproduces copyrighted, proprietary, or restrictively licensed material without appropriate permission.
+   - Contributors remain responsible for ensuring they have the necessary rights to contribute their work.
+
+6. **Pull Request Responsibility**
+   - Every pull request must have a human contributor who takes responsibility for the submitted changes.
+   - Contributors must be able to answer questions, address review feedback, and maintain or revise their implementations when necessary.
+   - Large, unreviewed AI-generated pull requests may be rejected, especially when they introduce unnecessary complexity or lack meaningful testing.
+
+### Unacceptable Contributions
+
+The following are not acceptable:
+
+- Submitting AI-generated code without understanding how it works.
+- Using AI to generate large amounts of unrelated or unnecessary code.
+- Submitting fabricated tests, benchmarks, documentation, or performance claims.
+- Introducing dependencies or architectural changes without a clear technical justification.
+- Submitting code copied from incompatible or unauthorized sources.
+- Using AI to bypass security checks, contribution requirements, or code review.
+- Repeatedly submitting low-effort, AI-generated pull requests without addressing feedback.
+
+### Maintainer Discretion
+
+Vertex maintainers reserve the right to request additional explanations, tests, or revisions for AI-assisted contributions.
+
+Contributions may be declined when they do not meet the project's quality, security, licensing, or maintainability standards, regardless of whether AI was used.
+
+**Our position is simple: AI-assisted contributions are welcome. Unreviewed, untested, or poorly understood contributions are not.**
+
 ## Reporting bugs and requesting features
 
 - **Bugs:** open an issue using the bug report template. Include your OS, the Vertex version (`vx info`), the exact
@@ -56,9 +114,22 @@ ASPNETCORE_ENVIRONMENT = Development
 
 To run the whole stack in containers instead, run `docker compose up -d --build`.
 
-The database schema lives in `Vertex.Server/Database/schema.sql` and must stay idempotent, because it runs against
-existing databases. The compose Postgres container only applies it when its volume is first created, so reset with
-`docker compose down -v` after changing it.
+The server creates and upgrades its database schema at startup from the migrations in
+`Vertex.Server/Database/Migrations/`.
+
+**Before the first release**, there is only `0001_initial.sql`. To change the schema, append to it using idempotent
+statements (`CREATE TABLE IF NOT EXISTS`, `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, ...). A new database gets the
+change at startup, but a database that already ran the file won't run it again, so apply it by hand after pulling a
+schema change; it only creates what's missing and keeps existing data:
+
+```sh
+pg_dump -Fc -d vertex -f vertex-backup.dump   # back up first
+psql -d vertex -v ON_ERROR_STOP=1 -1 -f Vertex.Server/Database/Migrations/0001_initial.sql
+```
+
+**After the first release**, add a file with the next number instead (for example `0002_add_labels.sql`) and restart
+the server; existing data is kept. Never edit a migration that has been released, because databases that already ran
+it won't run it again.
 
 ### Project layout
 
@@ -77,8 +148,9 @@ whole solution after changing it.
 
 ## Making changes
 
-1. Fork the repository and create a branch from **`develop`**. `main` holds stable releases; pull requests go to
-   `develop`.
+1. Create a branch from **`main`** named `feature/<name>` for new functionality or `patch/<name>` for fixes (e.g.
+   `feature/vx-sync`, `patch/status-crash`). If you don't have write access, fork the repository first. `main` is
+   protected: every change reaches it through a pull request, and nobody pushes to it directly.
 2. Keep each pull request focused on one change. Separate refactors from behavior changes.
 3. Follow the existing style:
     - C#: block-scoped namespaces, braces on new lines, `PascalCase` public members, `_camelCase` private fields,

@@ -2,6 +2,7 @@
 
 using System.ComponentModel;
 using Vertex.Cli.Net;
+using Vertex.Cli.Projects;
 using Vertex.Core.Client.Workspaces;
 using Vertex.Core.Data;
 using Vertex.Core.Net.Interfaces;
@@ -65,14 +66,15 @@ namespace Vertex.Cli.Branches
                 return 1;
             }
 
-            Guid? projectId = await ResolveProjectAsync(settings, workspace, cancellationToken);
-            if (projectId is null) return 1;
+            ResolvedProject? project = await ProjectResolver.ResolveAsync(settings, settings.Project, workspace, cancellationToken);
+            if (project is null) return 1;
+            Guid? projectId = project.Id;
 
             // Only use the workspace's branch when the workspace belongs to the project being changed.
             Guid? currentBranchId = workspace?.Config.ProjectId == projectId ? workspace.Config.BranchId : null;
             string? currentBranch = currentBranchId is null ? null : workspace!.Config.Branch;
 
-            using BranchInterface branches = new(settings.ServerAddress);
+            using BranchInterface branches = new(settings.ServerAddress, settings.Token);
             if (list) return await ListAsync(branches, projectId.Value, currentBranchId, cancellationToken);
             return settings.Delete ? await DeleteAsync(branches, projectId.Value, name, currentBranch, settings.Force, cancellationToken) : await CreateAsync(branches, projectId.Value, name, currentBranchId, currentBranch, cancellationToken);
         }
@@ -173,29 +175,6 @@ namespace Vertex.Cli.Branches
 
             AnsiConsole.MarkupLine($"Deleted branch [purple]{Markup.Escape(name)}[/].");
             return 0;
-        }
-
-        /// <summary>
-        /// Uses <c>--project</c> when given (one server lookup), otherwise the workspace's project id (no lookup).
-        /// </summary>
-        private static async Task<Guid?> ResolveProjectAsync(BranchCommandSettings settings, VWorkspace? workspace, CancellationToken cancellationToken)
-        {
-            if (settings.Project is null)
-            {
-                if (workspace?.Config.ProjectId is Guid id) return id;
-                AnsiConsole.MarkupLine("[red]Not inside a Vertex workspace. Run this from a workspace or pass --project.[/]");
-                return null;
-            }
-
-            using ProjectInterface projects = new(settings.ServerAddress);
-            ServerResult<VProject> result = await projects.GetProjectByNameAsync(settings.Project, cancellationToken);
-            if (result.IsSuccessStatusCode) return result.Data!.Id;
-
-            AnsiConsole.MarkupLine(result.StatusCode == 404
-                ? $"[red]Project '{Markup.Escape(settings.Project)}' does not exist.[/]"
-                : $"[red]Could not get the project: {Markup.Escape(result.Exception?.Message ?? "Unknown error")}[/]");
-
-            return null;
         }
     }
 }

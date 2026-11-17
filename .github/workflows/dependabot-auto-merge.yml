@@ -1,0 +1,54 @@
+name: Dependabot Auto-Merge
+
+# Approves Dependabot's minor and patch updates and turns on auto-merge, so GitHub merges them by itself as soon as the
+# required checks pass. Major updates are left for a human to review.
+#
+# One-time repository setup (otherwise auto-merge silently never happens):
+#   1. Settings -> General -> Pull Requests: enable "Allow auto-merge".
+#   2. Settings -> Actions -> General -> Workflow permissions: enable
+#      "Allow GitHub Actions to create and approve pull requests" (needed when main requires an approving review).
+#   3. The ruleset for main must require status checks (e.g. the Build Latest jobs). Without required checks there is
+#      nothing for auto-merge to wait for.
+
+on:
+  pull_request:
+    types: [ opened, reopened, synchronize ]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    name: Approve and enable auto-merge
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'EntexInteractive/Vertex'
+
+    steps:
+      - name: Read update metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+
+      - name: Approve
+        if: steps.metadata.outputs.update-type != 'version-update:semver-major'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          if [[ "$(gh pr view "$PR_URL" --json reviewDecision --jq .reviewDecision)" == "APPROVED" ]]; then
+            echo "Already approved."
+          elif ! gh pr review "$PR_URL" --approve --body "Minor or patch update; approved automatically. It merges once CI passes."; then
+            echo "::warning::Couldn't approve. Enable Settings -> Actions -> General -> 'Allow GitHub Actions to create and approve pull requests' if main requires a review."
+          fi
+
+      - name: Enable auto-merge
+        if: steps.metadata.outputs.update-type != 'version-update:semver-major'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge "$PR_URL" --auto --squash
+
+      - name: Leave major updates for review
+        if: steps.metadata.outputs.update-type == 'version-update:semver-major'
+        run: |
+          echo "::notice::${{ steps.metadata.outputs.dependency-names }} has a major version update. Review and merge it manually."

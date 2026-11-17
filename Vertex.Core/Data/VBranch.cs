@@ -30,31 +30,24 @@ namespace Vertex.Core.Data
         public Guid ProjectId { get; }
 
         /// <summary>
-        /// The <see cref="VUser"/> that created the branch.
-        /// </summary>
-        public Guid OwnerId { get; set; }
-
-        /// <summary>
         /// The parent branch.
         /// </summary>
         public Guid? ParentId { get; set; }
 
-        public VBranch(string name, Guid projectId, Guid ownerId, Guid? parentId = null)
+        public VBranch(string name, Guid projectId, Guid? parentId = null)
         {
             Name = name;
             ProjectId = projectId;
-            OwnerId = ownerId;
             ParentId = parentId;
         }
 
         [JsonConstructor]
-        public VBranch(Guid id, long createdAt, string name, Guid projectId, Guid ownerId, Guid? parentId)
+        public VBranch(Guid id, long createdAt, string name, Guid projectId, Guid? parentId)
         {
             Id = id;
             CreatedAt = UnixTime.FromMilliseconds(createdAt);
             Name = name;
             ProjectId = projectId;
-            OwnerId = ownerId;
             ParentId = parentId;
         }
     }

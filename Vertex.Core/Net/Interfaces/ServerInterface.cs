@@ -8,7 +8,7 @@ namespace Vertex.Core.Net.Interfaces
     /// <summary>
     /// Methods for Vertex server endpoints.
     /// </summary>
-    public sealed class ServerInterface(string url) : BaseInterface(url)
+    public sealed class ServerInterface(string url, string? token = null) : BaseInterface(url, token)
     {
         public Task<ServerResult<InfoResponse>> GetInfoAsync(CancellationToken ct = default)
         {

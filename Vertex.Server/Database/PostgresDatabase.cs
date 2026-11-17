@@ -31,7 +31,7 @@ namespace Vertex.Server.Database
 
             try
             {
-                using IDbConnection connection = CreateConnection();
+                await using NpgsqlConnection connection = CreateConnection();
                 await connection.ExecuteAsync("SELECT 1;", cancellationToken);
                 sw.Stop();
 
@@ -47,7 +47,7 @@ namespace Vertex.Server.Database
         /// <summary>
         /// Initializes a new instance of <see cref="IDbConnection"/>.
         /// </summary>
-        public IDbConnection CreateConnection()
+        public NpgsqlConnection CreateConnection()
         {
             return new NpgsqlConnection(_connectionString);
         }

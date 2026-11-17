@@ -5,7 +5,7 @@ using Vertex.Core.Net.Results;
 
 namespace Vertex.Core.Net.Interfaces
 {
-    public class BranchInterface(string url) : BaseInterface(url)
+    public class BranchInterface(string url, string? token = null) : BaseInterface(url, token)
     {
         public async Task<ServerResult<VBranch>> CreateBranchAsync(Guid projectId, string branchName, Guid? parentId = null, CancellationToken cancellationToken = default)
         {

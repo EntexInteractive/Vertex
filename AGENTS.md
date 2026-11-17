@@ -1,7 +1,7 @@
 # Vertex
 
 Vertex is centralized source control for games and other big-file projects: Perforce's model (central linear
-history, file locking, large binaries), git's ease of use (`vx init`, `vx status`, `vx push`, a `.vx/` folder per
+history, file locking, large binaries), git's ease of use (`vx init`, `vx status`, `vx submit`, a `.vx/` folder per
 workspace, no client specs), and a stateless server that scales out (PostgreSQL metadata, Redis cache, S3 content).
 The project is pre-alpha. Read README.md for the user-facing picture and CONTRIBUTING.md for the workflow.
 
@@ -28,6 +28,7 @@ Weigh every change against these, in order:
 | `Vertex.Agent`       | Background device agent (Windows Service / systemd).                                      |
 | `Vertex.Web`         | React + TypeScript + Vite UI, served by the server and embedded in the GUI.               |
 | `Vertex.Gui`         | Photino desktop host for the web UI.                                                      |
+| `Vertex.Tests`       | `vx-bench`: load benchmarks that drive a real deployment through the client interfaces.    |
 
 Each project has its own AGENTS.md with details. Read it before changing that project.
 
@@ -40,8 +41,9 @@ docker compose up -d postgres redis rustfs rustfs-init   # dependencies only, to
 ```
 
 The SDK is .NET 10 (pinned in `global.json`). Building `Vertex.Server` or `Vertex.Gui` runs `npm ci` and
-`npm run build` in `Vertex.Web`, so Node.js must be installed. There is no test project yet: verify changes by
-building and by running the affected `vx` commands against the local compose stack.
+`npm run build` in `Vertex.Web`, so Node.js must be installed. There are no unit tests yet: verify changes by
+building and by running the affected `vx` commands against the local compose stack. For anything on a hot path, also
+run `dotnet run -c Release --project Vertex.Tests -- all --profile smoke` against it (see `Vertex.Tests/AGENTS.md`).
 
 ## Cross-cutting rules
 
@@ -50,17 +52,27 @@ building and by running the affected `vx` commands against the local compose sta
 - **Wire protocol:** clients always use **gRPC-Web** (`BaseInterface` wraps `GrpcWebHandler`), because Cloudflare
   Tunnel strips HTTP/2 trailers. gRPC-Web can't stream client to server, so uploads are unary batches (`UploadChunks`,
   at most 4 MB raw per call; see `FileTransferLimits`). Don't add client-streaming RPCs.
-- **Contracts:** `Vertex.Server/Protos/Files.proto` is the single source. `Vertex.Core` generates both client and
-  server code from it. After changing it, build the whole solution.
+- **Contracts** live in `Vertex.Server/Protos/`: `Files.proto` for files, revisions and locks, `Events.proto` for the
+  project event stream. `Vertex.Core` generates both client and server code from them. After changing one, build the
+  whole solution.
+- **Events:** every state change other parts may react to (locks, revisions, later builds) appends a project event
+  with `EventStore.AppendAsync` (or `CreateAppendCommand` in a batch) in the same transaction as the change, then calls `INotificationService.NotifyAsync`
+  after commit. Clients get events pushed over `EventFeed.Subscribe`; server-side reactions (build triggers, plugins)
+  are `IEventHandler`s. Don't add per-feature polling or journals.
 - **Server config** comes only from `VX_*` environment variables, read and validated in
   `Vertex.Server/ServerSettings.cs`. Add new settings there and document them in the README table.
-- **Schema:** `Vertex.Server/Database/schema.sql` must be idempotent (`IF NOT EXISTS`), with tables created in
-  dependency order. Timestamps are `BIGINT` Unix milliseconds.
+- **Schema:** until the first release, append changes to `Vertex.Server/Database/Migrations/0001_initial.sql` using
+  idempotent statements only (`CREATE ... IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`), so there is one file to
+  apply between releases; existing databases re-run it by hand (see CONTRIBUTING.md). After the first release, every
+  change is a new migration named `NNNN_name.sql` (next number, lowercase name), and merged migrations are never
+  edited or renumbered. The server applies pending migrations at startup. Timestamps are `BIGINT` Unix milliseconds.
 - **Secrets:** never commit credentials, connection strings with real passwords, certificates or keys.
   `launchSettings.json`, `.env` and `.vx/` are git-ignored on purpose. The values in `docker-compose.yml` and
   `.env.example` are throwaway development defaults.
 - **Style:** C# uses block-scoped namespaces, braces on new lines, explicit types, `_camelCase` private fields and a
   `// Copyright 2026 Entex Interactive` header on every file. Match the surrounding code.
-- **Branches:** work targets `develop`; `main` is stable. Dependabot also targets `develop`.
+- **Branches:** `main` is protected; never commit or push to it directly. Do work on a branch from `main` named
+  `feature/<name>` (new functionality) or `patch/<name>` (fixes), and merge it through a pull request into `main`.
+  Dependabot opens its pull requests against `main` too.
 - **License:** the project is AGPL-3.0. Don't add dependencies with incompatible licenses (e.g. proprietary or
   SSPL); MIT, BSD, Apache-2.0, LGPL and (A)GPL are fine.

@@ -1,7 +1,6 @@
 ﻿// Copyright 2026 Entex Interactive
 
 using System.Net;
-using Vertex.Core.Data;
 
 namespace Vertex.Core.Security
 {
@@ -26,16 +25,6 @@ namespace Vertex.Core.Security
             return IsServer() ? InstanceType.Server : InstanceType.Client;
         }
 
-        /// <summary>
-        /// Checks if a <see cref="VUser"/> has a authoritative perrmission.
-        /// </summary>
-        /// <param name="user"></param>
-        /// <param name="permission"></param>
-        /// <returns>True if authoritative, false otherwise.</returns>
-        public static bool HasAuthority(VUser user, int permission)
-        {
-            return user.Permission >= permission;
-        }
 
         /// <summary>
         /// Checks if the instance is the authoritative server.

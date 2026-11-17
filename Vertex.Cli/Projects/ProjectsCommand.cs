@@ -17,7 +17,7 @@ namespace Vertex.Cli.Projects
     {
         public override async Task<int> ExecuteAsync(CommandContext context, CreateProjectSettings settings, CancellationToken cancellationToken)
         {
-            using ProjectInterface projectInterface = new(settings.ServerAddress);
+            using ProjectInterface projectInterface = new(settings.ServerAddress, settings.Token);
             ServerResult<CreateProjectResponse> result = await projectInterface.CreateProjectAsync(settings.Name, cancellationToken: cancellationToken);
             if (!result.IsSuccessStatusCode)
             {

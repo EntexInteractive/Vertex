@@ -6,7 +6,7 @@ using Vertex.Core.Net.Results;
 
 namespace Vertex.Core.Net.Interfaces
 {
-    public class ProjectInterface(string url) : BaseInterface(url)
+    public class ProjectInterface(string url, string? token = null) : BaseInterface(url, token)
     {
         /// <summary>
         /// Creates a project and its default branch. Fails with status 409 when the name is taken.

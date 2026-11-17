@@ -1,5 +1,7 @@
 // Copyright 2026 Entex Interactive
 
+using Vertex.Core.Client.IO;
+
 namespace Vertex.Core.Client.Workspaces
 {
     /// <summary>
@@ -15,6 +17,12 @@ namespace Vertex.Core.Client.Workspaces
         public string? Project { get; init; }
         public string? Branch { get; init; }
         public string? User { get; init; }
+
+        /// <summary>
+        /// Identifies this workspace to the server, so locks and submits are tied to one copy of the project rather
+        /// than to the user. Created with the workspace; older workspaces get one the first time they are opened.
+        /// </summary>
+        public Guid? WorkspaceId { get; set; }
 
         /// <summary>
         /// Reads a config file. Blank lines and lines starting with <c>#</c> or <c>;</c> are skipped, keys are
@@ -51,7 +59,8 @@ namespace Vertex.Core.Client.Workspaces
                 BranchId = Guid.TryParse(Get(values, "BranchId"), out Guid branchId) ? branchId : null,
                 Project = Get(values, "Project"),
                 Branch = Get(values, "Branch"),
-                User = Get(values, "User")
+                User = Get(values, "User"),
+                WorkspaceId = Guid.TryParse(Get(values, "WorkspaceId"), out Guid workspaceId) ? workspaceId : null
             };
         }
 
@@ -67,7 +76,8 @@ namespace Vertex.Core.Client.Workspaces
             if (Project is not null) lines.Add($"Project={Project}");
             if (Branch is not null) lines.Add($"Branch={Branch}");
             if (User is not null) lines.Add($"User={User}");
-            File.WriteAllLines(path, lines);
+            if (WorkspaceId is not null) lines.Add($"WorkspaceId={WorkspaceId}");
+            AtomicFile.WriteAllText(path, string.Join(Environment.NewLine, lines) + Environment.NewLine, ownerOnly: false);
         }
 
         private static string? Get(Dictionary<string, string> values, string key)

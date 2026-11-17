@@ -8,13 +8,20 @@ EXPOSE 5000
 FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS publish
 ARG BUILD_CONFIGURATION=Release
 ARG TARGETARCH
+# Set by the Release workflow (e.g. VERSION=1.3.0-beta.1, ASSEMBLY_VERSION=1.3.0.0). Empty keeps the .csproj version.
+ARG VERSION=
+ARG ASSEMBLY_VERSION=
 WORKDIR /src
 COPY ["Vertex.Server/Vertex.Server.csproj", "Vertex.Server/"]
 COPY ["Vertex.Core/Vertex.Core.csproj", "Vertex.Core/"]
-RUN dotnet restore "Vertex.Server/Vertex.Server.csproj" -a $TARGETARCH
+# ReadyToRun precompiles the server for the target, so a fresh container serves at full speed from the first request
+# instead of JIT-compiling under load (about 90 s on a Raspberry Pi 4). Restore needs it too, for the crossgen package.
+RUN dotnet restore "Vertex.Server/Vertex.Server.csproj" -a $TARGETARCH -p:PublishReadyToRun=true
 COPY . .
 WORKDIR "/src/Vertex.Server"
-RUN dotnet publish "./Vertex.Server.csproj" -c $BUILD_CONFIGURATION -a $TARGETARCH -o /app/publish /p:UseAppHost=false
+RUN dotnet publish "./Vertex.Server.csproj" -c $BUILD_CONFIGURATION -a $TARGETARCH -o /app/publish /p:UseAppHost=false -p:PublishReadyToRun=true \
+    ${VERSION:+-p:Version=$VERSION} \
+    ${ASSEMBLY_VERSION:+-p:AssemblyVersion=$ASSEMBLY_VERSION -p:FileVersion=$ASSEMBLY_VERSION}
 
 FROM base AS final
 WORKDIR /app

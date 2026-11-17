@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using System.Security.Cryptography.X509Certificates;
 using Amazon;
 using Grpc.AspNetCore.Web;
@@ -6,6 +6,9 @@ using Amazon.Runtime;
 using Amazon.S3;
 using EntexInteractive.Extensions.Diagnostics;
 using EntexInteractive.Extensions.Globalization;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.FileProviders;
@@ -13,13 +16,22 @@ using Microsoft.OpenApi.Models;
 using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Serialization;
 using Vertex.Core.Net;
+using Vertex.Server.Access;
+using Vertex.Server.Auth;
 using Vertex.Server.Branches;
 using Vertex.Server.Database;
-using Vertex.Server.Diagnostics;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using Vertex.Server.Events;
+using Vertex.Server.Telemetry;
 using Vertex.Server.FileServices;
+using Vertex.Server.History;
+using Vertex.Server.Groups;
+using Vertex.Server.Grpc;
 using Vertex.Server.Projects;
 using Vertex.Server.Services;
 using Vertex.Server.Storage;
+using Vertex.Server.Users;
 
 namespace Vertex.Server
 {
@@ -35,26 +47,32 @@ namespace Vertex.Server
         /// <return>A task that represents the asynchronous operation of building and running the server application.</return>
         public static async Task Main(string[] args)
         {
-            CommandLineArguments arguments = new(args);
-
-
             ServerSettings settings = ServerSettings.FromEnvironment();
             AssemblyName assembly = Assembly.GetExecutingAssembly().GetName();
 
+            // Resolve appsettings.json and wwwroot next to the executable rather than the working directory, so a
+            // standalone server logs and serves the UI correctly no matter where it's started from.
             WebApplicationBuilder builder = WebApplication.CreateBuilder(new WebApplicationOptions
             {
+                ContentRootPath = AppContext.BaseDirectory,
                 WebRootPath = Path.Combine(AppContext.BaseDirectory, "wwwroot")
             });
             
-            
             builder.Host.UseSerilog((context, services, configuration) => configuration.ReadFrom.Configuration(context.Configuration));
-            Log.Information($"{assembly.Name} [Version {assembly.Version}]");
+            Log.Information("{AssemblyName} [Version {AssemblyVersion}]", assembly.Name, assembly.Version);
             
             string region = settings.Storage.Region;
             string serviceUrl = settings.Storage.Endpoint;
             builder.Services.AddSingleton<IAmazonS3>(_ =>
             {
-                AmazonS3Config s3Config = new() { RegionEndpoint = RegionEndpoint.GetBySystemName(region) };
+                // Bounded, so one stuck S3 call can't hold a transfer slot for minutes: a chunk is at most 4 MB, and a
+                // failed call surfaces to the client as Unavailable (see ExceptionInterceptor).
+                AmazonS3Config s3Config = new()
+                {
+                    RegionEndpoint = RegionEndpoint.GetBySystemName(region),
+                    Timeout = TimeSpan.FromSeconds(30),
+                    MaxErrorRetry = 3
+                };
                 s3Config.ServiceURL = serviceUrl;
                 s3Config.ForcePathStyle = true;
 
@@ -65,12 +83,15 @@ namespace Vertex.Server
             builder.Services.AddSingleton(settings);
             builder.Services.AddSingleton<IContentStore, S3ContentStore>();
             builder.Services.AddSingleton<TransferBudget>();
+            builder.Services.AddSingleton<FilesRepository>();
             builder.WebHost.ConfigureKestrel(options =>
             {
                 // Larger HTTP/2 flow-control windows let a single upload stream fill high-latency links;
                 // per-stream throughput is bounded by window size / round-trip time.
                 options.Limits.Http2.InitialStreamWindowSize = FileTransferLimits.StreamWindowSize;
                 options.Limits.Http2.InitialConnectionWindowSize = FileTransferLimits.ConnectionWindowSize;
+                // Prometheus scrapes plain HTTP/1.1 on its own port, which isn't put behind the public proxy.
+                if (settings.MetricsPort is int metricsPort) options.ListenAnyIP(metricsPort, listenOptions => listenOptions.Protocols = HttpProtocols.Http1);
 
                 options.ListenAnyIP(settings.HttpPort, listenOptions =>
                 {
@@ -92,12 +113,47 @@ namespace Vertex.Server
 
             // Database services
             Dapper.DefaultTypeMap.MatchNamesWithUnderscores = true;
-            builder.Services.AddScoped<PostgresDatabase>();
-            builder.Services.AddScoped<DapperContext>();
+            builder.Services.AddSingleton<DatabaseMigrator>();
+            builder.Services.AddSingleton<PostgresDatabase>();
+            builder.Services.AddSingleton<DapperContext>();
 
             builder.Services.AddScoped<BranchesRepository>();
-            builder.Services.AddScoped<DiagnosticRepository>();
             builder.Services.AddScoped<ProjectsRepository>();
+            builder.Services.AddScoped<UsersRepository>();
+            builder.Services.AddScoped<GroupsRepository>();
+            builder.Services.AddScoped<TokensRepository>();
+            builder.Services.AddScoped<AccessService>();
+            builder.Services.AddScoped<RevisionsRepository>();
+            builder.Services.AddScoped<LocksRepository>();
+            builder.Services.AddSingleton<ProjectWriteQueue>();
+
+            // Project events: the journal, pub/sub across instances, server-side handlers and pruning.
+            builder.Services.AddSingleton<EventStore>();
+            builder.Services.AddSingleton<NotificationService>();
+            builder.Services.AddSingleton<INotificationService>(services => services.GetRequiredService<NotificationService>());
+            builder.Services.AddHostedService(services => services.GetRequiredService<NotificationService>());
+            builder.Services.AddHostedService<EventDispatcher>();
+            builder.Services.AddHostedService<EventPruner>();
+            if (builder.Environment.IsDevelopment()) builder.Services.AddSingleton<IEventHandler, LoggingEventHandler>();
+
+            // Authentication: opaque bearer tokens from 'vx login'. Every endpoint requires a logged-in user unless it
+            // opts out with [AllowAnonymous] (server info, login), which covers REST and gRPC alike.
+            builder.Services.AddSingleton<LoginThrottle>();
+
+            // Take the client's address from X-Forwarded-For, but only when it was set by a trusted proxy (loopback
+            // or VX_TRUSTED_PROXIES); anyone else could fake it. Login limits are per client address.
+            builder.Services.Configure<ForwardedHeadersOptions>(options =>
+            {
+                foreach (System.Net.IPNetwork network in settings.TrustedProxies) options.KnownIPNetworks.Add(network);
+                options.ForwardedHeaders = ForwardedHeaders.XForwardedFor;
+                options.ForwardLimit = null;
+            });
+            builder.Services.AddHostedService<AdminBootstrapper>();
+            builder.Services.AddAuthentication(VertexClaims.Scheme).AddScheme<AuthenticationSchemeOptions, TokenAuthenticationHandler>(VertexClaims.Scheme, null);
+            builder.Services.AddAuthorization(options =>
+            {
+                options.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
+            });
             
             // Caching services
             builder.Services.AddSingleton<CacheContext>();
@@ -110,23 +166,43 @@ namespace Vertex.Server
             builder.Services.AddMemoryCache();
             builder.Services.AddHybridCache(options =>
             {
+                // Cached values are small rows and lists; nothing large may reach Redis, which runs one command at a
+                // time. Larger values are logged and not cached.
+                options.MaximumPayloadBytes = 256 * 1024;
                 options.DefaultEntryOptions = new HybridCacheEntryOptions
                 {
                     LocalCacheExpiration = TimeSpan.FromMinutes(5),
                     Expiration = TimeSpan.FromMinutes(15)
                 };
-            });
+            }).AddSerializerFactory(new NewtonsoftCacheSerializerFactory());
+
+            // Metrics for Prometheus/Grafana: request durations and Kestrel connections (ASP.NET Core's built-in meters,
+            // which include gRPC calls by route), the .NET runtime, Npgsql, and Vertex's own (VertexMetrics).
+            if (settings.MetricsPort is not null)
+            {
+                builder.Services.AddOpenTelemetry()
+                    .ConfigureResource(resource => resource.AddService("vertex-server", serviceVersion: typeof(ServerApp).Assembly.GetName().Version?.ToString()))
+                    .WithMetrics(metrics => metrics
+                        .AddMeter("Microsoft.AspNetCore.Hosting", "Microsoft.AspNetCore.Server.Kestrel", "System.Runtime", "Npgsql", VertexMetrics.MeterName)
+                        .AddPrometheusExporter());
+            }
 
             // Background Services
             builder.Services.AddSingleton<ProcessMonitor>();
-            builder.Services.AddScoped<DiagnosticMiddleware>();
 
             // Add services to the container.
             builder.Services.AddGrpc(options =>
             {
+                // Exceptions become a status the client can act on (Unavailable, Cancelled, Internal), not Unknown.
+                options.Interceptors.Add<ExceptionInterceptor>();
+
                 // Transfers are streamed in bounded messages; file size is not tied to a gRPC message limit.
                 options.MaxReceiveMessageSize = FileTransferLimits.MaximumMessageSize;
                 options.MaxSendMessageSize = FileTransferLimits.MaximumMessageSize;
+            }).AddServiceOptions<RevisionService>(options =>
+            {
+                // A submit lists every changed file in one request.
+                options.MaxReceiveMessageSize = FileTransferLimits.MaximumSubmitMessageSize;
             });
             
             builder.Services.AddGrpcReflection();
@@ -139,17 +215,13 @@ namespace Vertex.Server
             builder.Services.AddOpenApi();
             builder.Services.AddSwaggerGen(gen =>
             {
-                string xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
-                string xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
-                gen.IncludeXmlComments(xmlPath);
-
                 gen.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
                 {
                     Name = "Authorization",
                     Description = "For api bearer access.",
                     In = ParameterLocation.Header,
                     Type = SecuritySchemeType.Http,
-                    BearerFormat = "JWT",
+                    BearerFormat = "vxp_ token from vx login",
                     Scheme = "Bearer"
                 });
 
@@ -174,32 +246,60 @@ namespace Vertex.Server
 
             WebApplication app = builder.Build();
 
+            // Bring the database schema up to date before any hosted service runs or any request is accepted. On
+            // failure, exit non-zero so a container restart policy retries once the cause is fixed.
+            try
+            {
+                await app.Services.GetRequiredService<DatabaseMigrator>().MigrateAsync();
+            }
+            catch (InvalidOperationException ex)
+            {
+                Log.Fatal(ex, "{Message}", ex.Message);
+                await Log.CloseAndFlushAsync();
+                Environment.ExitCode = 1;
+                return;
+            }
+
             // Configure the HTTP request pipeline.
             if (app.Environment.IsDevelopment())
             {
-                app.MapOpenApi();
-                app.MapGrpcReflectionService();
+                app.MapOpenApi().AllowAnonymous();
+                app.MapGrpcReflectionService().AllowAnonymous();
                 //app.UseDeveloperExceptionPage();
                 app.UseSwagger();
                 app.UseSwaggerUI();
             }
 
             // Middleware
-            app.UseMiddleware<DiagnosticMiddleware>();
+            app.UseForwardedHeaders();
 
             // Serve only the generated React files, even when development static assets are registered.
             using PhysicalFileProvider reactFiles = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(app.Environment.WebRootPath);
             app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = reactFiles });
             app.UseStaticFiles(new StaticFileOptions { FileProvider = reactFiles });
 
-            // Accept gRPC-Web as well as native gRPC. gRPC-Web carries the call status in the response body instead of
-            // HTTP/2 trailers, which some proxies (Cloudflare Tunnel) drop.
+            app.UseAuthentication();
+            app.UseAuthorization();
+            
+            // Accept gRPC-Web as well as native gRPC. gRPC-Web carries the call status in the response body instead of HTTP/2 trailers, which some proxies (Cloudflare Tunnel) drop.
             app.UseGrpcWeb(new GrpcWebOptions { DefaultEnabled = true });
             app.MapGrpcService<GreeterService>();
             app.MapGrpcService<FileTransferService>();
+            app.MapGrpcService<RevisionService>();
+            app.MapGrpcService<LockService>();
+            app.MapGrpcService<EventFeedService>();
             
-            app.UseHttpsRedirection();
-            app.UseAuthorization();
+            // The metrics port is plain HTTP on purpose (Prometheus scrapes it inside the network), so it must not be redirected to the TLS port.
+            if (settings.MetricsPort is int scrapePort)
+            {
+                app.UseWhen(context => context.Connection.LocalPort != scrapePort, branch => branch.UseHttpsRedirection());
+                app.MapPrometheusScrapingEndpoint().RequireHost($"*:{scrapePort}").AllowAnonymous();
+            }
+            else
+            {
+                app.UseHttpsRedirection();
+            }
+                
             app.MapControllers();
             await app.RunAsync();
         }

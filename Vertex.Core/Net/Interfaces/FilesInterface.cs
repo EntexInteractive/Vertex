@@ -29,7 +29,7 @@ namespace Vertex.Core.Net.Interfaces
 
         public Files.FilesClient FilesClient { get; }
 
-        public FilesInterface(string url) : base(url)
+        public FilesInterface(string url, string? token = null) : base(url, token)
         {
             FilesClient = new Files.FilesClient(GrpcChannel);
         }
@@ -150,6 +150,10 @@ namespace Vertex.Core.Net.Interfaces
                         Interlocked.Add(ref compressedDownloaded, compressed);
                     });
                 }
+
+                // A read-only destination (e.g. a file locked by someone else) can't be replaced on Windows.
+                if (OperatingSystem.IsWindows() && File.Exists(destination) && new FileInfo(destination).IsReadOnly)
+                    File.SetAttributes(destination, File.GetAttributes(destination) & ~FileAttributes.ReadOnly);
 
                 File.Move(temporaryPath, destination, true);
                 return new DownloadResult(manifest.Size, rawDownloaded, compressedDownloaded, reused);

@@ -1,62 +1,65 @@
-﻿// Copyright 2026 Entex Interactive
+// Copyright 2026 Entex Interactive
 
 using EntexInteractive.Extensions;
-using Newtonsoft.Json;
 
 namespace Vertex.Core.Data
 {
+    /// <summary>
+    /// A user account. Password hashes never leave the server, so they aren't part of this model.
+    /// </summary>
     public class VUser
     {
         /// <summary>
         /// The user's unique identifier.
         /// </summary>
-        public Guid Id { get; } = Guid.NewGuid();
+        public Guid Id { get; }
 
         /// <summary>
         /// The time the user was created.
         /// </summary>
-        public UnixTime CreatedAt { get; } = UnixTime.Now;
+        public UnixTime CreatedAt { get; }
 
         /// <summary>
-        /// The username of the user.
+        /// The name the user logs in with. Unique, ignoring case, across users and groups.
         /// </summary>
-        public string Username { get; set; } = string.Empty;
+        public string Username { get; }
 
         /// <summary>
-        /// The user's current display name.
+        /// The name shown to other people. Falls back to <see cref="Username"/>.
         /// </summary>
-        [JsonIgnore]
-        public string DisplayName => string.IsNullOrEmpty(Firstname) ? Username : Firstname;
+        public string DisplayName { get; }
 
         /// <summary>
-        /// The user's password encoded as a SHA256 hash.
+        /// The user's email address, or empty.
         /// </summary>
-        [JsonIgnore]
-        public string Password { get; set; } = string.Empty;
+        public string Email { get; }
 
         /// <summary>
-        /// The user's firstname.
+        /// Server admins manage users and groups and have Admin access to every project.
         /// </summary>
-        public string Firstname { get; set; } = string.Empty;
+        public bool IsAdmin { get; }
 
         /// <summary>
-        /// The user's lastname.
+        /// Disabled users can't log in, and their existing tokens stop working.
         /// </summary>
-        public string Lastname { get; set; } = string.Empty;
+        public bool Disabled { get; }
 
         /// <summary>
-        /// The user's last login time.
+        /// The user's last successful login, or null if they never logged in.
         /// </summary>
-        public UnixTime LastLogin { get; set; } = UnixTime.Now;
+        public UnixTime? LastLoginAt { get; }
 
-        /// <summary>
-        /// The user's linked email.
-        /// </summary>
-        public string Email { get; set; } = string.Empty;
-
-        /// <summary>
-        /// The user's permission level.
-        /// </summary>
-        public int Permission { get; set; } = 0;
+        [JsonConstructor]
+        public VUser(Guid id, long createdAt, string username, string? displayName, string? email, bool isAdmin, bool disabled, long? lastLoginAt)
+        {
+            Id = id;
+            CreatedAt = UnixTime.FromMilliseconds(createdAt);
+            Username = username;
+            DisplayName = string.IsNullOrWhiteSpace(displayName) ? username : displayName;
+            Email = email ?? string.Empty;
+            IsAdmin = isAdmin;
+            Disabled = disabled;
+            LastLoginAt = lastLoginAt is long ms ? UnixTime.FromMilliseconds(ms) : null;
+        }
     }
 }

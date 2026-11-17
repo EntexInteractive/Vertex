@@ -42,24 +42,27 @@
     <ItemGroup>
         <PackageReference Include="AWSSDK.S3" Version="4.1.0"/>
         <PackageReference Include="Dapper" Version="2.1.89"/>
+        <PackageReference Include="dbup-postgresql" Version="7.0.1"/>
         <PackageReference Include="EntexInteractive.Extensions.Diagnostics" Version="10.0.6"/>
         <PackageReference Include="Grpc.AspNetCore" Version="2.85.0" />
-        <PackageReference Include="Grpc.AspNetCore.Web" Version="2.83.0"/>
-        <PackageReference Include="Grpc.AspNetCore.Server.Reflection" Version="2.83.0" />
+        <PackageReference Include="Grpc.AspNetCore.Web" Version="2.85.0"/>
+        <PackageReference Include="Grpc.AspNetCore.Server.Reflection" Version="2.85.0" />
         <PackageReference Include="Grpc.HealthCheck" Version="2.85.0" />
-        <PackageReference Include="Grpc.Reflection" Version="2.83.0" />
-        <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" Version="9.0.19" />
-        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.17"/>
-        <PackageReference Include="Microsoft.AspNetCore.SpaServices.Extensions" Version="9.0.19" />
-        <PackageReference Include="Microsoft.Extensions.Caching.Hybrid" Version="10.9.0" />
-        <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.11" />
+        <PackageReference Include="Grpc.Reflection" Version="2.85.0" />
+        <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" Version="9.0.23" />
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.23"/>
+        <PackageReference Include="Microsoft.AspNetCore.SpaServices.Extensions" Version="9.0.23" />
+        <PackageReference Include="Microsoft.Extensions.Caching.Hybrid" Version="10.11.0" />
+        <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.15" />
         <PackageReference Include="Npgsql" Version="10.0.3"/>
+        <PackageReference Include="OpenTelemetry.Exporter.Prometheus.AspNetCore" Version="1.21.0-beta.1" />
+        <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.21.0" />
         <PackageReference Include="Serilog" Version="4.4.0" />
         <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
         <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
         <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
-        <PackageReference Include="StackExchange.Redis" Version="3.1.13" />
-        <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+        <PackageReference Include="StackExchange.Redis" Version="3.4.35" />
+        <PackageReference Include="Swashbuckle.AspNetCore" Version="6.9.0" />
     </ItemGroup>
 
     <ItemGroup>
@@ -70,6 +73,12 @@
 
     <ItemGroup>
         <ProjectReference Include="..\Vertex.Core\Vertex.Core.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- Applied at startup by DatabaseMigrator. Embedded under the bare file name, which DbUp records as the
+             migration's name, so it stays stable if folders or namespaces change. -->
+        <EmbeddedResource Include="Database/Migrations/*.sql" LogicalName="%(Filename)%(Extension)"/>
     </ItemGroup>
 
     <ItemGroup>

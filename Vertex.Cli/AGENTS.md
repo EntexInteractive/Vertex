@@ -5,12 +5,17 @@ The `vx` command line client, built on Spectre.Console.Cli. See the root AGENTS.
 - `Program.cs` sets up logging (`-log` enables debug output) and runs a single command, or an interactive prompt
   when started without arguments. `Startup.cs` registers every command; a command class does nothing until it is
   registered there.
-- Commands are grouped by area: `Workspaces/` (`init`, `fetch`), `Files/` (`status`, `push`, `pull`; `submit` and
-  `sync` are empty placeholders), `Branches/` (`branch`), `Projects/`, `Profiles/`, `Net/` (`info`), `Utils/`.
+- Commands are grouped by area: `Workspaces/` (`init`, `fetch`), `Files/` (`status`, `submit`, `sync`, `revert`;
+  `WorkspaceSettings.cs` has their shared settings, the linked-workspace lookup and path filtering), `Branches/` (`branch`), `Projects/`, `Profiles/`, `Net/` (`info`), `Utils/`.
 - Shared options live in settings classes: `NetworkSettings` (`--server`, default `http://127.0.0.1:5000`),
   `ProjectSettings`, `BranchSettings` and `FilesSettings`. Extend these instead of redeclaring options.
 - Server calls go through the interfaces in `Vertex.Core/Net/Interfaces`, and workspace logic belongs in
   `Vertex.Core.Client`. Keep commands thin: parse, call, print.
+- Create interfaces with `new XInterface(settings.ServerAddress, settings.Token)`. `ServerAddress` resolves
+  `--server`, then the workspace's server, then `vx config server` (`UserConfig`), then the default; `Token` comes from `vx login` (`CredentialStore`).
+  A 401 throws `NotLoggedInException`, which `Program`'s error handler prints as one line naming `vx login`; don't
+  handle it per command. Print other server failures with `ServerErrors.Print`.
+- `Auth/` holds `login`, `logout` and password prompts; `Users/`, `Groups/` and `Access/` hold permission commands.
 
 UX rules (ease of use is the top priority):
 

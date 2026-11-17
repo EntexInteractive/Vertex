@@ -1,6 +1,6 @@
 name: Feature request
 description: Suggest an idea or improvement for Vertex.
-labels: [ "enhancement" ]
+labels: [ "Feature Request" ]
 body:
   - type: textarea
     id: problem

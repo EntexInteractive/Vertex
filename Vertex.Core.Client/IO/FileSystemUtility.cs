@@ -68,6 +68,45 @@ namespace Vertex.Core.Client.IO
         }
 
         /// <summary>
+        /// Clears the read-only flag (Windows) or adds the owner's write permission (Linux, macOS), so the file can
+        /// be replaced or deleted. Does nothing when the file doesn't exist.
+        /// </summary>
+        public static void MakeWritable(string path)
+        {
+            FileInfo file = new(path);
+            if (!file.Exists) return;
+            if (OperatingSystem.IsWindows())
+            {
+                if (file.IsReadOnly) file.IsReadOnly = false;
+            }
+            else if ((file.UnixFileMode & UnixFileMode.UserWrite) == 0)
+            {
+                file.UnixFileMode |= UnixFileMode.UserWrite;
+            }
+        }
+
+        /// <summary>
+        /// Makes a file read-only: the read-only flag on Windows, no write permission on Linux and macOS.
+        /// </summary>
+        /// <returns>False when the file doesn't exist or already was read-only, so nothing changed.</returns>
+        public static bool MakeReadOnly(string path)
+        {
+            FileInfo file = new(path);
+            if (!file.Exists) return false;
+            if (OperatingSystem.IsWindows())
+            {
+                if (file.IsReadOnly) return false;
+                file.IsReadOnly = true;
+                return true;
+            }
+
+            const UnixFileMode write = UnixFileMode.UserWrite | UnixFileMode.GroupWrite | UnixFileMode.OtherWrite;
+            if ((file.UnixFileMode & write) == 0) return false;
+            file.UnixFileMode &= ~write;
+            return true;
+        }
+
+        /// <summary>
         /// Converts a full path under <paramref name="rootPrefix"/> (the root ending in a separator) to a relative
         /// path with <c>/</c> separators.
         /// </summary>

@@ -1,0 +1,64 @@
+syntax = "proto3";
+option csharp_namespace = "Vertex.Server";
+package events;
+
+// Project events, pushed to clients as they happen.
+//
+// Everything that changes a project (files locked or released, revisions submitted, later builds) is recorded as a
+// numbered event in that project, in the same transaction as the change. Subscribe streams them: first everything after
+// the client's last seq, then new events as they commit. A client that loses its connection subscribes again with the
+// last seq it saw and misses nothing.
+//
+// Server streaming works over gRPC-Web. The stream sends a heartbeat every 30 s so proxies that close idle connections
+// (Cloudflare: ~100 s) keep it open, and ends after a while so clients spread across server instances; clients simply
+// subscribe again.
+service EventFeed {
+  rpc Subscribe(SubscribeRequest) returns (stream EventMessage);
+}
+
+message SubscribeRequest {
+  string project_id = 1;
+  string branch_id = 2;  // Lock and revision events for other branches are left out.
+  int64 after_seq = 3;   // The last seq the client has; 0 for "only new events".
+}
+
+message EventMessage {
+  // The event's number, and the seq to resume from. For a heartbeat, the latest seq the server has checked, which may
+  // be ahead of the last event sent because events for other branches are skipped.
+  int64 seq = 1;
+  string type = 2;          // "lock.locked", "lock.released", "revision.created", ...
+  string username = 3;      // Who did it.
+  string workspace_id = 4;
+  string host = 5;
+  int64 created_at = 6;     // Unix milliseconds.
+  string branch_id = 7;
+
+  oneof body {
+    LockChange lock = 10;
+    RevisionCreated revision = 11;
+    Heartbeat heartbeat = 12;
+    Resync resync = 13;
+  }
+}
+
+// Paths were locked or released on the branch, in one operation.
+message LockChange {
+  bool released = 1;
+  repeated string paths = 2;
+  string reason = 3;  // For releases: "submitted", "reverted" (no longer changed), "unlocked" (vx unlock).
+}
+
+message RevisionCreated {
+  int64 revision = 1;
+  string message = 2;
+  int32 files = 3;
+}
+
+// Nothing happened; the connection is alive.
+message Heartbeat {
+}
+
+// The client's seq is older than the events the server keeps: reload the state it mirrors (e.g. the lock list), then
+// continue from this message's seq.
+message Resync {
+}
