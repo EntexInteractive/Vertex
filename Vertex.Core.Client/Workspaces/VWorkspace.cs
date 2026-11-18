@@ -1,4 +1,4 @@
-// Copyright 2026 Entex Interactive
+﻿// Copyright 2026 Entex Interactive
 
 using Vertex.Core.Client.IO;
 
@@ -96,6 +96,28 @@ namespace Vertex.Core.Client.Workspaces
             }
 
             return new VWorkspace(root, config ?? new WorkspaceConfig());
+        }
+
+        /// <summary>
+        /// Points the workspace at another branch of its project by rewriting <c>.vx/config</c>. Files on disk and the
+        /// index don't change; the caller syncs them.
+        /// </summary>
+        /// <returns>The workspace as reopened with the new config.</returns>
+        public VWorkspace SwitchBranch(string branch, Guid branchId)
+        {
+            WorkspaceConfig config = new()
+            {
+                Address = Config.Address,
+                ProjectId = Config.ProjectId,
+                Project = Config.Project,
+                BranchId = branchId,
+                Branch = branch,
+                User = Config.User,
+                WorkspaceId = Config.WorkspaceId
+            };
+
+            config.Save(Path.Combine(MetadataDirectory, ConfigFileName));
+            return Open(Root);
         }
 
         /// <summary>

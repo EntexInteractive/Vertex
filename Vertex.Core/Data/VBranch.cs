@@ -34,6 +34,12 @@ namespace Vertex.Core.Data
         /// </summary>
         public Guid? ParentId { get; set; }
 
+        /// <summary>
+        /// The parent's latest revision when the branch was made from it: the branch started with the parent's files
+        /// as of that revision. 0 for a branch that started empty.
+        /// </summary>
+        public long BaseRevision { get; set; }
+
         public VBranch(string name, Guid projectId, Guid? parentId = null)
         {
             Name = name;
@@ -42,8 +48,9 @@ namespace Vertex.Core.Data
         }
 
         [JsonConstructor]
-        public VBranch(Guid id, long createdAt, string name, Guid projectId, Guid? parentId)
+        public VBranch(Guid id, long createdAt, string name, Guid projectId, Guid? parentId, long baseRevision = 0)
         {
+            BaseRevision = baseRevision;
             Id = id;
             CreatedAt = UnixTime.FromMilliseconds(createdAt);
             Name = name;

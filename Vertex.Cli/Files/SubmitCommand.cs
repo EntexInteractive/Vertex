@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using Vertex.Core.Client.Workspaces;
 using Vertex.Core.Data;
+using Vertex.Core.Net;
 using Vertex.Core.Net.Interfaces;
 using Vertex.Core.Storage;
 using Vertex.Server;
@@ -43,7 +44,7 @@ namespace Vertex.Cli.Files
             using WorkspaceIndex index = linked.Workspace.OpenIndex();
 
             WorkspaceStatus status = null!;
-            AnsiConsole.Status().Start("Scanning for changes...", _ =>
+            AnsiConsole.Status().Start("Scanning...", _ =>
             {
                 status = WorkspaceScanner.Scan(linked.Workspace, index, new ScanOptions { MaxConcurrency = parallel, KeepChunks = true }, cancellationToken);
             });
@@ -79,15 +80,39 @@ namespace Vertex.Cli.Files
             using FilesInterface files = new(settings.ServerAddress, settings.Token) { MaxConcurrency = parallel };
             List<WorkspaceChange> withContent = selected.Where(c => c.Type != ChangeType.Deleted).ToList();
             UploadResult? upload = null;
-            await AnsiConsole.Status().StartAsync("Uploading...", async _ =>
+            HashSet<string> missing = null!;
+            await AnsiConsole.Status().StartAsync("Checking server...", async _ =>
             {
-                HashSet<string> missing = await files.FindMissingFilesAsync(withContent.Select(c => c.FileId), cancellationToken);
-                ChunkedFile[] chunked = withContent.Where(c => missing.Contains(c.FileId)).DistinctBy(c => c.FileId)
-                    .AsParallel().WithDegreeOfParallelism(parallel).WithCancellation(cancellationToken)
-                    .Select(c => Chunk(linked.Workspace, c, cancellationToken)).ToArray();
-
-                upload = await files.UploadAsync(chunked, ct: cancellationToken);
+                missing = await files.FindMissingFilesAsync(withContent.Select(c => c.FileId), cancellationToken);
             });
+
+            List<WorkspaceChange> toSend = withContent.Where(c => missing.Contains(c.FileId)).DistinctBy(c => c.FileId).ToList();
+            if (toSend.Count > 0)
+            {
+                await TransferDisplay.Progress().StartAsync(async progress =>
+                {
+                    // Files the scan didn't hash (their stats hadn't changed since an earlier scan) are chunked now.
+                    List<WorkspaceChange> unchunked = toSend.Where(c => c.Chunks is null).ToList();
+                    ProgressTask? hashing = unchunked.Count > 0 ? progress.AddTask("Hashing", maxValue: Math.Max(1, unchunked.Sum(c => status.Entries[c.Path].Size))) : null;
+                    ProgressTask uploading = progress.AddTask("Submitting", autoStart: false);
+
+                    ChunkedFile[] chunked = await Task.Run(() => toSend
+                        .AsParallel().WithDegreeOfParallelism(parallel).WithCancellation(cancellationToken)
+                        .Select(c =>
+                        {
+                            ChunkedFile file = Chunk(linked.Workspace, c, cancellationToken);
+                            if (c.Chunks is null) hashing?.Increment(status.Entries[c.Path].Size);
+                            return file;
+                        }).ToArray(), cancellationToken);
+
+                    if (hashing is not null) hashing.Value = hashing.MaxValue;
+                    uploading.StartTask();
+                    TransferProgress transfer = new();
+                    Task<UploadResult> send = files.UploadAsync(chunked, ct: cancellationToken, progress: transfer);
+                    await TransferDisplay.FollowBytesAsync(send, uploading, transfer, "Submitting");
+                    upload = await send;
+                });
+            }
 
             List<FileChange> changes = new();
             foreach (WorkspaceChange change in selected)
@@ -133,8 +158,7 @@ namespace Vertex.Cli.Files
 
             // When nobody else submitted in between, the workspace is still in step with the branch.
             long.TryParse(index.GetMeta(WorkspaceIndex.SyncedRevisionKey), out long synced);
-            if (synced == revision - 1)
-                index.SetMeta(WorkspaceIndex.SyncedRevisionKey, revision.ToString());
+            if (synced == revision - 1) index.SetMeta(WorkspaceIndex.SyncedRevisionKey, revision.ToString());
 
             // The server released the submitted files' locks; keep the rest locked and catch up with everyone else's.
             HashSet<WorkspaceChange> submitted = selected.ToHashSet();
@@ -145,7 +169,7 @@ namespace Vertex.Cli.Files
             LockOutput.PrintError(after);
             if (upload is not null)
             {
-                AnsiConsole.MarkupLine($"[grey]Uploaded {upload.CompressedBytesUploaded / (1024.0 * 1024):N1} MB ({upload.ChunksUploaded:N0} chunks, {upload.ChunksDeduplicated:N0} already on the server) in {timer.Elapsed.TotalSeconds:N2}s.[/]");
+                AnsiConsole.MarkupLine($"[grey]Submitted {TransferDisplay.Bytes(upload.CompressedBytesUploaded)} ({upload.ChunksUploaded:N0} chunks, {upload.ChunksDeduplicated:N0} already on the server) in {timer.Elapsed.TotalSeconds:N2}s.[/]");
             }
 
             return 0;

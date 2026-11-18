@@ -39,8 +39,19 @@ namespace Vertex.Server.Projects
         {
             if (await DenyAsync(projectId, AccessLevel.Admin, cancellationToken) is ActionResult denied) return denied;
 
+            // With a parent, the branch starts with the parent's files; without one it starts empty.
             VBranch branch = new VBranch(name, projectId, parentId);
-            if (!await _branches.AddBranchAsync(branch, cancellationToken))
+            bool added;
+            try
+            {
+                added = await _branches.AddBranchAsync(branch, cancellationToken);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+
+            if (!added)
             {
                 // Only look up why on the failure path, so a successful create stays one query.
                 if (await _branches.GetBranchByNameAsync(projectId, name, cancellationToken) is not null)

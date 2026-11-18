@@ -75,7 +75,9 @@ namespace Vertex.Core.Net.Interfaces
         /// <param name="files">Files chunked with <see cref="ContentChunker.ChunkFile"/>.</param>
         /// <param name="onCommitted">Invoked for each newly stored file.</param>
         /// <param name="ct">Cancels the push.</param>
-        public async Task<UploadResult> UploadAsync(IReadOnlyCollection<ChunkedFile> files, Action<ChunkedFile>? onCommitted = null, CancellationToken ct = default)
+        /// <param name="progress">Receives the raw bytes of the chunks the server is missing as the total, then each
+        /// uploaded batch.</param>
+        public async Task<UploadResult> UploadAsync(IReadOnlyCollection<ChunkedFile> files, Action<ChunkedFile>? onCommitted = null, CancellationToken ct = default, TransferProgress? progress = null)
         {
             ArgumentNullException.ThrowIfNull(files);
             List<ChunkedFile> unique = files.DistinctBy(f => f.FileId).ToList();
@@ -90,11 +92,13 @@ namespace Vertex.Core.Net.Interfaces
 
             HashSet<string> missingChunks = await FindMissingChunksAsync(sources.Values.Select(s => s.Chunk.Id), ct);
             List<(ChunkedFile File, FileChunk Chunk)> toUpload = sources.Where(s => missingChunks.Contains(s.Key)).Select(s => s.Value).ToList();
+            progress?.AddTotal(toUpload.Sum(u => (long)u.Chunk.Length));
 
             long rawBytes = 0, compressedBytes = 0;
             await Parallel.ForEachAsync(BatchUploads(toUpload), new ParallelOptions { MaxDegreeOfParallelism = MaxConcurrency, CancellationToken = ct }, async (batch, token) =>
             {
                 (long raw, long compressed) = await UploadBatchAsync(batch, token);
+                progress?.AddDone(raw);
                 Interlocked.Add(ref rawBytes, raw);
                 Interlocked.Add(ref compressedBytes, compressed);
             });
@@ -121,7 +125,9 @@ namespace Vertex.Core.Net.Interfaces
         /// are reused, so pulling a new version of a file only transfers the changed chunks. The file is published
         /// only after every chunk has been verified.
         /// </summary>
-        public async Task<DownloadResult> DownloadAsync(string fileId, string destinationPath, CancellationToken ct = default)
+        /// <param name="progress">Receives the file's size as total once its manifest arrives, then the bytes reused
+        /// from the local copy and each downloaded batch.</param>
+        public async Task<DownloadResult> DownloadAsync(string fileId, string destinationPath, CancellationToken ct = default, TransferProgress? progress = null)
         {
             if (!ContentId.IsValidFileId(fileId)) throw new ArgumentException("File id must be a 64-character hex string.", nameof(fileId));
             ArgumentException.ThrowIfNullOrWhiteSpace(destinationPath);
@@ -132,6 +138,7 @@ namespace Vertex.Core.Net.Interfaces
 
             FileManifest manifest = await FilesClient.GetManifestAsync(new GetManifestRequest { FileId = fileId }, cancellationToken: ct);
             Dictionary<string, PendingChunk> needed = PlanChunks(fileId, manifest);
+            progress?.AddTotal(manifest.Size);
 
             string temporaryPath = destination + ".vxtmp";
             long reused = 0, rawDownloaded = 0, compressedDownloaded = 0;
@@ -142,10 +149,12 @@ namespace Vertex.Core.Net.Interfaces
                     RandomAccess.SetLength(output, manifest.Size);
                     if (File.Exists(destination) && needed.Count > 0)
                         reused = await ReuseLocalChunksAsync(destination, needed, output, ct);
+                    progress?.AddDone(reused);
 
                     await Parallel.ForEachAsync(BatchDownloads(needed.Values), new ParallelOptions { MaxDegreeOfParallelism = MaxConcurrency, CancellationToken = ct }, async (batch, token) =>
                     {
                         (long raw, long compressed) = await DownloadBatchAsync(batch, output, token);
+                        progress?.AddDone(raw);
                         Interlocked.Add(ref rawDownloaded, raw);
                         Interlocked.Add(ref compressedDownloaded, compressed);
                     });

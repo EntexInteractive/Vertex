@@ -23,7 +23,9 @@ namespace Vertex.Cli
             config.AddCommand<ClearCommand>("cls").WithDescription("Clears the console window.");
 
             config.AddCommand<InitCommand>("init").WithDescription("Creates a project on the server and makes this folder its workspace.");
-            config.AddCommand<FetchCommand>("fetch").WithDescription("Links a folder to an existing project.");
+            config.AddCommand<CloneCommand>("clone").WithDescription("Makes a folder a workspace of an existing project and downloads its latest files.")
+                .WithExample("clone", "game")
+                .WithExample("clone", "game", "D:/Work/Game", "-b", "feature-x");
 
             config.AddCommand<InfoCommand>("info").WithDescription("Displays server information.");
             config.AddCommand<StatusCommand>("status").WithDescription("Shows files changed since the last submit or sync.");
@@ -31,7 +33,11 @@ namespace Vertex.Cli
                 .WithExample("submit", "-m", "\"Add jump animation\"")
                 .WithExample("submit", "-m", "\"New level\"", "Content/Maps");
             
-            config.AddCommand<SyncCommand>("sync").WithDescription("Gets the latest revision of the branch, keeping local changes.");
+            config.AddCommand<SyncCommand>("sync").WithDescription("Gets the latest (or a given) revision of the branch, keeping local changes.")
+                .WithExample("sync")
+                .WithExample("sync", "-r", "120");
+            config.AddCommand<CheckoutCommand>("checkout").WithDescription("Switches the workspace to another branch, downloading only the files that differ.")
+                .WithExample("checkout", "feature-x");
             config.AddCommand<LocksCommand>("locks").WithDescription("Lists who has which files locked on this branch.");
             config.AddCommand<UnlockCommand>("unlock").WithDescription("Releases locks held elsewhere: yours from another workspace, or anyone's for project admins.")
                 .WithExample("unlock", "Content/Maps/City.umap");
@@ -86,10 +92,11 @@ namespace Vertex.Cli
                 branch.AddCommand<CreateProjectCommand>("create").WithDescription("Creates a new project.");
             });
 
-            config.AddCommand<BranchCommand>("branch").WithDescription("Shows, lists, creates or deletes branches.")
+            config.AddCommand<BranchCommand>("branch").WithDescription("Shows, lists, creates (as a copy of the current branch) or deletes branches.")
                 .WithExample("branch")
                 .WithExample("branch", "list")
                 .WithExample("branch", "feature-x")
+                .WithExample("branch", "experiment", "--blank")
                 .WithExample("branch", "-d", "feature-x");
         }
     }

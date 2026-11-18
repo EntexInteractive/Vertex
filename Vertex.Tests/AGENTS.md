@@ -11,11 +11,17 @@ dotnet run -c Release --project Vertex.Tests -- locks --clients 64 --duration 2m
 dotnet run -c Release --project Vertex.Tests -- soak                       # until Ctrl+C
 ```
 
+The long-running integrity check (replaying a git repository into Vertex and verifying every byte) is
+`vx-mirror pull` in `Vertex.Mirror`, not a scenario here.
+
 - `Program.cs`: one command per scenario, plus `all` (every scenario except soak, in `ScenarioCatalog.All` order).
 - `BenchSettings.cs` / `BenchProfile.cs`: flags and the smoke/standard/stress/team profiles; flags override single
   values. smoke/standard/stress have no think time (ceiling tests); `team` pauses like people do (`ThinkTime`:
   submits every 30-60 s, locks every 10-30 s, 100 clients), so its latencies are what users feel. Workers read
   `Profile.SubmitThink`/`LockThink`, start at a random point in the first window, and pause after each cycle.
+  `--num-projects N` (team defaults to 10, others to 1) creates `<project>-01..N` and spreads submit workers and soak
+  sync loops round-robin over them (`BenchContext.ProjectFor(index)`), so the load looks like several teams on one
+  server instead of everyone queueing on one project's write lock. Single-project scenarios use the first project.
 - `BenchContext.cs`: resolves server and token (`--token`, `VX_BENCH_TOKEN`, then the `vx login` credential), creates
   a `bench-<time>` project (or uses `--project`), owns the scratch folder (system temp unless `--data`), and shares
   data sets between scenarios: the upload scenario's assets are what dedup and download reuse. All repository paths go

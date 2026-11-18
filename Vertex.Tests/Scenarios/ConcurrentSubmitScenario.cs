@@ -21,7 +21,7 @@ namespace Vertex.Tests.Scenarios
         {
             int clients = context.Profile.Clients;
             LatencyRecorder upload = result.Timer("Upload 1-20 small files");
-            LatencyRecorder submit = result.Timer($"Submit revision ({clients} concurrent workspaces)");
+            LatencyRecorder submit = result.Timer($"Submit revision ({clients} concurrent workspaces, {context.Projects.Count} project(s))");
             List<SubmitWorker> workers = Enumerable.Range(0, clients).Select(i => new SubmitWorker(context, i, upload, submit)).ToList();
             try
             {

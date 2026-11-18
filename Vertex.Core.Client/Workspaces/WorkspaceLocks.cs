@@ -1,4 +1,4 @@
-// Copyright 2026 Entex Interactive
+﻿// Copyright 2026 Entex Interactive
 
 using Grpc.Core;
 using Vertex.Core.Client.IO;
@@ -49,6 +49,23 @@ namespace Vertex.Core.Client.Workspaces
 
         /// <summary>This machine's name, shown to others next to locks taken here.</summary>
         public static string Host => Environment.MachineName;
+
+        /// <summary>
+        /// Drops the mirror of the current branch's locks before the workspace moves to another branch: files made
+        /// read-only for someone's lock become writable again, the locks table is emptied and the event seq reset, so
+        /// the next lock step loads the new branch's locks from scratch.
+        /// </summary>
+        public static void ForgetBranch(VWorkspace workspace, WorkspaceIndex index)
+        {
+            List<LockEntry> locks = index.ReadLocks();
+            foreach (LockEntry entry in locks.Where(l => l.MadeReadOnly))
+            {
+                string fullPath = workspace.ToFullPath(entry.Path);
+                if (File.Exists(fullPath)) FileSystemUtility.MakeWritable(fullPath);
+            }
+
+            index.ApplyLocks([], locks.Select(l => l.PathKey), 0);
+        }
 
         private readonly VWorkspace _workspace;
         private readonly WorkspaceIndex _index;

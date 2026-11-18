@@ -1,4 +1,4 @@
-// Copyright 2026 Entex Interactive
+﻿// Copyright 2026 Entex Interactive
 
 using System.Reflection;
 using System.Text.RegularExpressions;
@@ -66,7 +66,8 @@ namespace Vertex.Cli
                 AnsiConsole.MarkupLine("[grey]Run '--help' to see available commands.[/]");
 
                 // While the session is open, files are locked as they are saved and others' locks show up within seconds.
-                await using WorkspaceMonitor? monitor = StartMonitor();
+                WorkspaceMonitor? monitor = StartMonitor();
+                Guid? monitoredBranch = CurrentBranchId();
                 AnsiConsole.WriteLine();
 
                 while (true)
@@ -92,11 +93,23 @@ namespace Vertex.Cli
                     }
                     finally
                     {
-                        monitor?.Resume();
+                        // 'vx checkout' moves the workspace to another branch: watch that one from now on.
+                        if (CurrentBranchId() != monitoredBranch)
+                        {
+                            if (monitor is not null) await monitor.DisposeAsync();
+                            monitor = StartMonitor();
+                            monitoredBranch = CurrentBranchId();
+                        }
+                        else
+                        {
+                            monitor?.Resume();
+                        }
+
                         FlushDeferred();
                     }
                 }
 
+                if (monitor is not null) await monitor.DisposeAsync();
                 return 0;
             }
             catch (Exception ex)
@@ -122,6 +135,14 @@ namespace Vertex.Cli
 
         /// <summary>A lock change listing more files than this is summarized as a count and folder.</summary>
         private const int ListedActivityPaths = 3;
+
+        /// <summary>
+        /// The branch the workspace the session was opened in follows, read fresh from its config.
+        /// </summary>
+        private static Guid? CurrentBranchId()
+        {
+            return VWorkspace.Find(Directory.GetCurrentDirectory())?.Config.BranchId;
+        }
 
         /// <summary>
         /// Starts watching the workspace the session was opened in, when it's linked to a project and logged in.

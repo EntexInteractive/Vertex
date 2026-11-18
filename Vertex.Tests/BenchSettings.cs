@@ -32,6 +32,11 @@ namespace Vertex.Tests
         [Description("Concurrent simulated clients for the submit, lock and latency scenarios.")]
         public int? Clients { get; set; }
 
+        [CommandOption("--num-projects")]
+        [Description("Projects to spread the simulated developers over, round-robin (submitters and soak). " +
+                     "Several are named <project>-01, -02, ... Defaults to the profile's (10 for team, otherwise 1).")]
+        public int? NumProjects { get; set; }
+
         [CommandOption("--concurrency")]
         [Description("Transfer streams per upload/download. Tests just this level instead of the profile's list.")]
         public int? Concurrency { get; set; }
@@ -96,7 +101,7 @@ namespace Vertex.Tests
             if (LockThink is not null && ThinkTime.Parse(LockThink) is null)
                 return ValidationResult.Error($"Can't read --lock-think '{LockThink}'. Use seconds, e.g. --lock-think 10-30.");
 
-            if (Clients is < 1 || Concurrency is < 1 || Subscribers is < 0 || LargeFiles is < 1 || LargeSizeMb is < 1 || SmallFiles is < 1)
+            if (Clients is < 1 || NumProjects is < 1 || Concurrency is < 1 || Subscribers is < 0 || LargeFiles is < 1 || LargeSizeMb is < 1 || SmallFiles is < 1)
                 return ValidationResult.Error("Counts and sizes must be positive.");
 
             return ValidationResult.Success();

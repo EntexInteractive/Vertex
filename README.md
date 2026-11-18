@@ -90,21 +90,22 @@ vx sync              # gets what others submitted
 vx info              # shows the server version and latency
 ```
 
-To link another folder to an existing project, run `vx fetch <project>` inside it. Run `vx --help` for every command.
+To get an existing project into a folder, run `vx clone <project>` inside it; it downloads the latest files. Run `vx --help` for every command.
 
 ## Commands
 
 | Command                       | What it does                                                                     |
 |-------------------------------|----------------------------------------------------------------------------------|
 | `vx init [--template <name>]` | Creates a project on the server and makes the current folder its workspace.      |
-| `vx fetch <project> [path]`   | Links a folder to an existing project.                                           |
+| `vx clone <project> [path]`   | Makes a folder (default: the current one) a workspace of an existing project and downloads its latest files. `-b <branch>` picks the branch. Files already there are kept, never overwritten. |
 | `vx status [--limit <n>]`     | Shows files changed since the last submit or sync.                               |
 | `vx submit -m <msg> [paths]`  | Submits every change (or those under `paths`) as one revision. Only chunks the server doesn't have are sent. Refused when a file changed on the server since your last sync. |
-| `vx sync`                     | Gets files changed on the branch since the last sync. Local changes are never overwritten. |
+| `vx sync [-r <revision>]`     | Gets files changed on the branch since the last sync, or with `-r` the files as of that revision (older or newer). Local changes are never overwritten. |
 | `vx revert <paths>`           | Discards local changes, restoring the last submitted or synced content from the server. |
 | `vx locks [paths]`            | Lists who has which files locked on the branch, and on which machine.            |
 | `vx unlock <paths>`           | Releases locks held elsewhere: yours from a workspace that's gone, or anyone's for project admins. |
-| `vx branch`                   | Shows the current branch. `list`, `<name>` and `-d <name>` list, create, delete. |
+| `vx branch`                   | Shows the current branch. `list`, `<name>` and `-d <name>` list, create, delete. A new branch starts with the current branch's files (copied on the server, nothing uploaded); `--blank` starts it empty. |
+| `vx checkout <branch>`        | Switches the workspace to another branch, downloading only files that differ. Refused while there are local changes. |
 | `vx info`                     | Shows server information and who you're logged in as.                           |
 | `vx login [server]`           | Logs in and saves the login in `~/.vertex/credentials`. `-u` and `--password-stdin` for scripts. |
 | `vx logout [server]`          | Revokes the saved login and forgets it.                                          |
@@ -318,6 +319,19 @@ open): its numbers are what users feel. `--think 30-60` and `--lock-think 10-30`
 pacing for any profile. Reports are saved as Markdown and
 JSON in `./bench-results`. Run it from a machine outside the server's network to include the proxy, or against the
 origin directly to leave it out.
+
+### Mirroring to and from git or Perforce
+
+`Vertex.Mirror` builds `vx-mirror`. `pull` replays a git repository into a Vertex branch, one commit per `--interval`
+(default 5 minutes), syncs each revision back and checks every byte against git, so it doubles as an all-day
+integrity check. `push` commits every revision of a Vertex branch to a git repository or a Perforce workspace as it
+lands, one commit or changelist each, and picks up where it left off on the next run.
+
+```sh
+dotnet run -c Release --project Vertex.Mirror -- pull --project gitignore --git https://github.com/github/gitignore.git --duration 9h
+dotnet run -c Release --project Vertex.Mirror -- push --project game --git git@github.com:studio/game-mirror.git
+dotnet run -c Release --project Vertex.Mirror -- push --project game --p4 game-mirror-ws
+```
 
 ## Contributing
 

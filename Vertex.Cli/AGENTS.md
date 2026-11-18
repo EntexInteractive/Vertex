@@ -5,8 +5,17 @@ The `vx` command line client, built on Spectre.Console.Cli. See the root AGENTS.
 - `Program.cs` sets up logging (`-log` enables debug output) and runs a single command, or an interactive prompt
   when started without arguments. `Startup.cs` registers every command; a command class does nothing until it is
   registered there.
-- Commands are grouped by area: `Workspaces/` (`init`, `fetch`), `Files/` (`status`, `submit`, `sync`, `revert`;
-  `WorkspaceSettings.cs` has their shared settings, the linked-workspace lookup and path filtering), `Branches/` (`branch`), `Projects/`, `Profiles/`, `Net/` (`info`), `Utils/`.
+- Commands are grouped by area: `Workspaces/` (`init`, `clone`), `Files/` (`status`, `submit`, `sync`, `revert`;
+  `WorkspaceSettings.cs` has their shared settings, the linked-workspace lookup and path filtering), `Branches/`
+  (`branch`, `checkout`), `Projects/`, `Profiles/`, `Net/` (`info`), `Utils/`.
+- `Files/WorkspaceSync.cs` is the sync both `vx sync` (`-r` for any revision) and `vx checkout` run: one listing from
+  `GetHeadChanges`, downloads only files whose content id differs from the index, and when the listing is full
+  (`HeadChanges.Full`: a first sync, an older revision, or a new branch) removes tracked files that aren't in it.
+  `checkout` refuses while there are local changes, forgets the old branch's locks (`WorkspaceLocks.ForgetBranch`),
+  switches `.vx/config` first and then syncs from revision 0, so an interrupted checkout is finished by `vx sync`.
+  The interactive session restarts its `WorkspaceMonitor` when a command changed the branch.
+- `Files/TransferDisplay.cs` draws the submit and sync progress bars from a `TransferProgress` that
+  `FilesInterface.UploadAsync`/`DownloadAsync` fill once per batch. Use it for any new command that moves content.
 - Shared options live in settings classes: `NetworkSettings` (`--server`, default `http://127.0.0.1:5000`),
   `ProjectSettings`, `BranchSettings` and `FilesSettings`. Extend these instead of redeclaring options.
 - Server calls go through the interfaces in `Vertex.Core/Net/Interfaces`, and workspace logic belongs in
@@ -22,8 +31,8 @@ UX rules (ease of use is the top priority):
 - Default to the current folder and to the workspace's project and branch. The common case shouldn't need flags.
 - Make commands safe to re-run. Ask for confirmation only before destructive server-side actions (for example
   `vx branch -d`).
-- Report an error as one red line that names the fix, e.g. "Project 'X' already exists. Use 'vx fetch X' to link
-  this folder to it."
+- Report an error as one red line that names the fix, e.g. "Project 'X' already exists. Use 'vx clone X' to get
+  its files here."
 - Escape user-supplied text with `Markup.Escape` before printing it as markup.
 - Keep existing command names, option names, defaults and exit codes (0 for success, non-zero for failure).
 

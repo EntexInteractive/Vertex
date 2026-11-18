@@ -29,6 +29,7 @@ Weigh every change against these, in order:
 | `Vertex.Web`         | React + TypeScript + Vite UI, served by the server and embedded in the GUI.               |
 | `Vertex.Gui`         | Photino desktop host for the web UI.                                                      |
 | `Vertex.Tests`       | `vx-bench`: load benchmarks that drive a real deployment through the client interfaces.    |
+| `Vertex.Mirror`      | `vx-mirror`: `pull` replays git into Vertex (and verifies it), `push` mirrors to git or p4. |
 
 Each project has its own AGENTS.md with details. Read it before changing that project.
 

@@ -1,4 +1,4 @@
-// Copyright 2026 Entex Interactive
+﻿// Copyright 2026 Entex Interactive
 
 namespace Vertex.Server.Database
 {
@@ -80,6 +80,12 @@ namespace Vertex.Server.Database
         public static string BranchExists(Guid projectId, Guid branchId)
         {
             return $"branch:exists:{projectId:N}:{branchId:N}";
+        }
+
+        /// <summary>The revision a branch was copied from its parent at. It never changes, so it's cached long.</summary>
+        public static string BranchBase(Guid branchId)
+        {
+            return $"branch:base:{branchId:N}";
         }
 
         /// <summary>A branch's latest revision number, kept in Redis with <see cref="CacheContext.SetMaxAsync"/>.</summary>
