@@ -17,7 +17,8 @@ rules.
 - `Workspaces/WorkspaceLocks.cs`: the lock step every workspace command runs after scanning. It locks changed files,
   releases locks on files no longer changed, applies everyone's lock events since the stored seq, and flips the
   read-only flag only on files whose lock changed (never on a file changed locally, and it only clears flags it set
-  itself). It has no CLI dependency so every host can drive it.
+  itself). It has no CLI dependency so every host can drive it. `ForgetBranch` drops the lock mirror (and the
+  read-only flags it set) before a workspace moves to another branch; `VWorkspace.SwitchBranch` rewrites the config.
 - `Workspaces/WorkspaceMonitor.cs`: live locking for a host that stays open (the interactive `vx` session today, the
   GUI later). A `FileSystemWatcher` records touched paths; after 500 ms of quiet it locks them on stats alone
   (`WorkspaceScanner.ScanPaths(..., hash: false)`), then hashes them and releases the ones that didn't really change,

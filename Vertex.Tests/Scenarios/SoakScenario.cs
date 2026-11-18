@@ -55,7 +55,7 @@ namespace Vertex.Tests.Scenarios
             tasks.AddRange(submitters.Select(w => Swallow(w.RunAsync(() => false, token), token)));
             tasks.AddRange(lockers.Select(w => Swallow(w.RunAsync(() => false, token), token)));
             tasks.AddRange(subscribers.Select(s => s.RunAsync(token)));
-            tasks.AddRange(Enumerable.Range(0, quarter).Select(_ => Swallow(SyncLoopAsync(context, sync, poll, token), token)));
+            tasks.AddRange(Enumerable.Range(0, quarter).Select(i => Swallow(SyncLoopAsync(context, context.ProjectFor(i), sync, poll, token), token)));
             tasks.Add(Swallow(DownloadLoopAsync(context, asset, download, token), token));
             tasks.Add(Swallow(ReportLoopAsync(clock, submit, lockTimer, sync, download, result, subscribers, token), token));
 
@@ -83,7 +83,7 @@ namespace Vertex.Tests.Scenarios
         /// <summary>
         /// A workspace that keeps up with the branch: incremental listings, plus the lock poll older clients make.
         /// </summary>
-        private static async Task SyncLoopAsync(BenchContext context, LatencyRecorder sync, LatencyRecorder poll, CancellationToken ct)
+        private static async Task SyncLoopAsync(BenchContext context, BenchProject project, LatencyRecorder sync, LatencyRecorder poll, CancellationToken ct)
         {
             using RevisionInterface revisions = context.Revisions();
             using LockInterface locks = context.Locks();
@@ -91,7 +91,7 @@ namespace Vertex.Tests.Scenarios
             try
             {
                 // Asking for changes after a far-future revision returns just the head number.
-                revision = (await revisions.GetHeadChangesAsync(context.ProjectId, context.BranchId, long.MaxValue / 2, ct)).HeadRevision;
+                revision = (await revisions.GetHeadChangesAsync(project.ProjectId, project.BranchId, long.MaxValue / 2, ct)).HeadRevision;
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
@@ -101,9 +101,9 @@ namespace Vertex.Tests.Scenarios
             long seq = 0;
             while (!ct.IsCancellationRequested)
             {
-                (bool ok, HeadChanges? changes) = await sync.TryTimeAsync(() => revisions.GetHeadChangesAsync(context.ProjectId, context.BranchId, revision, ct), ct);
+                (bool ok, HeadChanges? changes) = await sync.TryTimeAsync(() => revisions.GetHeadChangesAsync(project.ProjectId, project.BranchId, revision, ct), ct);
                 if (ok) revision = changes!.HeadRevision;
-                (bool polled, GetLockEventsResponse? events) = await poll.TryTimeAsync(() => locks.GetLockEventsAsync(context.ProjectId, context.BranchId, seq, ct), ct);
+                (bool polled, GetLockEventsResponse? events) = await poll.TryTimeAsync(() => locks.GetLockEventsAsync(project.ProjectId, project.BranchId, seq, ct), ct);
                 if (polled) seq = events!.LatestSeq;
                 await Task.Delay(2000, ct);
             }

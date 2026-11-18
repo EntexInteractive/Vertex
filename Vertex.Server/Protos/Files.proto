@@ -85,10 +85,16 @@ message DownloadChunksRequest {
 // Submit: upload content with the Files service first (FindMissingFiles -> ... -> SubmitFiles), then call Submit
 // with each changed path, its new file id and the file id it was based on. The server refuses the whole submit when
 // any file changed on the branch since that base, so nobody overwrites someone else's work.
-// Sync: GetHeadChanges pages through files changed after the workspace's last synced revision.
+// Sync: GetHeadChanges pages through files changed after the workspace's last synced revision, up to the latest
+// revision or an older one. When `full` is set the pages list every file at that revision instead, and the workspace
+// removes tracked files that aren't in them.
+// History: GetRevisions lists a branch's revisions after a number, oldest first, and GetRevisionChanges pages through
+// the files one revision changed (for logs, and for mirroring a branch into another version control system).
 service Revisions {
   rpc Submit(SubmitRequest) returns (SubmitResponse);
   rpc GetHeadChanges(GetHeadChangesRequest) returns (GetHeadChangesResponse);
+  rpc GetRevisions(GetRevisionsRequest) returns (GetRevisionsResponse);
+  rpc GetRevisionChanges(GetRevisionChangesRequest) returns (GetRevisionChangesResponse);
 }
 
 message FileChange {
@@ -115,6 +121,7 @@ message GetHeadChangesRequest {
   string branch_id = 2;
   int64 after_revision = 3;  // 0 for every file on the branch.
   string page_token = 4;     // From the previous page; empty for the first.
+  int64 revision = 5;        // The revision to sync to; 0 for the latest. Newer than the latest fails (FAILED_PRECONDITION).
 }
 
 message HeadFile {
@@ -124,9 +131,48 @@ message HeadFile {
 }
 
 message GetHeadChangesResponse {
-  int64 head_revision = 1;     // Latest revision on the branch when the page was read.
+  int64 head_revision = 1;     // The revision synced to: the latest on the branch when the first page was read, or the one asked for.
   repeated HeadFile files = 2;
   string next_page_token = 3;  // Empty on the last page.
+  bool full = 4;               // The pages list every file at head_revision (no deletions): remove tracked files not in them.
+  int64 latest_revision = 5;   // The branch's latest revision, to tell the user how far behind an older sync is.
+}
+
+message GetRevisionsRequest {
+  string project_id = 1;
+  string branch_id = 2;
+  int64 after_revision = 3;  // 0 for the branch's first revisions.
+  int32 limit = 4;           // Most revisions to return; 0 for the default (100), at most 1,000.
+}
+
+message RevisionInfo {
+  int64 number = 1;
+  string message = 2;
+  string username = 3;
+  string display_name = 4;  // Empty when the user has none.
+  int64 created_at = 5;     // Unix milliseconds.
+  int32 files = 6;          // Files the revision changed.
+}
+
+message GetRevisionsResponse {
+  repeated RevisionInfo revisions = 1;  // Oldest first. Fewer than the limit means there are no more yet.
+}
+
+message GetRevisionChangesRequest {
+  string project_id = 1;
+  string branch_id = 2;
+  int64 revision = 3;
+  string page_token = 4;  // From the previous page; empty for the first.
+}
+
+message RevisionFileChange {
+  string path = 1;
+  string file_id = 2;  // The file's content after the revision; empty when the revision deleted it.
+}
+
+message GetRevisionChangesResponse {
+  repeated RevisionFileChange changes = 1;
+  string next_page_token = 2;  // Empty on the last page.
 }
 
 // File locks. Clients lock a path on a branch as soon as they see it change and keep the lock until the change is

@@ -1,4 +1,4 @@
-// Copyright 2026 Entex Interactive
+﻿// Copyright 2026 Entex Interactive
 
 using System.Security.Claims;
 using Grpc.Core;
@@ -22,15 +22,18 @@ namespace Vertex.Server.History
         /// <summary>Outdated paths named in a refused submit before "and N more".</summary>
         private const int ListedPaths = 10;
 
+        /// <summary>Revisions GetRevisions returns when the request names no limit, and the most it ever returns.</summary>
+        private const int DefaultRevisionsPerPage = 100;
+        private const int MaximumRevisionsPerPage = 1_000;
+
+        private readonly INotificationService _notifications;
         private readonly ILogger<RevisionService> _logger;
         private readonly RevisionsRepository _revisions;
         private readonly AccessService _access;
         private readonly FilesRepository _files;
         private readonly CacheContext _cache;
-        private readonly INotificationService _notifications;
 
-        public RevisionService(ILogger<RevisionService> logger, RevisionsRepository revisions, AccessService access, FilesRepository files, CacheContext cache,
-            INotificationService notifications)
+        public RevisionService(ILogger<RevisionService> logger, RevisionsRepository revisions, AccessService access, FilesRepository files, CacheContext cache, INotificationService notifications)
         {
             _notifications = notifications;
             _cache = cache;
@@ -105,37 +108,115 @@ namespace Vertex.Server.History
             return new SubmitResponse { Revision = outcome.Revision.Value };
         }
 
+        /// <summary>
+        /// Sync. Pages through the files that differ between the workspace's synced revision and the target (the
+        /// latest by default), or, when that can't be read from the branch head, every file at the target.
+        /// </summary>
+        /// <remarks>
+        /// Syncing to the latest from a revision at or after the branch's base reads <c>revisions.head</c> (the fast
+        /// path every normal sync takes). An older target, or a workspace synced to before the branch was copied from
+        /// its parent, rebuilds the full file list from history (<see cref="RevisionsRepository.GetFilesAtRevisionAsync"/>)
+        /// and sets <c>full</c>, so the client also removes tracked files that aren't listed.
+        /// The page token is <c>target:latest:mode:cursor</c>, so every page reads the same target the same way even
+        /// when a submit moves the head between pages.
+        /// </remarks>
         public override async Task<GetHeadChangesResponse> GetHeadChanges(GetHeadChangesRequest request, ServerCallContext context)
         {
             CancellationToken ct = context.CancellationToken;
             Guid projectId = ParseId(request.ProjectId, "project");
             Guid branchId = ParseId(request.BranchId, "branch");
             if (request.AfterRevision < 0) throw Invalid("after_revision can't be negative.");
+            if (request.Revision < 0) throw Invalid("revision can't be negative.");
 
             await RequireAsync(context.GetHttpContext().User, projectId, branchId, AccessLevel.Read, ct);
 
-            // The token pins the head revision of the first page, so every page reads the same snapshot.
-            long head;
+            long target, latest;
+            bool fromHistory;
             string cursor;
             if (request.PageToken.Length == 0)
             {
-                head = await _revisions.GetHeadRevisionAsync(branchId, ct);
+                latest = await _revisions.GetHeadRevisionAsync(branchId, ct);
+                target = request.Revision == 0 ? latest : request.Revision;
+                if (target > latest)
+                    throw new RpcException(new Status(StatusCode.FailedPrecondition, $"Revision #{target} is newer than this branch's latest, #{latest}."));
+
+                GetHeadChangesResponse nothing = new() { HeadRevision = target, LatestRevision = latest };
+                if (request.AfterRevision == target) return nothing;
+                if (target == latest)
+                {
+                    if (request.AfterRevision > latest) return nothing;
+                    fromHistory = request.AfterRevision > 0 && request.AfterRevision < await _revisions.GetBaseRevisionAsync(branchId, ct);
+                }
+                else
+                {
+                    fromHistory = true;
+                }
+
                 cursor = string.Empty;
             }
             else
             {
-                int colon = request.PageToken.IndexOf(':');
-                if (colon <= 0 || !long.TryParse(request.PageToken.AsSpan(0, colon), out head)) throw Invalid("Invalid page token.");
-                cursor = request.PageToken[(colon + 1)..];
+                string[] parts = request.PageToken.Split(':', 4);
+                if (parts.Length != 4 || !long.TryParse(parts[0], out target) || !long.TryParse(parts[1], out latest) || parts[2] is not ("h" or "f"))
+                    throw Invalid("Invalid page token.");
+
+                fromHistory = parts[2] == "f";
+                cursor = parts[3];
             }
 
-            GetHeadChangesResponse response = new() { HeadRevision = head };
-            if (head <= request.AfterRevision) return response;
+            GetHeadChangesResponse response = new() { HeadRevision = target, LatestRevision = latest, Full = fromHistory || request.AfterRevision == 0 };
+            IReadOnlyList<HeadFileRow> rows = fromHistory
+                ? await _revisions.GetFilesAtRevisionAsync(branchId, target, cursor, FileTransferLimits.HeadChangesPageSize, ct)
+                : await _revisions.GetHeadChangesAsync(branchId, request.AfterRevision, target, cursor, FileTransferLimits.HeadChangesPageSize, ct);
 
-            IReadOnlyList<HeadFileRow> rows = await _revisions.GetHeadChangesAsync(branchId, request.AfterRevision, head, cursor, FileTransferLimits.HeadChangesPageSize, ct);
             response.Files.AddRange(rows.Select(row => new HeadFile { Path = row.Path, FileId = row.FileId ?? string.Empty, Revision = row.Revision }));
             VertexMetrics.SyncFiles.Add(rows.Count);
-            if (rows.Count == FileTransferLimits.HeadChangesPageSize) response.NextPageToken = $"{head}:{rows[^1].PathKey}";
+            if (rows.Count == FileTransferLimits.HeadChangesPageSize) response.NextPageToken = $"{target}:{latest}:{(fromHistory ? "f" : "h")}:{rows[^1].PathKey}";
+            return response;
+        }
+
+        public override async Task<GetRevisionsResponse> GetRevisions(GetRevisionsRequest request, ServerCallContext context)
+        {
+            CancellationToken ct = context.CancellationToken;
+            Guid projectId = ParseId(request.ProjectId, "project");
+            Guid branchId = ParseId(request.BranchId, "branch");
+            if (request.AfterRevision < 0) throw Invalid("after_revision can't be negative.");
+            if (request.Limit < 0) throw Invalid("limit can't be negative.");
+            int limit = request.Limit == 0 ? DefaultRevisionsPerPage : Math.Min(request.Limit, MaximumRevisionsPerPage);
+
+            await RequireAsync(context.GetHttpContext().User, projectId, branchId, AccessLevel.Read, ct);
+
+            IReadOnlyList<RevisionRow> rows = await _revisions.GetRevisionsAsync(branchId, request.AfterRevision, limit, ct);
+            GetRevisionsResponse response = new();
+            response.Revisions.AddRange(rows.Select(row => new RevisionInfo
+            {
+                Number = row.Number,
+                Message = row.Message,
+                Username = row.Username,
+                DisplayName = row.DisplayName ?? string.Empty,
+                CreatedAt = row.CreatedAt,
+                Files = row.Files
+            }));
+            return response;
+        }
+
+        public override async Task<GetRevisionChangesResponse> GetRevisionChanges(GetRevisionChangesRequest request, ServerCallContext context)
+        {
+            CancellationToken ct = context.CancellationToken;
+            Guid projectId = ParseId(request.ProjectId, "project");
+            Guid branchId = ParseId(request.BranchId, "branch");
+            if (request.Revision < 1) throw Invalid("revision must be at least 1.");
+
+            await RequireAsync(context.GetHttpContext().User, projectId, branchId, AccessLevel.Read, ct);
+
+            // The page token is the last path of the previous page.
+            IReadOnlyList<RevisionChangeRow> rows = await _revisions.GetRevisionChangesAsync(projectId, branchId, request.Revision, request.PageToken, FileTransferLimits.HeadChangesPageSize, ct);
+            if (rows.Count == 0 && request.PageToken.Length == 0)
+                throw new RpcException(new Status(StatusCode.NotFound, $"Revision #{request.Revision} isn't on this branch."));
+
+            GetRevisionChangesResponse response = new();
+            response.Changes.AddRange(rows.Select(row => new RevisionFileChange { Path = row.Path, FileId = row.FileId ?? string.Empty }));
+            if (rows.Count == FileTransferLimits.HeadChangesPageSize) response.NextPageToken = rows[^1].Path;
             return response;
         }
 

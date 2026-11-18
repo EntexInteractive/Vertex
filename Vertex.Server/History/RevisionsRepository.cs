@@ -1,4 +1,4 @@
-// Copyright 2026 Entex Interactive
+﻿// Copyright 2026 Entex Interactive
 
 using System.Diagnostics;
 using Dapper;
@@ -28,6 +28,16 @@ namespace Vertex.Server.History
     /// A file on a branch, for sync. <see cref="FileId"/> is null when the file was deleted.
     /// </summary>
     public sealed record HeadFileRow(string PathKey, string Path, string? FileId, long Revision);
+
+    /// <summary>
+    /// One revision in a branch's history, with who made it and how many files it changed.
+    /// </summary>
+    public sealed record RevisionRow(long Number, string Message, string Username, string? DisplayName, long CreatedAt, int Files);
+
+    /// <summary>
+    /// One file a revision changed. <see cref="FileId"/> is null when the revision deleted it.
+    /// </summary>
+    public sealed record RevisionChangeRow(string Path, string? FileId);
 
     public class RevisionsRepository
     {
@@ -197,7 +207,8 @@ namespace Vertex.Server.History
         private static readonly TimeSpan HeadRevisionLifetime = TimeSpan.FromSeconds(60);
 
         /// <summary>
-        /// The number of the latest revision on a branch, or 0 when nothing was submitted to it yet. Every sync asks,
+        /// The number of the latest revision on a branch (or the revision it was copied from its parent at, when
+        /// nothing was submitted to it since), or 0 when it has no files yet. Every sync asks,
         /// so it's answered from Redis when it can be.
         /// </summary>
         /// <remarks>
@@ -214,7 +225,8 @@ namespace Vertex.Server.History
             }
 
             VertexMetrics.CacheLookups.Add(1, VertexMetrics.Tag("result", "miss"), VertexMetrics.Tag("category", "revision"));
-            const string sql = "SELECT COALESCE(MAX(number), 0) FROM revisions.revisions WHERE branch_id = @BranchId;";
+            // A branch copied from a parent is at least at the revision it was copied at.
+            const string sql = "SELECT GREATEST(COALESCE((SELECT base_revision FROM branches.branches WHERE id = @BranchId), 0), COALESCE((SELECT MAX(number) FROM revisions.revisions WHERE branch_id = @BranchId), 0));";
             await using NpgsqlConnection connection = _database.CreateConnection();
             long head = await connection.ExecuteScalarAsync<long>(new CommandDefinition(sql, new { BranchId = branchId }, cancellationToken: cancellationToken));
             await _cache.SetMaxAsync(key, head, HeadRevisionLifetime);
@@ -251,6 +263,73 @@ namespace Vertex.Server.History
 
             await using NpgsqlConnection connection = _database.CreateConnection();
             return (await connection.QueryAsync<HeadFileRow>(new CommandDefinition(sql, new { BranchId = branchId, After = afterRevision, Head = headRevision, Cursor = cursor, Limit = limit }, cancellationToken: cancellationToken))).ToReadOnly();
+        }
+
+        /// <summary>
+        /// The parent revision a branch started from (<c>branches.base_revision</c>), or 0 when it started empty.
+        /// Every incremental sync asks, and it never changes, so it's cached.
+        /// </summary>
+        public async Task<long> GetBaseRevisionAsync(Guid branchId, CancellationToken cancellationToken)
+        {
+            return await _cache.GetOrSetAsync(CacheKeys.BranchBase(branchId), async ct =>
+            {
+                const string sql = "SELECT COALESCE((SELECT base_revision FROM branches.branches WHERE id = @BranchId), 0);";
+                await using NpgsqlConnection connection = _database.CreateConnection();
+                return await connection.ExecuteScalarAsync<long>(new CommandDefinition(sql, new { BranchId = branchId }, cancellationToken: ct));
+            }, 60, cancellationToken);
+        }
+
+        /// <summary>
+        /// One page, ordered by path key, of every file on a branch as of <paramref name="revision"/>, rebuilt from
+        /// history: the branch's own revisions up to it, then its parent's up to the branch's base revision, and so on
+        /// up the branches it was copied from.
+        /// </summary>
+        /// <remarks>
+        /// Costs a pass over the branch's history up to the revision, so only syncs to an older revision use it;
+        /// syncing to the latest reads <c>revisions.head</c>. Revision numbers are project-wide, so the newest change
+        /// to a path across the lineage is the one in effect.
+        /// </remarks>
+        public async Task<IReadOnlyList<HeadFileRow>> GetFilesAtRevisionAsync(Guid branchId, long revision, string cursor, int limit, CancellationToken cancellationToken)
+        {
+            const string sql = "WITH RECURSIVE lineage AS (" +
+                               "  SELECT id, parent_id, base_revision, @Revision::BIGINT AS upto FROM branches.branches WHERE id = @BranchId " +
+                               "  UNION ALL " +
+                               "  SELECT p.id, p.parent_id, p.base_revision, LEAST(l.upto, l.base_revision) " +
+                               "  FROM lineage l JOIN branches.branches p ON p.id = l.parent_id WHERE l.base_revision > 0" +
+                               ") " +
+                               "SELECT path_key, path, file_id, revision FROM (" +
+                               "  SELECT DISTINCT ON (lower(c.path)) lower(c.path) AS path_key, c.path, c.file_id, r.number AS revision " +
+                               "  FROM lineage l JOIN revisions.revisions r ON r.branch_id = l.id AND r.number <= l.upto " +
+                               "  JOIN revisions.changes c ON c.revision_id = r.id " +
+                               "  WHERE lower(c.path) > @Cursor " +
+                               "  ORDER BY lower(c.path), r.number DESC" +
+                               ") files WHERE file_id IS NOT NULL ORDER BY path_key LIMIT @Limit;";
+
+            await using NpgsqlConnection connection = _database.CreateConnection();
+            return (await connection.QueryAsync<HeadFileRow>(new CommandDefinition(sql, new { BranchId = branchId, Revision = revision, Cursor = cursor, Limit = limit },
+                commandTimeout: 300, cancellationToken: cancellationToken))).ToReadOnly();
+        }
+
+        /// <summary>
+        /// Up to <paramref name="limit"/> revisions on a branch after <paramref name="afterRevision"/>, oldest first.
+        /// </summary>
+        public async Task<IReadOnlyList<RevisionRow>> GetRevisionsAsync(Guid branchId, long afterRevision, int limit, CancellationToken cancellationToken)
+        {
+            const string sql = "SELECT r.number, r.message, u.username, u.display_name AS DisplayName, r.created_at AS CreatedAt, (SELECT COUNT(*)::INT FROM revisions.changes c WHERE c.revision_id = r.id) AS Files FROM revisions.revisions r JOIN auth.users u ON u.id = r.user_id WHERE r.branch_id = @BranchId AND r.number > @After ORDER BY r.number LIMIT @Limit;";
+            await using NpgsqlConnection connection = _database.CreateConnection();
+            return (await connection.QueryAsync<RevisionRow>(new CommandDefinition(sql, new { BranchId = branchId, After = afterRevision, Limit = limit }, cancellationToken: cancellationToken))).ToReadOnly();
+        }
+
+        /// <summary>
+        /// One page, ordered by path, of the files a revision on a branch changed after <paramref name="cursor"/>.
+        /// Empty when the revision isn't on the branch (every revision changes at least one file).
+        /// </summary>
+        public async Task<IReadOnlyList<RevisionChangeRow>> GetRevisionChangesAsync(Guid projectId, Guid branchId, long revision, string cursor, int limit, CancellationToken cancellationToken)
+        {
+            const string sql = "SELECT c.path, c.file_id AS FileId FROM revisions.revisions r JOIN revisions.changes c ON c.revision_id = r.id WHERE r.project_id = @ProjectId AND r.number = @Number AND r.branch_id = @BranchId AND c.path > @Cursor ORDER BY c.path LIMIT @Limit;";
+            await using NpgsqlConnection connection = _database.CreateConnection();
+            return (await connection.QueryAsync<RevisionChangeRow>(new CommandDefinition(sql,
+                new { ProjectId = projectId, BranchId = branchId, Number = revision, Cursor = cursor, Limit = limit }, cancellationToken: cancellationToken))).ToReadOnly();
         }
     }
 }

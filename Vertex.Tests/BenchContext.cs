@@ -20,6 +20,11 @@ namespace Vertex.Tests
     public sealed class BenchSetupException(string message) : Exception(message);
 
     /// <summary>
+    /// One project a run submits to, with the branch it uses.
+    /// </summary>
+    public sealed record BenchProject(string Name, Guid ProjectId, Guid BranchId);
+
+    /// <summary>
     /// One benchmark run: the server, login and project it runs against, its scratch folder, and data sets shared
     /// between scenarios (the upload scenario's assets are what the download scenario fetches).
     /// </summary>
@@ -74,11 +79,29 @@ namespace Vertex.Tests
 
         public InfoResponse? ServerInfo { get; private set; }
 
+        /// <summary>
+        /// The run's project, or "bench-x-01..bench-x-10" when it spreads over several (--num-projects).
+        /// </summary>
         public string ProjectName { get; private set; } = string.Empty;
 
-        public Guid ProjectId { get; private set; }
+        /// <summary>
+        /// Every project the run uses (--num-projects); scenarios that model many developers spread them over these.
+        /// </summary>
+        public IReadOnlyList<BenchProject> Projects { get; private set; } = [];
 
-        public Guid BranchId { get; private set; }
+        /// <summary>The first project, used by scenarios that run against one project.</summary>
+        public Guid ProjectId => Projects[0].ProjectId;
+
+        /// <summary>The first project's branch.</summary>
+        public Guid BranchId => Projects[0].BranchId;
+
+        /// <summary>
+        /// The project simulated client <paramref name="index"/> works in: clients are spread round-robin.
+        /// </summary>
+        public BenchProject ProjectFor(int index)
+        {
+            return Projects[index % Projects.Count];
+        }
 
         public bool CreatedProject { get; private set; }
 
@@ -133,23 +156,32 @@ namespace Vertex.Tests
                 throw new BenchSetupException($"The login for {Server} was revoked or has expired. Run 'vx login {Server}' again.");
             }
 
+            // One project keeps its plain name; several are numbered, so a rerun with the same --project reuses them.
+            string baseName = projectName ?? $"bench-{RunId}";
+            int count = Profile.Projects;
+            string[] names = count == 1 ? [baseName] : Enumerable.Range(1, count).Select(i => $"{baseName}-{i:D2}").ToArray();
+            ProjectName = count == 1 ? baseName : $"{names[0]}..{names[^1]}";
+
             using ProjectInterface projects = new(Server, Token);
-            ProjectName = projectName ?? $"bench-{RunId}";
-            ServerResult<VProject> existing = await projects.GetProjectByNameAsync(ProjectName, ct);
-            if (existing.IsSuccessStatusCode && existing.Data is not null)
+            using BranchInterface branches = new(Server, Token);
+            List<BenchProject> resolved = new(count);
+            foreach (string name in names)
             {
-                ProjectId = existing.Data.Id;
-                using BranchInterface branches = new(Server, Token);
-                IReadOnlyList<VBranch> list = Unwrap(await branches.ListBranchesAsync(ProjectId, ct));
-                VBranch branch = list.FirstOrDefault(b => b.Name == "main") ?? list.FirstOrDefault() ?? throw new BenchSetupException($"Project {ProjectName} has no branches.");
-                BranchId = branch.Id;
-                return;
+                ServerResult<VProject> existing = await projects.GetProjectByNameAsync(name, ct);
+                if (existing.IsSuccessStatusCode && existing.Data is not null)
+                {
+                    IReadOnlyList<VBranch> list = Unwrap(await branches.ListBranchesAsync(existing.Data.Id, ct));
+                    VBranch branch = list.FirstOrDefault(b => b.Name == "main") ?? list.FirstOrDefault() ?? throw new BenchSetupException($"Project {name} has no branches.");
+                    resolved.Add(new BenchProject(name, existing.Data.Id, branch.Id));
+                    continue;
+                }
+
+                CreateProjectResponse created = Unwrap(await projects.CreateProjectAsync(name, "main", ct));
+                resolved.Add(new BenchProject(name, created.Project.Id, created.DefaultBranch.Id));
+                CreatedProject = true;
             }
 
-            CreateProjectResponse created = Unwrap(await projects.CreateProjectAsync(ProjectName, "main", ct));
-            ProjectId = created.Project.Id;
-            BranchId = created.DefaultBranch.Id;
-            CreatedProject = true;
+            Projects = resolved;
         }
 
         public FilesInterface Files(int concurrency)

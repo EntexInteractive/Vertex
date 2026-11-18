@@ -18,13 +18,53 @@ namespace Vertex.Server.Branches
             _dapper = dapper;
         }
 
+        /// <summary>
+        /// Creates a branch. A branch with a parent starts with the parent's files as of its latest revision: the
+        /// parent's file list is copied (metadata only, never content) and that revision is kept as
+        /// <see cref="VBranch.BaseRevision"/>. Without a parent the branch starts empty.
+        /// </summary>
+        /// <returns>False when the project already has a branch with that name.</returns>
+        /// <exception cref="ArgumentException">The parent isn't a branch of the project.</exception>
         public async Task<bool> AddBranchAsync(VBranch branch, CancellationToken cancellationToken = default)
         {
-            const string sql = "INSERT INTO branches.branches (id, created_at, name, project_id, parent_id) VALUES(@Id, @CreatedAt, @Name, @ProjectId, @ParentId);";
+            await using NpgsqlConnection connection = _database.CreateConnection();
+            await connection.OpenAsync(cancellationToken);
+            await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+            long baseRevision = 0;
+            if (branch.ParentId is Guid parentId)
+            {
+                // Lock the project's counters row like a submit does, so no revision lands on the parent between
+                // reading its head and copying its files.
+                const string lockSql = "SELECT 1 FROM projects.counters WHERE project_id = @ProjectId FOR UPDATE;";
+                await connection.ExecuteAsync(new CommandDefinition(lockSql, new { branch.ProjectId }, transaction, cancellationToken: cancellationToken));
+
+                const string headSql = "SELECT GREATEST(b.base_revision, COALESCE((SELECT MAX(r.number) FROM revisions.revisions r WHERE r.branch_id = b.id), 0)) " +
+                                       "FROM branches.branches b WHERE b.id = @ParentId AND b.project_id = @ProjectId;";
+                baseRevision = await connection.ExecuteScalarAsync<long?>(new CommandDefinition(headSql, new { ParentId = parentId, branch.ProjectId }, transaction, cancellationToken: cancellationToken))
+                               ?? throw new ArgumentException("The parent branch doesn't exist in this project.", nameof(branch));
+            }
+
+            const string insertSql = "INSERT INTO branches.branches (id, created_at, name, project_id, parent_id, base_revision) " +
+                                     "VALUES(@Id, @CreatedAt, @Name, @ProjectId, @ParentId, @BaseRevision) ON CONFLICT ON CONSTRAINT uq_branches_project_name DO NOTHING;";
+            int inserted = await connection.ExecuteAsync(new CommandDefinition(insertSql,
+                new { branch.Id, CreatedAt = (long)branch.CreatedAt.TotalMilliseconds, branch.Name, branch.ProjectId, branch.ParentId, BaseRevision = baseRevision },
+                transaction, cancellationToken: cancellationToken));
+            if (inserted == 0) return false;
+
+            if (branch.ParentId is Guid parent)
+            {
+                const string copySql = "INSERT INTO revisions.head (branch_id, path_key, path, file_id, revision) " +
+                                       "SELECT @BranchId, path_key, path, file_id, revision FROM revisions.head WHERE branch_id = @ParentId;";
+                await connection.ExecuteAsync(new CommandDefinition(copySql, new { BranchId = branch.Id, ParentId = parent }, transaction, commandTimeout: 300, cancellationToken: cancellationToken));
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+            branch.BaseRevision = baseRevision;
 
             // A lookup before the branch existed may have cached "not found".
-            return await _dapper.ExecuteAsync(sql, new { branch.Id, CreatedAt = (long)branch.CreatedAt.TotalMilliseconds, branch.Name, branch.ProjectId, branch.ParentId },
-                cancellationToken, CacheKeys.BranchByName(branch.ProjectId, branch.Name), CacheKeys.BranchList(branch.ProjectId));
+            await _dapper.InvalidateAsync(CacheKeys.BranchByName(branch.ProjectId, branch.Name), CacheKeys.BranchList(branch.ProjectId));
+            return true;
         }
 
         /// <summary>
@@ -36,7 +76,7 @@ namespace Vertex.Server.Branches
         {
             await using NpgsqlConnection connection = _database.CreateConnection();
             const string sql = "DELETE FROM branches.branches WHERE project_id = @ProjectId AND name = @Name " +
-                               "RETURNING id, created_at, name, project_id, parent_id;";
+                               "RETURNING id, created_at, name, project_id, parent_id, base_revision;";
 
             VBranch? branch;
             try
@@ -60,19 +100,19 @@ namespace Vertex.Server.Branches
 
         public async Task<IReadOnlyList<VBranch>> ListBranchesAsync(Guid projectId, CancellationToken cancellationToken)
         {
-            const string sql = "SELECT id, created_at, name, project_id, parent_id FROM branches.branches WHERE project_id = @ProjectId ORDER BY name;";
+            const string sql = "SELECT id, created_at, name, project_id, parent_id, base_revision FROM branches.branches WHERE project_id = @ProjectId ORDER BY name;";
             return await _dapper.QueryAsync<VBranch>(sql, new { ProjectId = projectId }, CacheKeys.BranchList(projectId), cancellationToken: cancellationToken);
         }
 
         public async Task<VBranch?> GetBranchByIdAsync(Guid projectId, Guid branchId, CancellationToken cancellationToken)
         {
-            const string sql = "SELECT id, created_at, name, project_id, parent_id FROM branches.branches WHERE project_id = @ProjectId AND id = @Id;";
+            const string sql = "SELECT id, created_at, name, project_id, parent_id, base_revision FROM branches.branches WHERE project_id = @ProjectId AND id = @Id;";
             return await _dapper.QuerySingleAsync<VBranch>(sql, new { ProjectId = projectId, Id = branchId }, CacheKeys.BranchById(projectId, branchId), cancellationToken: cancellationToken);
         }
 
         public async Task<VBranch?> GetBranchByNameAsync(Guid projectId, string name, CancellationToken cancellationToken)
         {
-            const string sql = "SELECT id, created_at, name, project_id, parent_id FROM branches.branches WHERE project_id = @ProjectId AND name = @Name;";
+            const string sql = "SELECT id, created_at, name, project_id, parent_id, base_revision FROM branches.branches WHERE project_id = @ProjectId AND name = @Name;";
             return await _dapper.QuerySingleAsync<VBranch>(sql, new { ProjectId = projectId, Name = name }, CacheKeys.BranchByName(projectId, name), cancellationToken: cancellationToken);
         }
     }

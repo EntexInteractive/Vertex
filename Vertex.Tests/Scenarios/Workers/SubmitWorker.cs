@@ -20,6 +20,7 @@ namespace Vertex.Tests.Scenarios.Workers
         private readonly int _index;
         private readonly string _folder;
         private readonly Random _random;
+        private readonly BenchProject _project;
         private readonly FilesInterface _files;
         private readonly RevisionInterface _revisions;
         private readonly LatencyRecorder _upload;
@@ -36,6 +37,7 @@ namespace Vertex.Tests.Scenarios.Workers
             _upload = upload;
             _submit = submit;
             _random = new Random(index);
+            _project = context.ProjectFor(index);
             _folder = context.NewDirectory($"worker-{index:D3}");
             _files = context.Files(2);
             _revisions = context.Revisions();
@@ -76,7 +78,7 @@ namespace Vertex.Tests.Scenarios.Workers
             if (!uploaded) return false;
 
             (bool submitted, long _) = await _submit.TryTimeAsync(() =>
-                _revisions.SubmitAsync(_context.ProjectId, _context.BranchId, WorkspaceId, Host, $"Bench worker {_index}", changes, ct), ct);
+                _revisions.SubmitAsync(_project.ProjectId, _project.BranchId, WorkspaceId, Host, $"Bench worker {_index}", changes, ct), ct);
             if (!submitted) return false;
 
             for (int i = 0; i < slots.Length; i++)
@@ -106,7 +108,7 @@ namespace Vertex.Tests.Scenarios.Workers
             await _files.UploadAsync(chunked, ct: ct);
             try
             {
-                await _revisions.SubmitAsync(_context.ProjectId, _context.BranchId, WorkspaceId, Host, "Bench stale submit", changes, ct);
+                await _revisions.SubmitAsync(_project.ProjectId, _project.BranchId, WorkspaceId, Host, "Bench stale submit", changes, ct);
                 return false;
             }
             catch (RpcException ex) when (ex.StatusCode == StatusCode.FailedPrecondition)

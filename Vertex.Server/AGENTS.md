@@ -22,6 +22,12 @@ project-wide rules.
   `vertex.project_lock.held` and `vertex.db.commit` show where the time goes.
   `GetLockEvents` (for one-off commands) reads lock events from the event journal; keep its no-change path free of
   PostgreSQL (the latest seq is cached in Redis under `events:seq:{project}`, branch existence is cached too).
+- Branches: creating a branch with a parent copies the parent's `revisions.head` rows (metadata only) in one
+  transaction under the project's counters lock and records the parent's head as `branches.base_revision`; without a
+  parent the branch starts empty. A branch's head revision is `GREATEST(base_revision, its own latest)`.
+  `GetHeadChanges` syncs to the latest from `revisions.head`, or (an older `revision`, or a workspace synced before
+  the base) rebuilds the full file list from history along the branch's parent chain
+  (`RevisionsRepository.GetFilesAtRevisionAsync`) and sets `full`. Only that slow path reads history.
 - `Events/`: the project event bus. `EventStore` is the journal (`events.events`, gapless seqs per project from
   `projects.counters.event_seq`, one event per operation with a JSON payload). Writers append in their transaction and call
   `INotificationService.NotifyAsync` after commit (see `ProjectCalls.AfterCommitAsync`). `NotificationService` holds

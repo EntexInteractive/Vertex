@@ -303,3 +303,8 @@ CREATE TABLE IF NOT EXISTS files.manifests
     -- The FileManifest protobuf message (Files.proto).
     manifest BYTEA  NOT NULL
 );
+
+-- A branch made from a parent starts as a copy of the parent's files (its revisions.head rows) at the parent's head
+-- revision, recorded here. Revisions up to it come from the parent's history (recursively); 0 means the branch
+-- started empty.
+ALTER TABLE branches.branches ADD COLUMN IF NOT EXISTS base_revision BIGINT NOT NULL DEFAULT 0;

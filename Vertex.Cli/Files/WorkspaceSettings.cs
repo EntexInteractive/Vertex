@@ -31,7 +31,7 @@ namespace Vertex.Cli.Files
             VWorkspace workspace = VWorkspace.FindRequired(Directory.GetCurrentDirectory());
             WorkspaceConfig config = workspace.Config;
             if (config.ProjectId is not Guid projectId || config.BranchId is not Guid branchId)
-                throw new InvalidOperationException($"'{workspace.Root}' isn't linked to a project. Run 'vx fetch <project>' in it.");
+                throw new InvalidOperationException($"'{workspace.Root}' isn't linked to a project. Run 'vx clone <project>' in it.");
 
             return new LinkedWorkspace(workspace, projectId, branchId, config.WorkspaceId!.Value);
         }

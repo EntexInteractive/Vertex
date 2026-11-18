@@ -24,6 +24,10 @@ namespace Vertex.Cli.Branches
         [Description("Deletes without asking for confirmation.")]
         public bool Force { get; set; }
 
+        [CommandOption("--blank")]
+        [Description("Creates the branch with no files, instead of a copy of the current branch.")]
+        public bool Blank { get; set; }
+
         [CommandOption("--project|-p")]
         [Description("The project. Defaults to the current workspace's project.")]
         public string? Project { get; set; }
@@ -34,12 +38,14 @@ namespace Vertex.Cli.Branches
     /// <list type="bullet">
     /// <item><c>vx branch</c> shows the workspace's current branch (local, no server call).</item>
     /// <item><c>vx branch list</c> lists the project's branches on the server.</item>
-    /// <item><c>vx branch &lt;name&gt;</c> creates a branch; <c>vx branch -d &lt;name&gt;</c> deletes one.</item>
+    /// <item><c>vx branch &lt;name&gt;</c> creates a branch with the current branch's files (or none with
+    /// <c>--blank</c>); <c>vx branch -d &lt;name&gt;</c> deletes one.</item>
     /// </list>
     /// </summary>
     /// <remarks>
     /// Inside a workspace the project comes from <c>.vx/config</c> with no extra server call, and a new branch is
-    /// created from the workspace's current branch. <c>list</c> is reserved, so no branch can be named that.
+    /// created from the workspace's current branch (outside one, from <c>main</c>). The server copies the parent's
+    /// files as of its latest revision; nothing is uploaded. <c>list</c> is reserved, so no branch can be named that.
     /// </remarks>
     public sealed class BranchCommand : AsyncCommand<BranchCommandSettings>
     {
@@ -76,16 +82,43 @@ namespace Vertex.Cli.Branches
 
             using BranchInterface branches = new(settings.ServerAddress, settings.Token);
             if (list) return await ListAsync(branches, projectId.Value, currentBranchId, cancellationToken);
-            return settings.Delete ? await DeleteAsync(branches, projectId.Value, name, currentBranch, settings.Force, cancellationToken) : await CreateAsync(branches, projectId.Value, name, currentBranchId, currentBranch, cancellationToken);
+            if (settings.Delete) return await DeleteAsync(branches, projectId.Value, name, currentBranch, settings.Force, cancellationToken);
+            if (settings.Blank) return await CreateAsync(branches, projectId.Value, name, null, null, cancellationToken);
+
+            // Outside a workspace of this project, branch from main so a new branch is never empty by accident.
+            if (currentBranchId is null)
+            {
+                ServerResult<VBranch> main = await branches.GetBranchByNameAsync(projectId.Value, DefaultParent, cancellationToken);
+                if (main.IsSuccessStatusCode)
+                {
+                    currentBranchId = main.Data!.Id;
+                    currentBranch = main.Data.Name;
+                }
+                else if (main.StatusCode == 404)
+                {
+                    AnsiConsole.MarkupLine($"[red]The project has no '{DefaultParent}' branch to copy. Run this inside a workspace to branch from its branch, or add --blank for an empty branch.[/]");
+                    return 1;
+                }
+                else
+                {
+                    AnsiConsole.MarkupLine($"[red]Could not get the '{DefaultParent}' branch: {Markup.Escape(main.Exception?.Message ?? "Unknown error")}[/]");
+                    return 1;
+                }
+            }
+
+            return await CreateAsync(branches, projectId.Value, name, currentBranchId, currentBranch, cancellationToken);
         }
+
+        /// <summary>The branch a new branch copies outside a workspace.</summary>
+        private const string DefaultParent = "main";
 
         private static int ShowCurrent(VWorkspace? workspace)
         {
             if (workspace?.Config.Branch is not string branch)
             {
                 AnsiConsole.MarkupLine(workspace is null
-                    ? "[red]Not inside a Vertex workspace. Run 'vx init' or 'vx fetch <project>' to create one.[/]"
-                    : "[red]This workspace isn't linked to a branch. Run 'vx fetch <project>' to link it.[/]");
+                    ? "[red]Not inside a Vertex workspace. Run 'vx init' or 'vx clone <project>' to create one.[/]"
+                    : "[red]This workspace isn't linked to a branch. Run 'vx clone <project>' in an empty folder to make a workspace.[/]");
 
                 return 1;
             }
@@ -110,7 +143,7 @@ namespace Vertex.Cli.Branches
             {
                 bool current = branch.Id == currentBranchId;
                 string parent = branch.ParentId is Guid parentId && names.TryGetValue(parentId, out string? parentName)
-                    ? $" [grey](from {Markup.Escape(parentName)})[/]"
+                    ? $" [grey](from {Markup.Escape(parentName)}{(branch.BaseRevision > 0 ? $" at #{branch.BaseRevision}" : "")})[/]"
                     : "";
 
                 AnsiConsole.MarkupLine(current
@@ -134,8 +167,11 @@ namespace Vertex.Cli.Branches
                 return 1;
             }
 
-            string from = parentName is null ? "" : $" from [purple]{Markup.Escape(parentName)}[/]";
-            AnsiConsole.MarkupLine($"Created branch [purple]{Markup.Escape(result.Data!.Name)}[/]{from}.");
+            VBranch created = result.Data!;
+            string from = parentName is null
+                ? " with no files"
+                : $" from [purple]{Markup.Escape(parentName)}[/]{(created.BaseRevision > 0 ? $" at [purple]#{created.BaseRevision}[/]" : "")}";
+            AnsiConsole.MarkupLine($"Created branch [purple]{Markup.Escape(created.Name)}[/]{from}. Run 'vx checkout {Markup.Escape(created.Name)}' to switch to it.");
             return 0;
         }
 

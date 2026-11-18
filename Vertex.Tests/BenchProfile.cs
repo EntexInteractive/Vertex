@@ -11,6 +11,7 @@ namespace Vertex.Tests
     /// <param name="TransferConcurrency">The stream counts the upload and download scenarios compare.</param>
     /// <param name="SubmitThink">Pause between one simulated developer's submits.</param>
     /// <param name="LockThink">Pause between one simulated workspace's lock and unlock cycles.</param>
+    /// <param name="Projects">Projects the simulated developers are spread over (round-robin), like teams on one server.</param>
     public sealed record BenchProfile(
         string Name,
         int LargeFiles,
@@ -21,7 +22,8 @@ namespace Vertex.Tests
         TimeSpan Duration,
         int[] TransferConcurrency,
         ThinkTime SubmitThink,
-        ThinkTime LockThink)
+        ThinkTime LockThink,
+        int Projects = 1)
     {
         private const long Megabyte = 1024 * 1024;
 
@@ -37,9 +39,10 @@ namespace Vertex.Tests
 
         /// <summary>
         /// What a real team feels: everyone has vx open (one event stream each), developers submit every 30-60 s and
-        /// lock files as they save every 10-30 s. Small data sets, so it's about latency under realistic load.
+        /// lock files as they save every 10-30 s, spread over 10 projects (10 developers each) the way several teams
+        /// share one server. Small data sets, so it's about latency under realistic load.
         /// </summary>
-        public static readonly BenchProfile Team = new("team", 4, 64 * Megabyte, 2_000, 100, 100, TimeSpan.FromMinutes(10), [1, 4], new ThinkTime(TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(60)), new ThinkTime(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30)));
+        public static readonly BenchProfile Team = new("team", 4, 64 * Megabyte, 2_000, 100, 100, TimeSpan.FromMinutes(10), [1, 4], new ThinkTime(TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(60)), new ThinkTime(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30)), Projects: 10);
 
         public long LargeTotalBytes => LargeFiles * LargeFileSize;
 
@@ -77,13 +80,14 @@ namespace Vertex.Tests
                 Duration = settings.ParsedDuration ?? profile.Duration,
                 TransferConcurrency = settings.Concurrency is int streams ? [streams] : profile.TransferConcurrency,
                 SubmitThink = settings.Think is string think ? ThinkTime.Parse(think)! : profile.SubmitThink,
-                LockThink = settings.LockThink is string lockThink ? ThinkTime.Parse(lockThink)! : profile.LockThink
+                LockThink = settings.LockThink is string lockThink ? ThinkTime.Parse(lockThink)! : profile.LockThink,
+                Projects = settings.NumProjects ?? profile.Projects
             };
         }
 
         public override string ToString()
         {
-            return $"{Name}: {LargeFiles} x {Format.Bytes(LargeFileSize)} assets, {SmallFiles:N0} small files, {Clients} clients, " +
+            return $"{Name}: {LargeFiles} x {Format.Bytes(LargeFileSize)} assets, {SmallFiles:N0} small files, {Clients} clients over {Projects} project(s), " +
                    $"{Subscribers} subscribers, {Format.Duration(Duration)} timed scenarios, streams {string.Join("/", TransferConcurrency)}, " +
                    $"think {SubmitThink} between submits, {LockThink} between locks";
         }

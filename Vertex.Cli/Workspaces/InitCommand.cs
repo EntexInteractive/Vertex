@@ -23,7 +23,7 @@ namespace Vertex.Cli.Workspaces
     /// </summary>
     /// <remarks>
     /// The server comes first: if it can't be reached or the name is taken, nothing is created locally. To link a
-    /// folder to a project that already exists, use <c>vx fetch</c>.
+    /// folder to a project that already exists, use <c>vx clone</c>.
     /// </remarks>
     public sealed class InitCommand : AsyncCommand<InitSettings>
     {
@@ -61,7 +61,7 @@ namespace Vertex.Cli.Workspaces
             ServerResult<CreateProjectResponse> result = await projects.CreateProjectAsync(projectName, branchName, cancellationToken);
             if (result.StatusCode == 409)
             {
-                AnsiConsole.MarkupLine($"[red]Project '{Markup.Escape(projectName)}' already exists. Use 'vx fetch {Markup.Escape(projectName)}' to link this folder to it.[/]");
+                AnsiConsole.MarkupLine($"[red]Project '{Markup.Escape(projectName)}' already exists. Use 'vx clone {Markup.Escape(projectName)}' to get its files here.[/]");
                 return 1;
             }
 
@@ -89,7 +89,7 @@ namespace Vertex.Cli.Workspaces
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 AnsiConsole.MarkupLine($"[red]Project '{Markup.Escape(created.Project.Name)}' was created on the server, but the workspace could not be created: {Markup.Escape(ex.Message)}[/]");
-                AnsiConsole.MarkupLine($"[grey]Fix the problem, then run 'vx fetch {Markup.Escape(created.Project.Name)}' here to link it.[/]");
+                AnsiConsole.MarkupLine($"[grey]Fix the problem, then run 'vx clone {Markup.Escape(created.Project.Name)}' here to link it.[/]");
                 return 1;
             }
 
