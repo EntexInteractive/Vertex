@@ -23,28 +23,17 @@ namespace Vertex.Core.Security
         /// </summary>
         Write = 2,
 
-        /*/// <summary>
-        /// Manage project access and settings.
+        /// <summary>
+        /// Manage the project's access and branches, and release anyone's locks in it. The highest level that can be
+        /// granted: it applies to that one project only.
         /// </summary>
-        Manage = 3,*/
+        Manage = 3,
 
         /// <summary>
-        /// Manage access and branches, and delete the project.
+        /// Server admin: everything in every project. Comes only from the user's server-admin flag
+        /// (<c>vx user admin</c>), never from a grant.
         /// </summary>
-        Admin = 3
-    }
-
-    /// <summary>
-    /// Who can read a project without an explicit grant.
-    /// </summary>
-    /// <remarks>Stored as <c>SMALLINT</c>; don't renumber.</remarks>
-    public enum ProjectVisibility : short
-    {
-        /// <summary>Only users and groups with a grant.</summary>
-        Private = 0,
-
-        /// <summary>Every logged-in user can read it.</summary>
-        Internal = 1
+        Admin = 4
     }
 
     /// <summary>

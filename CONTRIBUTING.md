@@ -100,7 +100,8 @@ docker compose up -d postgres redis rustfs rustfs-init   # dependencies only
 dotnet build Vertex.sln
 ```
 
-To run the server from your IDE, set the environment variables listed in the [README](README.md#configuration) in
+To run the server from your IDE, set the environment variables listed in
+[Configuration](docs/server/configuration.md) in
 `Vertex.Server/Properties/launchSettings.json`, which is git-ignored. Use these values for the compose stack:
 
 ```text
@@ -143,8 +144,9 @@ it won't run it again.
 | `Vertex.Web`         | React + TypeScript + Vite web UI.                                  |
 | `Vertex.Gui`         | Photino desktop app hosting the web UI.                            |
 
-The gRPC contract is `Vertex.Server/Protos/Files.proto`. The server and clients generate code from it, so build the
-whole solution after changing it.
+The gRPC contracts are `Vertex.Server/Protos/Files.proto` and `Events.proto`. The server and clients generate code
+from them, so build the whole solution after changing one. [docs/internals/](docs/internals/architecture.md) explains
+how the pieces fit together.
 
 ## Making changes
 
@@ -157,11 +159,13 @@ whole solution after changing it.
       explicit types where the codebase uses them, and a `// Copyright 2026 Entex Interactive` header in new files.
     - TypeScript: run `npm run lint` in `Vertex.Web`.
     - The server reads configuration only from environment variables, in `ServerSettings.cs`. Add new settings there
-      and document them in the README.
+      and document them in [docs/server/configuration.md](docs/server/configuration.md).
     - Call the server-side history unit a **revision**, never a "changeset", in code, CLI output and docs.
 4. Make sure everything builds: `dotnet build Vertex.sln`, and for web changes, `npm run lint` and `npm run build` in
    `Vertex.Web`.
 5. Run the commands you touched against a local server, and describe what you tested in the pull request.
+   If the change affects users (a command, an option, a setting, a metric), update the matching page in
+   [`docs/`](docs/README.md) in the same pull request.
 6. Write commit messages in the imperative mood, with a short summary line (for example, "Add branch delete
    confirmation").
 

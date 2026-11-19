@@ -7,7 +7,8 @@ The `vx` command line client, built on Spectre.Console.Cli. See the root AGENTS.
   registered there.
 - Commands are grouped by area: `Workspaces/` (`init`, `clone`), `Files/` (`status`, `submit`, `sync`, `revert`;
   `WorkspaceSettings.cs` has their shared settings, the linked-workspace lookup and path filtering), `Branches/`
-  (`branch`, `checkout`), `Projects/`, `Profiles/`, `Net/` (`info`), `Utils/`.
+  (`branch`, `checkout`, `merge`; `MergeOutput` is shared with `submit --merge-to` and prints merge chains with
+  `PrintAutoMerges`; `vx branch` scans for unsubmitted changes before creating a branch from the workspace's branch), `Projects/`, `Profiles/`, `Net/` (`info`), `Utils/`.
 - `Files/WorkspaceSync.cs` is the sync both `vx sync` (`-r` for any revision) and `vx checkout` run: one listing from
   `GetHeadChanges`, downloads only files whose content id differs from the index, and when the listing is full
   (`HeadChanges.Full`: a first sync, an older revision, or a new branch) removes tracked files that aren't in it.

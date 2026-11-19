@@ -55,6 +55,9 @@ namespace Vertex.Server.Telemetry
         /// <summary>Submits refused because a file changed on the server or is locked by someone else, tagged with <c>reason</c>.</summary>
         public static readonly Counter<long> SubmitsRefused = Meter.CreateCounter<long>("vertex.revisions.refused", "{submit}", "Submits refused (out of date or locked).");
 
+        /// <summary>Merges between branches, tagged with <c>result</c> (merged, up_to_date, conflicts, locked).</summary>
+        public static readonly Counter<long> Merges = Meter.CreateCounter<long>("vertex.merges", "{merge}", "Merges between branches, by result.");
+
         /// <summary>Files locked.</summary>
         public static readonly Counter<long> LocksGranted = Meter.CreateCounter<long>("vertex.locks.granted", "{file}", "Files locked.");
 

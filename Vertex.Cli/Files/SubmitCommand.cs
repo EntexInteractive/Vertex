@@ -2,6 +2,7 @@
 
 using System.ComponentModel;
 using System.Diagnostics;
+using Vertex.Cli.Branches;
 using Vertex.Core.Client.Workspaces;
 using Vertex.Core.Data;
 using Vertex.Core.Net;
@@ -20,6 +21,10 @@ namespace Vertex.Cli.Files
         [CommandOption("--message|-m")]
         [Description("What changed, shown in the project's history.")]
         public string? Message { get; set; }
+
+        [CommandOption("--merge-to")]
+        [Description("After submitting, also merge the branch into this one. Files changed on both stop the merge, not the submit.")]
+        public string? MergeTo { get; set; }
     }
 
     /// <summary>
@@ -39,6 +44,21 @@ namespace Vertex.Cli.Files
 
             Stopwatch timer = Stopwatch.StartNew();
             LinkedWorkspace linked = LinkedWorkspace.FromCurrentDirectory();
+
+            // Check the merge target before submitting anything, so a typo doesn't leave a half-done job.
+            VBranch? mergeTarget = null;
+            if (!string.IsNullOrWhiteSpace(settings.MergeTo))
+            {
+                using BranchInterface branches = new(settings.ServerAddress, settings.Token);
+                mergeTarget = await MergeOutput.FindBranchAsync(branches, linked, settings.MergeTo, cancellationToken);
+                if (mergeTarget is null) return 1;
+                if (mergeTarget.Id == linked.BranchId)
+                {
+                    AnsiConsole.MarkupLine($"[red]The workspace is on '{Markup.Escape(mergeTarget.Name)}' already. Name another branch for --merge-to, or leave it out.[/]");
+                    return 1;
+                }
+            }
+
             PathFilter filter = PathFilter.Create(linked.Workspace, settings.Paths);
             int parallel = Math.Max(1, settings.MaxConcurrency);
             using WorkspaceIndex index = linked.Workspace.OpenIndex();
@@ -96,9 +116,7 @@ namespace Vertex.Cli.Files
                     ProgressTask? hashing = unchunked.Count > 0 ? progress.AddTask("Hashing", maxValue: Math.Max(1, unchunked.Sum(c => status.Entries[c.Path].Size))) : null;
                     ProgressTask uploading = progress.AddTask("Submitting", autoStart: false);
 
-                    ChunkedFile[] chunked = await Task.Run(() => toSend
-                        .AsParallel().WithDegreeOfParallelism(parallel).WithCancellation(cancellationToken)
-                        .Select(c =>
+                    ChunkedFile[] chunked = await Task.Run(() => toSend.AsParallel().WithDegreeOfParallelism(parallel).WithCancellation(cancellationToken).Select(c =>
                         {
                             ChunkedFile file = Chunk(linked.Workspace, c, cancellationToken);
                             if (c.Chunks is null) hashing?.Increment(status.Entries[c.Path].Size);
@@ -137,7 +155,9 @@ namespace Vertex.Cli.Files
             }
 
             using RevisionInterface revisions = new(settings.ServerAddress, settings.Token);
-            long revision = await revisions.SubmitAsync(linked.ProjectId, linked.BranchId, linked.WorkspaceId, WorkspaceLocks.Host, settings.Message.Trim(), changes, cancellationToken);
+            SubmitResponse response = await revisions.SubmitRevisionAsync(linked.ProjectId, linked.BranchId, linked.WorkspaceId, WorkspaceLocks.Host, settings.Message.Trim(), changes,
+                cancellationToken);
+            long revision = response.Revision;
 
             // The submitted content is now the base the next changes are measured against.
             List<IndexEntry> upserts = new();
@@ -170,6 +190,17 @@ namespace Vertex.Cli.Files
             if (upload is not null)
             {
                 AnsiConsole.MarkupLine($"[grey]Submitted {TransferDisplay.Bytes(upload.CompressedBytesUploaded)} ({upload.ChunksUploaded:N0} chunks, {upload.ChunksDeduplicated:N0} already on the server) in {timer.Elapsed.TotalSeconds:N2}s.[/]");
+            }
+
+            // The branch's merge chain (vx branch --merge-to) ran on the server; a stopped chain warns but the submit stands.
+            MergeOutput.PrintAutoMerges(response.AutoMerges);
+
+            if (mergeTarget is not null)
+            {
+                // The submit stands either way; a refused merge says how to finish it with 'vx merge'.
+                VBranch source = new(linked.BranchId, 0, linked.Workspace.Config.Branch ?? "this branch", linked.ProjectId, null);
+                bool merged = await MergeOutput.RunAsync(settings, linked, source, mergeTarget, settings.Message.Trim(), MergeResolution.None, cancellationToken);
+                if (!merged) return 1;
             }
 
             return 0;

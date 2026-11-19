@@ -31,15 +31,19 @@ namespace Vertex.Cli
             config.AddCommand<StatusCommand>("status").WithDescription("Shows files changed since the last submit or sync.");
             config.AddCommand<SubmitCommand>("submit").WithDescription("Submits the changes in the current folder as one revision.")
                 .WithExample("submit", "-m", "\"Add jump animation\"")
-                .WithExample("submit", "-m", "\"New level\"", "Content/Maps");
-            
+                .WithExample("submit", "-m", "\"New level\"", "Content/Maps")
+                .WithExample("submit", "-m", "\"Fix jump\"", "--merge-to", "main");
+            config.AddCommand<MergeCommand>("merge").WithDescription("Merges another branch's changes into this branch (or --into another), on the server.")
+                .WithExample("merge", "feature-x")
+                .WithExample("merge", "feature-x", "--into", "main", "--take-source");
+
             config.AddCommand<SyncCommand>("sync").WithDescription("Gets the latest (or a given) revision of the branch, keeping local changes.")
                 .WithExample("sync")
                 .WithExample("sync", "-r", "120");
             config.AddCommand<CheckoutCommand>("checkout").WithDescription("Switches the workspace to another branch, downloading only the files that differ.")
                 .WithExample("checkout", "feature-x");
             config.AddCommand<LocksCommand>("locks").WithDescription("Lists who has which files locked on this branch.");
-            config.AddCommand<UnlockCommand>("unlock").WithDescription("Releases locks held elsewhere: yours from another workspace, or anyone's for project admins.")
+            config.AddCommand<UnlockCommand>("unlock").WithDescription("Releases locks held elsewhere: yours from another workspace, or anyone's with manage access.")
                 .WithExample("unlock", "Content/Maps/City.umap");
             config.AddCommand<RevertCommand>("revert").WithDescription("Discards local changes to files, restoring them from the server.")
                 .WithExample("revert", "Content/Hero.uasset")
@@ -78,13 +82,11 @@ namespace Vertex.Cli
 
             config.AddBranch<AccessSettings>("access", branch =>
             {
-                branch.SetDescription("Shows or changes who can read, write or administer the project.");
+                branch.SetDescription("Shows or changes who can read, write or manage the project.");
                 branch.SetDefaultCommand<ListAccessCommand>();
                 branch.AddCommand<GrantAccessCommand>("grant").WithDescription("Gives a user or group read, write or admin access.")
                     .WithExample("access", "grant", "artists", "write");
                 branch.AddCommand<RevokeAccessCommand>("revoke").WithDescription("Removes a user's or group's access.");
-                branch.AddCommand<SetVisibilityCommand>("visibility").WithDescription("Makes the project internal or private.")
-                    .WithExample("access", "visibility", "private");
             });
 
             config.AddBranch("project", branch =>
@@ -97,7 +99,9 @@ namespace Vertex.Cli
                 .WithExample("branch", "list")
                 .WithExample("branch", "feature-x")
                 .WithExample("branch", "experiment", "--blank")
-                .WithExample("branch", "-d", "feature-x");
+                .WithExample("branch", "-d", "feature-x")
+                .WithExample("branch", "release-1.0", "--merge-to", "release-2.0")
+                .WithExample("branch", "--merge-to", "none");
         }
     }
 }

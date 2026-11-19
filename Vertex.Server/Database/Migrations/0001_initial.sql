@@ -75,8 +75,6 @@ CREATE TABLE IF NOT EXISTS projects.projects
     id         UUID         PRIMARY KEY,
     created_at BIGINT       NOT NULL,
     name       VARCHAR(255) NOT NULL,
-    -- 0 = private (grants only), 1 = internal (every logged-in user can read).
-    visibility SMALLINT     NOT NULL DEFAULT 1,
     owner_id   UUID         NOT NULL,
 
     CONSTRAINT uq_projects_name UNIQUE (name),
@@ -85,13 +83,12 @@ CREATE TABLE IF NOT EXISTS projects.projects
 
 CREATE INDEX IF NOT EXISTS idx_projects_owner_id ON projects.projects (owner_id);
 
--- Upgrades databases created before visibility replaced the unused permission column.
-ALTER TABLE projects.projects ADD COLUMN IF NOT EXISTS visibility SMALLINT NOT NULL DEFAULT 1;
+-- Upgrades older databases: the unused permission column, and visibility, which grants replaced (see the end).
 ALTER TABLE projects.projects DROP COLUMN IF EXISTS permission;
 
 -- Project access grants. principal_id is a user (kind 0) or a group (kind 1); it has no foreign key because it can
 -- point at either table, so the server deletes a principal's grants when it deletes the user or group.
--- level: 1 = read, 2 = write, 3 = admin.
+-- level: 1 = read, 2 = write, 3 = manage. Server admins (4) come from auth.users.is_admin, never from a grant.
 CREATE TABLE IF NOT EXISTS projects.access
 (
     project_id     UUID     NOT NULL,
@@ -308,3 +305,36 @@ CREATE TABLE IF NOT EXISTS files.manifests
 -- revision, recorded here. Revisions up to it come from the parent's history (recursively); 0 means the branch
 -- started empty.
 ALTER TABLE branches.branches ADD COLUMN IF NOT EXISTS base_revision BIGINT NOT NULL DEFAULT 0;
+
+-- Merges between a branch and its parent (vx merge, vx submit --merge-to): the source revision the target took in,
+-- so the next merge between the two compares only what changed on the source since. target_revision is the revision
+-- the merge wrote on the target, NULL when the target already had every change.
+CREATE TABLE IF NOT EXISTS revisions.merges
+(
+    id               BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    project_id       UUID   NOT NULL,
+    source_branch_id UUID   NOT NULL,
+    target_branch_id UUID   NOT NULL,
+    source_revision  BIGINT NOT NULL,
+    target_revision  BIGINT NULL,
+    user_id          UUID   NOT NULL,
+    created_at       BIGINT NOT NULL,
+
+    CONSTRAINT fk_merges_source FOREIGN KEY (source_branch_id) REFERENCES branches.branches (id) ON DELETE CASCADE,
+    CONSTRAINT fk_merges_target FOREIGN KEY (target_branch_id) REFERENCES branches.branches (id) ON DELETE CASCADE,
+    CONSTRAINT fk_merges_user FOREIGN KEY (user_id) REFERENCES auth.users (id) ON DELETE RESTRICT
+);
+
+CREATE INDEX IF NOT EXISTS idx_merges_pair ON revisions.merges (source_branch_id, target_branch_id, id DESC);
+
+-- The branch every revision on this one is merged into automatically (vx branch <name> --merge-to <target>), so fixes
+-- flow forward along a chain such as release-1.0 -> release-2.0 -> main. NULL for none. A branch others merge into
+-- can't be deleted until they stop.
+ALTER TABLE branches.branches ADD COLUMN IF NOT EXISTS merge_to UUID NULL
+    CONSTRAINT fk_branches_merge_to REFERENCES branches.branches (id) ON DELETE NO ACTION;
+
+CREATE INDEX IF NOT EXISTS idx_branches_merge_to ON branches.branches (merge_to);
+
+-- Projects have no visibility: access comes only from grants (and the server-admin flag). Projects that were
+-- 'internal' are no longer readable without a grant; grant read to a group where that's wanted.
+ALTER TABLE projects.projects DROP COLUMN IF EXISTS visibility;

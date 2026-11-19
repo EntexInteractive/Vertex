@@ -27,8 +27,7 @@ namespace Vertex.Core.Net.Interfaces
         {
             SubscribeRequest request = new() { ProjectId = projectId.ToString(), BranchId = branchId.ToString(), AfterSeq = afterSeq };
             using AsyncServerStreamingCall<EventMessage> call = EventFeedClient.Subscribe(request, cancellationToken: ct);
-            await foreach (EventMessage message in call.ResponseStream.ReadAllAsync(ct))
-                yield return message;
+            await foreach (EventMessage message in call.ResponseStream.ReadAllAsync(ct)) yield return message;
         }
     }
 }

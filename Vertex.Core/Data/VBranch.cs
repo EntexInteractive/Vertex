@@ -40,16 +40,23 @@ namespace Vertex.Core.Data
         /// </summary>
         public long BaseRevision { get; set; }
 
-        public VBranch(string name, Guid projectId, Guid? parentId = null)
+        /// <summary>
+        /// The branch every revision on this one is merged into automatically, or null for none.
+        /// </summary>
+        public Guid? MergeTo { get; set; }
+
+        public VBranch(string name, Guid projectId, Guid? parentId = null, Guid? mergeTo = null)
         {
             Name = name;
             ProjectId = projectId;
             ParentId = parentId;
+            MergeTo = mergeTo;
         }
 
         [JsonConstructor]
-        public VBranch(Guid id, long createdAt, string name, Guid projectId, Guid? parentId, long baseRevision = 0)
+        public VBranch(Guid id, long createdAt, string name, Guid projectId, Guid? parentId, long baseRevision = 0, Guid? mergeTo = null)
         {
+            MergeTo = mergeTo;
             BaseRevision = baseRevision;
             Id = id;
             CreatedAt = UnixTime.FromMilliseconds(createdAt);

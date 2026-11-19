@@ -9,5 +9,5 @@
 ## Checklist
 
 - [ ] `dotnet build Vertex.sln` succeeds (and `npm run lint` and `npm run build` in `Vertex.Web` for web changes)
-- [ ] New server settings are read in `ServerSettings.cs` and documented in the README
+- [ ] New server settings are read in `ServerSettings.cs` and documented in `docs/server/configuration.md`
 - [ ] No secrets, credentials or local config files are included

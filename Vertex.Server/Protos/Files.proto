@@ -90,11 +90,13 @@ message DownloadChunksRequest {
 // removes tracked files that aren't in them.
 // History: GetRevisions lists a branch's revisions after a number, oldest first, and GetRevisionChanges pages through
 // the files one revision changed (for logs, and for mirroring a branch into another version control system).
+// Merge: takes the changes made on one branch into another that shares its history (see MergeRequest).
 service Revisions {
   rpc Submit(SubmitRequest) returns (SubmitResponse);
   rpc GetHeadChanges(GetHeadChangesRequest) returns (GetHeadChangesResponse);
   rpc GetRevisions(GetRevisionsRequest) returns (GetRevisionsResponse);
   rpc GetRevisionChanges(GetRevisionChangesRequest) returns (GetRevisionChangesResponse);
+  rpc Merge(MergeRequest) returns (MergeResponse);
 }
 
 message FileChange {
@@ -114,6 +116,22 @@ message SubmitRequest {
 
 message SubmitResponse {
   int64 revision = 1;
+  repeated AutoMergeResult auto_merges = 2;  // The branch's merge chain, one per hop tried (see AutoMergeResult).
+}
+
+// One hop of a branch's automatic merge chain: after a revision lands on a branch with a merge target, the server
+// merges it into that target, then on from there while each hop writes a revision. The chain stops at the first hop
+// that has nothing to do, conflicts, is blocked by a lock or fails; the revision that started it stands either way.
+message AutoMergeResult {
+  string source_branch_id = 1;
+  string source_branch = 2;              // Name.
+  string target_branch_id = 3;
+  string target_branch = 4;              // Name.
+  int64 revision = 5;                    // The revision written on the target; 0 when it wrote none.
+  int32 files = 6;
+  repeated MergeConflict conflicts = 7;  // Set when conflicts stopped the chain here.
+  int32 conflicts_total = 8;
+  string error = 9;                      // Why the chain stopped here otherwise (a lock, an unrelated branch, ...).
 }
 
 message GetHeadChangesRequest {
@@ -173,6 +191,44 @@ message RevisionFileChange {
 message GetRevisionChangesResponse {
   repeated RevisionFileChange changes = 1;
   string next_page_token = 2;  // Empty on the last page.
+}
+
+// Merges every change made on the source branch since the last merge between the two (or since one was branched
+// from the other) into the target, as one revision on the target. The branches must share an ancestor: a parent and child
+// in either direction, or siblings. The base is the newest state both contain (the source side of their latest merge in
+// either direction, or their nearest common ancestor as of the older copy). For each file that differs between the branches, with B its content at the
+// base, S on the source and T on the target: S == B (only the target changed it) is skipped, T == B takes S, and
+// anything else is a conflict, which refuses the whole merge unless `resolve` picks a side. Content is never merged
+// inside a file.
+message MergeRequest {
+  string project_id = 1;
+  string source_branch_id = 2;
+  string target_branch_id = 3;
+  string message = 4;           // Empty for "Merge <source> into <target>".
+  MergeResolution resolve = 5;
+  string workspace_id = 6;      // The caller's workspace, if any, for the events.
+  string host = 7;
+}
+
+enum MergeResolution {
+  MERGE_RESOLUTION_NONE = 0;         // Conflicts refuse the merge.
+  MERGE_RESOLUTION_KEEP_TARGET = 1;  // Conflicting files keep the target's content.
+  MERGE_RESOLUTION_TAKE_SOURCE = 2;  // Conflicting files take the source's content.
+}
+
+message MergeConflict {
+  string path = 1;
+  string source_file_id = 2;  // Empty when the source deleted it.
+  string target_file_id = 3;  // Empty when the target deleted it (or never had it).
+}
+
+message MergeResponse {
+  int64 revision = 1;                    // The revision written on the target; 0 when nothing was written.
+  int32 files = 2;                       // Files it changed.
+  repeated MergeConflict conflicts = 3;  // Set when conflicts refused the merge (nothing was written).
+  int32 conflicts_total = 4;             // All conflicts, when more than were listed.
+  int32 resolved = 5;                    // Conflicts settled by `resolve`.
+  repeated AutoMergeResult auto_merges = 6;  // The target's merge chain, when the merge wrote a revision.
 }
 
 // File locks. Clients lock a path on a branch as soon as they see it change and keep the lock until the change is

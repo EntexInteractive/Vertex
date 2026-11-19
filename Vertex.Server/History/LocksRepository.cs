@@ -84,7 +84,7 @@ namespace Vertex.Server.History
         /// Releases one request's locks and returns, in one result set: the released locks (kind 0) and the event seq
         /// when anything was released (kind 1, in created_at). Same transaction rules as <see cref="LockSql"/>.
         /// Without force a workspace releases only its own locks; with force also the caller's locks from other
-        /// workspaces, or anyone's for a project admin.
+        /// workspaces, or anyone's for someone with manage access.
         /// </summary>
         private const string UnlockSql =
             "WITH del AS (DELETE FROM locks.locks l WHERE l.branch_id = @BranchId AND l.path_key = ANY(@Keys::TEXT[]) " +

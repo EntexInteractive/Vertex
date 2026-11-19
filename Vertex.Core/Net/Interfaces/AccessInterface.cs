@@ -23,10 +23,5 @@ namespace Vertex.Core.Net.Interfaces
         {
             return SendAsync<bool>(HttpMethod.Delete, $"api/v1/access?projectId={projectId}&name={Uri.EscapeDataString(name)}", cancellationToken: ct);
         }
-
-        public Task<ServerResult<VProject>> SetVisibilityAsync(Guid projectId, ProjectVisibility visibility, CancellationToken ct = default)
-        {
-            return SendAsync<VProject>(HttpMethod.Put, $"api/v1/access/visibility?projectId={projectId}&visibility={visibility}", cancellationToken: ct);
-        }
     }
 }

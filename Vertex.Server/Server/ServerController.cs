@@ -22,11 +22,9 @@ namespace Vertex.Server.Server
         [ProducesResponseType(StatusCodes.Status200OK)]
         public ActionResult<InfoResponse> GetServerInfo()
         {
+            using Process process = Process.GetCurrentProcess();
             Assembly assembly = Assembly.GetExecutingAssembly();
             AssemblyName assemblyName = assembly.GetName();
-            
-            using Process process = Process.GetCurrentProcess();
-            GCMemoryInfo gc = GC.GetGCMemoryInfo();
             
             return Ok(new InfoResponse
             {

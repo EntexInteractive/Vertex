@@ -18,7 +18,7 @@ namespace Vertex.Server.Database
         /// <summary>Access levels everywhere: group membership, admin flags, deleted groups.</summary>
         public const string AccessGeneration = "gen:access";
 
-        /// <summary>Which projects each user can see: projects created, grants, visibility, membership.</summary>
+        /// <summary>Which projects each user can see: projects created, grants, membership.</summary>
         public const string ProjectListGeneration = "gen:projects";
 
         /// <summary>The user list.</summary>

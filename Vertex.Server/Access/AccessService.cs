@@ -29,12 +29,13 @@ namespace Vertex.Server.Access
     }
 
     /// <summary>
-    /// Project permissions: fixed levels (read, write, admin) granted to users or groups, plus a server-admin flag
-    /// and per-project visibility. There are no custom roles.
+    /// Project permissions: fixed levels (read, write, manage) granted to users or groups, plus a server-admin flag
+    /// that gives admin in every project. There are no custom roles and no default access: without a grant, a user
+    /// can't see a project.
     /// </summary>
     /// <remarks>
-    /// A user's effective level is the highest of: admin when they are a server admin, read when the project is
-    /// internal, their own grant, and the grants of every group they belong to. It's one query, cached per user and
+    /// A user's effective level is the highest of: admin when they are a server admin, their own grant, and the grants
+    /// of every group they belong to. It's one query, cached per user and
     /// project. Cache keys include a generation per project and a global one; changing a project's grants starts a
     /// new project generation, and changing group membership or user flags starts a new global one, so no stale level
     /// survives a change.
@@ -63,7 +64,7 @@ namespace Vertex.Server.Access
             if (decision.Level >= required) return AccessCheck.Allow(decision);
 
             string level = required.ToString().ToLowerInvariant();
-            string message = $"You need {level} access to '{decision.ProjectName}'. Ask a project admin to run 'vx access grant {user.GetUsername()} {level}'.";
+            string message = $"You need {level} access to '{decision.ProjectName}'. Ask someone with manage access to run 'vx access grant {user.GetUsername()} {level}'.";
             return new AccessCheck(false, StatusCodes.Status403Forbidden, message, decision);
         }
 
@@ -80,8 +81,7 @@ namespace Vertex.Server.Access
             return await _cache.GetOrSetAsync(key, async ct =>
             {
                 const string sql = "SELECT p.name AS project_name, GREATEST(" +
-                                   "CASE WHEN u.is_admin THEN 3 ELSE 0 END, " +
-                                   "CASE WHEN p.visibility = 1 THEN 1 ELSE 0 END, " +
+                                   "CASE WHEN u.is_admin THEN 4 ELSE 0 END, " +
                                    "COALESCE((SELECT MAX(a.level) FROM projects.access a WHERE a.project_id = p.id AND " +
                                    "(a.principal_id = u.id OR a.principal_id IN (SELECT m.group_id FROM auth.group_members m WHERE m.user_id = u.id))), 0)" +
                                    ")::SMALLINT AS level " +
@@ -133,7 +133,7 @@ namespace Vertex.Server.Access
         }
 
         /// <summary>
-        /// Adds a grant inside an existing transaction, e.g. making a project's creator its admin.
+        /// Adds a grant inside an existing transaction, e.g. giving a project's creator manage access.
         /// </summary>
         public static Task GrantAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid projectId, Guid principalId, PrincipalKind kind, AccessLevel level, CancellationToken cancellationToken)
         {
@@ -157,21 +157,6 @@ namespace Vertex.Server.Access
             bool removed = await connection.ExecuteAsync(new CommandDefinition(sql, new { ProjectId = projectId, Name = name }, cancellationToken: cancellationToken)) > 0;
             if (removed) await InvalidateProjectAsync(projectId);
             return removed;
-        }
-
-        /// <returns>The updated project, or null when it doesn't exist.</returns>
-        public async Task<VProject?> SetVisibilityAsync(Guid projectId, ProjectVisibility visibility, CancellationToken cancellationToken)
-        {
-            const string sql = "UPDATE projects.projects SET visibility = @Visibility WHERE id = @Id RETURNING id, created_at, name, visibility, owner_id;";
-            await using NpgsqlConnection connection = _database.CreateConnection();
-            VProject? project = await connection.QuerySingleOrDefaultAsync<VProject>(new CommandDefinition(sql, new { Id = projectId, Visibility = (short)visibility }, cancellationToken: cancellationToken));
-            if (project is not null)
-            {
-                await InvalidateProjectAsync(projectId);
-                await _cache.DeleteCachedValuesAsync(CacheKeys.ProjectById(projectId), CacheKeys.ProjectByName(project.Name));
-            }
-
-            return project;
         }
 
         /// <summary>

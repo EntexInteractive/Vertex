@@ -51,6 +51,16 @@ namespace Vertex.Core.Net.Interfaces
         /// <param name="host">The workspace's machine name, which lock messages show.</param>
         public async Task<long> SubmitAsync(Guid projectId, Guid branchId, Guid workspaceId, string host, string message, IEnumerable<FileChange> changes, CancellationToken ct = default)
         {
+            return (await SubmitRevisionAsync(projectId, branchId, workspaceId, host, message, changes, ct)).Revision;
+        }
+
+        /// <summary>
+        /// The same as <see cref="SubmitAsync"/>, with the full response: the new revision and, for a branch with a
+        /// merge target, what its merge chain did (<see cref="SubmitResponse.AutoMerges"/>).
+        /// </summary>
+        public async Task<SubmitResponse> SubmitRevisionAsync(Guid projectId, Guid branchId, Guid workspaceId, string host, string message, IEnumerable<FileChange> changes,
+            CancellationToken ct = default)
+        {
             SubmitRequest request = new()
             {
                 ProjectId = projectId.ToString(),
@@ -61,8 +71,31 @@ namespace Vertex.Core.Net.Interfaces
             };
 
             request.Changes.AddRange(changes);
-            SubmitResponse response = await RevisionsClient.SubmitAsync(request, cancellationToken: ct);
-            return response.Revision;
+            return await RevisionsClient.SubmitAsync(request, cancellationToken: ct);
+        }
+
+        /// <summary>
+        /// Merges every change made on <paramref name="sourceBranchId"/> since the last merge between the two into
+        /// <paramref name="targetBranchId"/>, as one revision. The branches must be a branch and its parent.
+        /// </summary>
+        /// <returns>The revision written (0 when the target already had everything), or the conflicts that refused
+        /// the merge.</returns>
+        /// <param name="message">The revision's description; empty for "Merge source into target".</param>
+        public async Task<MergeResponse> MergeAsync(Guid projectId, Guid sourceBranchId, Guid targetBranchId, string message, MergeResolution resolve = MergeResolution.None,
+            Guid? workspaceId = null, string? host = null, CancellationToken ct = default)
+        {
+            MergeRequest request = new()
+            {
+                ProjectId = projectId.ToString(),
+                SourceBranchId = sourceBranchId.ToString(),
+                TargetBranchId = targetBranchId.ToString(),
+                Message = message,
+                Resolve = resolve,
+                WorkspaceId = workspaceId?.ToString() ?? string.Empty,
+                Host = host ?? string.Empty
+            };
+
+            return await RevisionsClient.MergeAsync(request, cancellationToken: ct);
         }
 
         /// <summary>
