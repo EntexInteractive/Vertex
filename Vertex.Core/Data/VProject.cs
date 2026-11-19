@@ -1,7 +1,6 @@
 // Copyright 2026 Entex Interactive
 
 using EntexInteractive.Extensions;
-using Vertex.Core.Security;
 
 namespace Vertex.Core.Data
 {
@@ -23,12 +22,6 @@ namespace Vertex.Core.Data
         public string Name { get; set; }
 
         /// <summary>
-        /// Who can read the project without an explicit grant. New projects are internal: on-prem servers usually
-        /// hold only the team's own people.
-        /// </summary>
-        public ProjectVisibility Visibility { get; set; } = ProjectVisibility.Internal;
-
-        /// <summary>
         /// The <see cref="VUser"/> that created the project.
         /// </summary>
         public Guid OwnerId { get; set; }
@@ -40,12 +33,11 @@ namespace Vertex.Core.Data
         }
 
         [JsonConstructor]
-        public VProject(Guid id, long createdAt, string name, ProjectVisibility visibility, Guid ownerId)
+        public VProject(Guid id, long createdAt, string name, Guid ownerId)
         {
             Id = id;
             CreatedAt = UnixTime.FromMilliseconds(createdAt);
             Name = name;
-            Visibility = visibility;
             OwnerId = ownerId;
         }
     }

@@ -6,7 +6,9 @@ using Vertex.Core.Net;
 using Vertex.Core.Security;
 using Vertex.Core.Storage;
 using Vertex.Server.Access;
+using Vertex.Core.Data;
 using Vertex.Server.Auth;
+using Vertex.Server.Branches;
 using Vertex.Server.Database;
 using Vertex.Server.Events;
 using Vertex.Server.Telemetry;
@@ -26,15 +28,24 @@ namespace Vertex.Server.History
         private const int DefaultRevisionsPerPage = 100;
         private const int MaximumRevisionsPerPage = 1_000;
 
+        /// <summary>Conflicts a refused merge lists; the response gives the total.</summary>
+        private const int ListedConflicts = 1_000;
+
         private readonly INotificationService _notifications;
         private readonly ILogger<RevisionService> _logger;
         private readonly RevisionsRepository _revisions;
         private readonly AccessService _access;
         private readonly FilesRepository _files;
         private readonly CacheContext _cache;
+        private readonly MergesRepository _merges;
+        private readonly BranchesRepository _branches;
+        private readonly AutoMerger _autoMerger;
 
-        public RevisionService(ILogger<RevisionService> logger, RevisionsRepository revisions, AccessService access, FilesRepository files, CacheContext cache, INotificationService notifications)
+        public RevisionService(ILogger<RevisionService> logger, RevisionsRepository revisions, AccessService access, FilesRepository files, CacheContext cache, INotificationService notifications, MergesRepository merges, BranchesRepository branches, AutoMerger autoMerger)
         {
+            _autoMerger = autoMerger;
+            _merges = merges;
+            _branches = branches;
             _notifications = notifications;
             _cache = cache;
             _logger = logger;
@@ -105,7 +116,11 @@ namespace Vertex.Server.History
             VertexMetrics.EventsRecorded.Add(1, VertexMetrics.Tag("type", EventTypes.RevisionCreated));
             if (outcome.LocksReleased > 0) VertexMetrics.EventsRecorded.Add(1, VertexMetrics.Tag("type", EventTypes.LockReleased));
             _logger.LogInformation("Revision #{Revision} in project {ProjectId}: {Files} file(s) by {User}", outcome.Revision, projectId, changes.Count, user.GetUsername());
-            return new SubmitResponse { Revision = outcome.Revision.Value };
+
+            // The branch's merge chain (vx branch --merge-to) runs here, so every client gets it and sees the result.
+            SubmitResponse response = new() { Revision = outcome.Revision.Value };
+            response.AutoMerges.AddRange(await _autoMerger.RunAsync(projectId, branchId, outcome.Revision.Value, message, user.GetUserId(), workspaceId, host));
+            return response;
         }
 
         /// <summary>
@@ -218,6 +233,78 @@ namespace Vertex.Server.History
             response.Changes.AddRange(rows.Select(row => new RevisionFileChange { Path = row.Path, FileId = row.FileId ?? string.Empty }));
             if (rows.Count == FileTransferLimits.HeadChangesPageSize) response.NextPageToken = rows[^1].Path;
             return response;
+        }
+
+        public override async Task<MergeResponse> Merge(MergeRequest request, ServerCallContext context)
+        {
+            CancellationToken ct = context.CancellationToken;
+            ClaimsPrincipal user = context.GetHttpContext().User;
+            Guid projectId = ParseId(request.ProjectId, "project");
+            Guid sourceId = ParseId(request.SourceBranchId, "source branch");
+            Guid targetId = ParseId(request.TargetBranchId, "target branch");
+            Guid? workspaceId = request.WorkspaceId.Length == 0 ? null : ParseId(request.WorkspaceId, "workspace");
+            if (sourceId == targetId) throw Invalid("A branch can't be merged into itself.");
+            MergeResolve resolve = request.Resolve switch
+            {
+                MergeResolution.None => MergeResolve.None,
+                MergeResolution.KeepTarget => MergeResolve.KeepTarget,
+                MergeResolution.TakeSource => MergeResolve.TakeSource,
+                _ => throw Invalid("Unknown merge resolution.")
+            };
+
+            // Writing to the target needs write access; the source is in the same project, so it's readable too.
+            await RequireAsync(user, projectId, targetId, AccessLevel.Write, ct);
+            VBranch? source = await _branches.GetBranchByIdAsync(projectId, sourceId, ct);
+            VBranch? target = await _branches.GetBranchByIdAsync(projectId, targetId, ct);
+            if (source is null || target is null) throw BranchGone();
+
+            string message = request.Message.Trim() is { Length: > 0 } given ? given : $"Merge {source.Name} into {target.Name}";
+            string? host = request.Host.Trim() is { Length: > 0 } machine ? machine[..Math.Min(machine.Length, 255)] : null;
+
+            MergeOutcome outcome;
+            try
+            {
+                outcome = await _merges.MergeAsync(projectId, sourceId, targetId, user.GetUserId(), workspaceId, host, message, resolve, ct);
+            }
+            catch (ArgumentException)
+            {
+                throw BranchGone();
+            }
+            catch (TimeoutException ex)
+            {
+                throw new RpcException(new Status(StatusCode.Unavailable, ex.Message));
+            }
+
+            await _autoMerger.PublishAsync(projectId, targetId, outcome);
+            switch (outcome.Status)
+            {
+                case MergeStatus.Unrelated:
+                    throw new RpcException(new Status(StatusCode.FailedPrecondition, AutoMerger.Unrelated(source.Name, target.Name)));
+                case MergeStatus.UpToDate:
+                    return new MergeResponse();
+                case MergeStatus.Locked:
+                    throw new RpcException(new Status(StatusCode.FailedPrecondition, AutoMerger.DescribeLocked(target.Name, outcome.Locks!)));
+                case MergeStatus.Conflicts:
+                {
+                    MergeResponse refused = new() { ConflictsTotal = outcome.Conflicts!.Count };
+                    refused.Conflicts.AddRange(outcome.Conflicts.Take(ListedConflicts).Select(AutoMerger.ToMessage));
+                    return refused;
+                }
+            }
+
+            _logger.LogInformation("Merged {Source} into {Target} in project {ProjectId} as #{Revision}: {Files} file(s), {Resolved} conflict(s) resolved, by {User}",
+                source.Name, target.Name, projectId, outcome.Revision, outcome.Files, outcome.Resolved, user.GetUsername());
+            MergeResponse response = new() { Revision = outcome.Revision ?? 0, Files = outcome.Files, Resolved = outcome.Resolved };
+
+            // A merge that settles a stuck hop of a chain (or any merge into a branch with a target) carries on along it.
+            if (outcome.Revision is long revision)
+                response.AutoMerges.AddRange(await _autoMerger.RunAsync(projectId, targetId, revision, message, user.GetUserId(), workspaceId, host));
+            return response;
+        }
+
+        private static RpcException BranchGone()
+        {
+            return new RpcException(new Status(StatusCode.NotFound, "The branch no longer exists. Run 'vx branch list' to see the project's branches."));
         }
 
         private Task RequireAsync(ClaimsPrincipal user, Guid projectId, Guid branchId, AccessLevel level, CancellationToken ct)

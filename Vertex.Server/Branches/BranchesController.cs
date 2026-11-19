@@ -22,7 +22,7 @@ namespace Vertex.Server.Projects
         }
 
         /// <summary>
-        /// Creating and deleting branches needs project admin; reading them needs read.
+        /// Creating and deleting branches needs manage access; reading them needs read.
         /// </summary>
         /// <returns>Null when allowed, otherwise the response to return.</returns>
         private async Task<ActionResult?> DenyAsync(Guid projectId, AccessLevel required, CancellationToken cancellationToken)
@@ -35,12 +35,14 @@ namespace Vertex.Server.Projects
         [ProducesResponseType(StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
-        public async Task<ActionResult<VBranch>> CreateBranchAsync([FromQuery] string name, [FromQuery] Guid projectId, [FromQuery] Guid? parentId = null, CancellationToken cancellationToken = default)
+        public async Task<ActionResult<VBranch>> CreateBranchAsync([FromQuery] string name, [FromQuery] Guid projectId, [FromQuery] Guid? parentId = null,
+            [FromQuery] Guid? mergeToId = null, CancellationToken cancellationToken = default)
         {
-            if (await DenyAsync(projectId, AccessLevel.Admin, cancellationToken) is ActionResult denied) return denied;
+            if (await DenyAsync(projectId, AccessLevel.Manage, cancellationToken) is ActionResult denied) return denied;
 
-            // With a parent, the branch starts with the parent's files; without one it starts empty.
-            VBranch branch = new VBranch(name, projectId, parentId);
+            // With a parent, the branch starts with the parent's files; without one it starts empty. With a merge
+            // target, every revision on it is merged on into that branch.
+            VBranch branch = new VBranch(name, projectId, parentId, mergeToId);
             bool added;
             try
             {
@@ -63,13 +65,38 @@ namespace Vertex.Server.Projects
             return StatusCode(StatusCodes.Status201Created, branch);
         }
 
+        /// <summary>
+        /// Sets the branch a branch's revisions are merged into automatically; without <paramref name="mergeToId"/>,
+        /// clears it. Responds with the branch and, in <c>previousMergeTo</c>, the target it had before.
+        /// </summary>
+        [HttpPut("merge-to")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<MergeToChange>> SetMergeToAsync([FromQuery] Guid projectId, [FromQuery] Guid branchId, [FromQuery] Guid? mergeToId = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (await DenyAsync(projectId, AccessLevel.Manage, cancellationToken) is ActionResult denied) return denied;
+
+            try
+            {
+                MergeToChange? change = await _branches.SetMergeToAsync(projectId, branchId, mergeToId, cancellationToken);
+                if (change is null) return NotFound();
+                return Ok(change);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
         [HttpDelete]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         public async Task<ActionResult<VBranch>> DeleteBranchAsync([FromQuery] Guid projectId, [FromQuery] string name, CancellationToken cancellationToken)
         {
-            if (await DenyAsync(projectId, AccessLevel.Admin, cancellationToken) is ActionResult denied) return denied;
+            if (await DenyAsync(projectId, AccessLevel.Manage, cancellationToken) is ActionResult denied) return denied;
 
             try
             {

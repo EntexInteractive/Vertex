@@ -63,7 +63,7 @@ namespace Vertex.Cli.Workspaces
             }
 
             VBranch branch = branchResult.Data!;
-            string root = System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(settings.Path ?? Directory.GetCurrentDirectory()));
+            string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), project.Name)));
 
             // Cloning again into a folder already cloned from this branch just finishes the download.
             VWorkspace? workspace = VWorkspace.Find(root);

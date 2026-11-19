@@ -57,7 +57,7 @@ namespace Vertex.Cli.Files
     }
 
     /// <summary>
-    /// Releases locks held somewhere else: your own from a workspace that's gone, or anyone's for project admins.
+    /// Releases locks held somewhere else: your own from a workspace that's gone, or anyone's with manage access.
     /// This workspace's own locks are released by submitting or reverting the files.
     /// </summary>
     public sealed class UnlockCommand : AsyncCommand<UnlockSettings>
@@ -95,7 +95,7 @@ namespace Vertex.Cli.Files
             if (refused.Count > 0)
             {
                 AnsiConsole.MarkupLine($"[red]Couldn't release {refused.Count:N0} lock(s), e.g. '{Markup.Escape(refused[0].Path)}' held by {Markup.Escape(refused[0].Username)}: " +
-                                       "only project admins can release other people's locks. Ask them to submit or revert it, or ask a project admin.[/]");
+                                       "only people with manage access can release other people's locks. Ask them to submit or revert it, or ask someone with manage access.[/]");
             }
 
             LockOutput.PrintError(await locks.RefreshAsync(cancellationToken));

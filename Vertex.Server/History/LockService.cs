@@ -101,8 +101,8 @@ namespace Vertex.Server.History
 
             await ProjectCalls.RequireAsync(_access, _revisions, user, projectId, branchId, AccessLevel.Write, ct);
 
-            // Forcing other people's locks open is a project admin's call; your own stale locks are always yours.
-            bool isAdmin = request.Force && (await _access.CheckAsync(user, projectId, AccessLevel.Admin, ct)).Allowed;
+            // Forcing other people's locks open needs manage access; your own stale locks are always yours.
+            bool isAdmin = request.Force && (await _access.CheckAsync(user, projectId, AccessLevel.Manage, ct)).Allowed;
             (IReadOnlyList<LockRow> released, long? seq) = await _writes.UnlockAsync(new UnlockWrite(projectId, branchId, user.GetUserId(), workspaceId,
                 paths.Select(p => p.Key).ToArray(), request.Force, isAdmin), ct);
 

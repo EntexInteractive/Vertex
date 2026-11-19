@@ -33,11 +33,11 @@ namespace Vertex.Server.Projects
 
             try
             {
-                const string projectSql = "INSERT INTO projects.projects (id, created_at, name, visibility, owner_id) " +
-                                          "VALUES (@Id, @CreatedAt, @Name, @Visibility, @OwnerId);";
+                const string projectSql = "INSERT INTO projects.projects (id, created_at, name, owner_id) " +
+                                          "VALUES (@Id, @CreatedAt, @Name, @OwnerId);";
 
                 await connection.ExecuteAsync(new CommandDefinition(projectSql,
-                    new { project.Id, CreatedAt = (long)project.CreatedAt.TotalMilliseconds, project.Name, Visibility = (short)project.Visibility, project.OwnerId },
+                    new { project.Id, CreatedAt = (long)project.CreatedAt.TotalMilliseconds, project.Name, project.OwnerId },
                     transaction, cancellationToken: cancellationToken));
 
                 // The row every write to the project locks and numbers its revisions and events from.
@@ -51,7 +51,7 @@ namespace Vertex.Server.Projects
                     new { defaultBranch.Id, CreatedAt = (long)defaultBranch.CreatedAt.TotalMilliseconds, defaultBranch.Name, defaultBranch.ProjectId },
                     transaction, cancellationToken: cancellationToken));
 
-                await AccessService.GrantAsync(connection, transaction, project.Id, project.OwnerId, PrincipalKind.User, AccessLevel.Admin, cancellationToken);
+                await AccessService.GrantAsync(connection, transaction, project.Id, project.OwnerId, PrincipalKind.User, AccessLevel.Manage, cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
 
                 // A lookup before the project existed may have cached "not found".
@@ -66,18 +66,17 @@ namespace Vertex.Server.Projects
         }
 
         /// <summary>
-        /// Lists the projects a user can read: all of them for a server admin, otherwise internal projects and
-        /// projects granted to the user or one of their groups.
+        /// Lists the projects a user can read: all of them for a server admin, otherwise the projects granted
+        /// to the user or one of their groups.
         /// </summary>
         /// <remarks>
         /// Cached per user under <see cref="CacheKeys.ProjectListGeneration"/>, which every change to who can see what
-        /// bumps: new projects, grants, visibility, group membership and admin flags.
+        /// bumps: new projects, grants, group membership and admin flags.
         /// </remarks>
         public async Task<IReadOnlyList<VProject>> ListProjectsForUserAsync(Guid userId, CancellationToken cancellationToken)
         {
-            const string sql = "SELECT p.id, p.created_at, p.name, p.visibility, p.owner_id FROM projects.projects p " +
-                               "WHERE p.visibility = 1 " +
-                               "OR EXISTS (SELECT 1 FROM auth.users u WHERE u.id = @UserId AND u.is_admin) " +
+            const string sql = "SELECT p.id, p.created_at, p.name, p.owner_id FROM projects.projects p " +
+                               "WHERE EXISTS (SELECT 1 FROM auth.users u WHERE u.id = @UserId AND u.is_admin) " +
                                "OR EXISTS (SELECT 1 FROM projects.access a WHERE a.project_id = p.id AND (a.principal_id = @UserId " +
                                "OR a.principal_id IN (SELECT m.group_id FROM auth.group_members m WHERE m.user_id = @UserId))) " +
                                "ORDER BY p.name;";
@@ -88,13 +87,13 @@ namespace Vertex.Server.Projects
 
         public async Task<VProject?> GetProjectByIdAsync(Guid id, CancellationToken cancellationToken)
         {
-            const string sql = "SELECT id, created_at, name, visibility, owner_id FROM projects.projects WHERE id = @Id;";
+            const string sql = "SELECT id, created_at, name, owner_id FROM projects.projects WHERE id = @Id;";
             return await _dapper.QuerySingleAsync<VProject>(sql, new { Id = id }, CacheKeys.ProjectById(id), cancellationToken: cancellationToken);
         }
 
         public async Task<VProject?> GetProjectByNameAsync(string name, CancellationToken cancellationToken)
         {
-            const string sql = "SELECT id, created_at, name, visibility, owner_id FROM projects.projects WHERE name = @Name;";
+            const string sql = "SELECT id, created_at, name, owner_id FROM projects.projects WHERE name = @Name;";
             return await _dapper.QuerySingleAsync<VProject>(sql, new { Name = name }, CacheKeys.ProjectByName(name), cancellationToken: cancellationToken);
         }
     }

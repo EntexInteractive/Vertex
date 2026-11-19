@@ -60,7 +60,7 @@ namespace Vertex.Server.Users
             VUser user = await connection.QuerySingleAsync<VUser>(new CommandDefinition(sql, new
             {
                 Id = Guid.NewGuid(),
-                CreatedAt = (long)UnixTime.Now.TotalMilliseconds,
+                CreatedAt = UnixTime.Now.TotalMilliseconds,
                 Username = username,
                 DisplayName = displayName,
                 Email = email,

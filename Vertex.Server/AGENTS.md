@@ -6,12 +6,13 @@ project-wide rules.
 - `ServerApp.cs` wires everything: settings, Serilog, Kestrel (h2c, or HTTP/1.1 + HTTP/2 when TLS is set), DI,
   gRPC-Web, static files for the web UI, and controllers. Start here.
 - `ServerSettings.cs` is the only place that reads configuration (`VX_*` environment variables). It validates every
-  setting at startup and reports all errors at once. Add new settings here and document them in the README table.
+  setting at startup and reports all errors at once. Add new settings here and document them in `docs/server/configuration.md`.
 - Feature folders (`Projects/`, `Branches/`, `Files/`, `History/`, `Events/`, `Server/`) each pair a controller or
   gRPC service with a Dapper repository.
 - `Telemetry/VertexMetrics.cs`: Vertex's own OpenTelemetry metrics. With `VX_METRICS_PORT` set, `ServerApp` exports
   them plus the built-in ASP.NET Core, Kestrel, runtime and Npgsql meters for Prometheus on `/metrics`, on that port
-  only. Add a counter or histogram there for anything worth graphing; never write per-request rows to PostgreSQL.
+  only. Add a counter or histogram there for anything worth graphing, and list it in `docs/server/monitoring.md`; never
+  write per-request rows to PostgreSQL.
 - `History/`: revisions (`RevisionService`, `RevisionsRepository`) and file locks (`LockService`, `LocksRepository`).
   Every transaction that changes revisions or locks first locks the project's row in `projects.counters` (the
   `revision_counter` update, or `EventStore.LockProjectAsync`), so they serialize per project and submit's lock check
@@ -28,6 +29,21 @@ project-wide rules.
   `GetHeadChanges` syncs to the latest from `revisions.head`, or (an older `revision`, or a workspace synced before
   the base) rebuilds the full file list from history along the branch's parent chain
   (`RevisionsRepository.GetFilesAtRevisionAsync`) and sets `full`. Only that slow path reads history.
+- Merges (`History/MergesRepository`, `Revisions.Merge`): between any two branches with a common ancestor (parent and
+  child either way, or siblings), on file ids only (content is never read or merged). The base is the source side of
+  the latest merge between the two in either direction (`revisions.merges`), or else their nearest common ancestor
+  branch at the older of the two copies (`AncestorSql`). Paths whose head ids differ between the
+  branches are compared with their id at the base: only the source changed it → take it; only the target → skip;
+  both → conflict, which refuses the whole merge unless `resolve` picks a side. The plan is read without the counters
+  lock; the write takes it, re-reads both heads and the latest merge in the same round trip, and replans if either
+  moved. Locks on the target block the paths a merge would change. Every merge that settles anything is recorded,
+  even with no revision, so a settled conflict never comes back.
+- Merge chains (`History/AutoMerger`): a branch's `merge_to` (`vx branch --merge-to`) names the branch each of its
+  revisions is merged into. `RevisionService.Submit` and `Merge` run the chain right after their revision commits
+  (hop by hop, no resolution, stopping at the first hop that conflicts, is locked or has nothing to do) and return
+  each hop in `auto_merges`; the revision that started it stands either way, and the next one catches up a missed
+  hop. `BranchesRepository.SetMergeToAsync` rejects missing or unrelated targets and loops; a branch others merge
+  into can't be deleted. Every merge's bookkeeping (notify, head cache, metrics) goes through `AutoMerger.PublishAsync`.
 - `Events/`: the project event bus. `EventStore` is the journal (`events.events`, gapless seqs per project from
   `projects.counters.event_seq`, one event per operation with a JSON payload). Writers append in their transaction and call
   `INotificationService.NotifyAsync` after commit (see `ProjectCalls.AfterCommitAsync`). `NotificationService` holds
@@ -71,8 +87,9 @@ project-wide rules.
   `LoginThrottle` limits failed logins per username and per client address, with counters in Redis so the limits
   hold across instances. The client address comes from `X-Forwarded-For` only for trusted proxies (loopback and
   `VX_TRUSTED_PROXIES`).
-- Permissions (`Access/AccessService`): fixed levels (read, write, admin) granted per project to users or groups,
-  a server-admin flag, and project visibility. No custom roles. Check with
+- Permissions (`Access/AccessService`): fixed levels (read, write, manage) granted per project to users or groups,
+  and a server-admin flag (`AccessLevel.Admin`, never granted). No custom roles and no default access. Check
+  project-level actions against `Manage`, not `Admin`. Check with
   `AccessService.CheckAsync(User, projectId, level)` and return its status and message when denied. Anything that
   changes grants, group membership or admin flags must invalidate the access cache (`InvalidateAllAsync`).
 - Users are never deleted, only disabled (or anonymized in place for an erasure request), because history refers to

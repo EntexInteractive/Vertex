@@ -8,8 +8,8 @@ using Vertex.Core.Security;
 namespace Vertex.Server.Access
 {
     /// <summary>
-    /// A project's grants and visibility. Anyone who can read the project can see its grants, so they know whom to
-    /// ask; changing them needs project admin.
+    /// A project's grants. Anyone who can read the project can see its grants, so they know whom to ask; changing
+    /// them needs manage access.
     /// </summary>
     [Route("api/v1/access")]
     public class AccessController : Controller
@@ -42,9 +42,10 @@ namespace Vertex.Server.Access
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<ActionResult<VAccessGrant>> GrantAsync([FromQuery] Guid projectId, [FromBody] GrantAccessRequest request, CancellationToken cancellationToken)
         {
-            if (request.Level is < AccessLevel.Read or > AccessLevel.Admin) return BadRequest("The level must be read, write or admin.");
+            if (request.Level == AccessLevel.Admin) return BadRequest("Server admin isn't a project level. Use 'vx user admin <name>' to make someone a server admin.");
+            if (request.Level is < AccessLevel.Read or > AccessLevel.Manage) return BadRequest("The level must be read, write or manage.");
 
-            AccessCheck check = await _access.CheckAsync(User, projectId, AccessLevel.Admin, cancellationToken);
+            AccessCheck check = await _access.CheckAsync(User, projectId, AccessLevel.Manage, cancellationToken);
             if (!check.Allowed) return StatusCode(check.StatusCode, check.Message);
 
             VAccessGrant? grant = await _access.GrantAsync(projectId, request.Name.Trim(), request.Level, cancellationToken);
@@ -53,7 +54,7 @@ namespace Vertex.Server.Access
         }
 
         /// <summary>
-        /// Removes a user's or group's grant. Users can still read the project when it's internal.
+        /// Removes a user's or group's grant. Its members keep any access from their own grant or other groups.
         /// </summary>
         [HttpDelete]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -61,25 +62,9 @@ namespace Vertex.Server.Access
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<ActionResult<bool>> RevokeAsync([FromQuery] Guid projectId, [FromQuery] string name, CancellationToken cancellationToken)
         {
-            AccessCheck check = await _access.CheckAsync(User, projectId, AccessLevel.Admin, cancellationToken);
+            AccessCheck check = await _access.CheckAsync(User, projectId, AccessLevel.Manage, cancellationToken);
             if (!check.Allowed) return StatusCode(check.StatusCode, check.Message);
             return Ok(await _access.RevokeAsync(projectId, name.Trim(), cancellationToken));
-        }
-
-        /// <summary>
-        /// Makes the project internal (every logged-in user can read it) or private (grants only).
-        /// </summary>
-        [HttpPut("visibility")]
-        [ProducesResponseType(StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status403Forbidden)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
-        public async Task<ActionResult<VProject>> SetVisibilityAsync([FromQuery] Guid projectId, [FromQuery] ProjectVisibility visibility, CancellationToken cancellationToken)
-        {
-            AccessCheck check = await _access.CheckAsync(User, projectId, AccessLevel.Admin, cancellationToken);
-            if (!check.Allowed) return StatusCode(check.StatusCode, check.Message);
-
-            VProject? project = await _access.SetVisibilityAsync(projectId, visibility, cancellationToken);
-            return project is null ? NotFound() : Ok(project);
         }
     }
 }

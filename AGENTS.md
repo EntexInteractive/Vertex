@@ -3,7 +3,8 @@
 Vertex is centralized source control for games and other big-file projects: Perforce's model (central linear
 history, file locking, large binaries), git's ease of use (`vx init`, `vx status`, `vx submit`, a `.vx/` folder per
 workspace, no client specs), and a stateless server that scales out (PostgreSQL metadata, Redis cache, S3 content).
-The project is pre-alpha. Read README.md for the user-facing picture and CONTRIBUTING.md for the workflow.
+The project is pre-alpha. Read README.md and `docs/` for the user-facing picture (`docs/internals/` explains the inner systems) and
+CONTRIBUTING.md for the workflow.
 
 ## Priorities
 
@@ -61,12 +62,16 @@ run `dotnet run -c Release --project Vertex.Tests -- all --profile smoke` agains
   after commit. Clients get events pushed over `EventFeed.Subscribe`; server-side reactions (build triggers, plugins)
   are `IEventHandler`s. Don't add per-feature polling or journals.
 - **Server config** comes only from `VX_*` environment variables, read and validated in
-  `Vertex.Server/ServerSettings.cs`. Add new settings there and document them in the README table.
+  `Vertex.Server/ServerSettings.cs`. Add new settings there and document them in `docs/server/configuration.md`.
 - **Schema:** until the first release, append changes to `Vertex.Server/Database/Migrations/0001_initial.sql` using
   idempotent statements only (`CREATE ... IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`), so there is one file to
   apply between releases; existing databases re-run it by hand (see CONTRIBUTING.md). After the first release, every
   change is a new migration named `NNNN_name.sql` (next number, lowercase name), and merged migrations are never
   edited or renumbered. The server applies pending migrations at startup. Timestamps are `BIGINT` Unix milliseconds.
+- **Docs:** user-facing documentation lives in `docs/` (README.md stays a short landing page). A change to a command,
+  option, setting, metric or user-visible behavior updates the matching page in the same change: `docs/commands.md`
+  (one section per command, in the existing Parameter / Short hand / Type / Required / Description table style),
+  `docs/server/configuration.md`, `docs/server/monitoring.md`, or the relevant `docs/internals/` page.
 - **Secrets:** never commit credentials, connection strings with real passwords, certificates or keys.
   `launchSettings.json`, `.env` and `.vx/` are git-ignored on purpose. The values in `docker-compose.yml` and
   `.env.example` are throwaway development defaults.

@@ -54,7 +54,7 @@ namespace Vertex.Cli.Net
         }
 
         /// <summary>
-        /// The server's message for a failed call, e.g. "You need admin access to 'Game'. Ask a project admin...".
+        /// The server's message for a failed call, e.g. "You need manage access to 'Game'. Ask someone with manage access...".
         /// </summary>
         public static string Message<T>(ServerResult<T> result)
         {

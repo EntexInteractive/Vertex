@@ -139,46 +139,7 @@ namespace Vertex.Server.History
             long eventSeq = 0;
             await using (NpgsqlBatch write = new(connection, transaction))
             {
-                // The revision and its changes in one statement; arrays and unnest write every row at once, however many
-                // files the revision has.
-                NpgsqlBatchCommand revision = new(
-                    "WITH r AS (INSERT INTO revisions.revisions (project_id, branch_id, number, user_id, message, created_at) " +
-                    "VALUES (@ProjectId, @BranchId, @Number, @UserId, @Message, @CreatedAt) RETURNING id) " +
-                    "INSERT INTO revisions.changes (revision_id, path, action, file_id) " +
-                    "SELECT r.id, t.path, t.action, t.file_id FROM r, unnest(@Paths::TEXT[], @Actions::SMALLINT[], @FileIds::TEXT[]) AS t(path, action, file_id);");
-                revision.Parameters.Add(new NpgsqlParameter<Guid>("ProjectId", projectId));
-                revision.Parameters.Add(new NpgsqlParameter<Guid>("BranchId", branchId));
-                revision.Parameters.Add(new NpgsqlParameter<long>("Number", number));
-                revision.Parameters.Add(new NpgsqlParameter<Guid>("UserId", userId));
-                revision.Parameters.Add(new NpgsqlParameter<string>("Message", message));
-                revision.Parameters.Add(new NpgsqlParameter<long>("CreatedAt", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
-                revision.Parameters.Add(new NpgsqlParameter<string[]>("Paths", applied.Select(a => a.Change.Path).ToArray()));
-                revision.Parameters.Add(new NpgsqlParameter<short[]>("Actions", applied.Select(a => a.Action).ToArray()));
-                revision.Parameters.Add(new NpgsqlParameter("FileIds", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = applied.Select(a => a.Change.FileId).ToArray() });
-                write.BatchCommands.Add(revision);
-
-                SubmitChange[] written = applied.Where(a => a.Change.FileId is not null).Select(a => a.Change).ToArray();
-                if (written.Length > 0)
-                {
-                    NpgsqlBatchCommand upsert = new("INSERT INTO revisions.head (branch_id, path_key, path, file_id, revision) " +
-                                                    "SELECT @BranchId, t.path_key, t.path, t.file_id, @Number FROM unnest(@Keys::TEXT[], @Paths::TEXT[], @FileIds::TEXT[]) AS t(path_key, path, file_id) " +
-                                                    "ON CONFLICT (branch_id, path_key) DO UPDATE SET path = excluded.path, file_id = excluded.file_id, revision = excluded.revision;");
-                    upsert.Parameters.Add(new NpgsqlParameter<Guid>("BranchId", branchId));
-                    upsert.Parameters.Add(new NpgsqlParameter<long>("Number", number));
-                    upsert.Parameters.Add(new NpgsqlParameter<string[]>("Keys", written.Select(c => c.PathKey).ToArray()));
-                    upsert.Parameters.Add(new NpgsqlParameter<string[]>("Paths", written.Select(c => c.Path).ToArray()));
-                    upsert.Parameters.Add(new NpgsqlParameter<string[]>("FileIds", written.Select(c => c.FileId!).ToArray()));
-                    write.BatchCommands.Add(upsert);
-                }
-
-                string[] deleted = applied.Where(a => a.Change.FileId is null).Select(a => a.Change.PathKey).ToArray();
-                if (deleted.Length > 0)
-                {
-                    NpgsqlBatchCommand delete = new("DELETE FROM revisions.head WHERE branch_id = @BranchId AND path_key = ANY(@Keys);");
-                    delete.Parameters.Add(new NpgsqlParameter<Guid>("BranchId", branchId));
-                    delete.Parameters.Add(new NpgsqlParameter<string[]>("Keys", deleted));
-                    write.BatchCommands.Add(delete);
-                }
+                AddRevisionCommands(write, projectId, branchId, number, userId, message, applied);
 
                 // The submitted changes no longer need their locks; then tell everyone about the revision. Both events
                 // commit with it, and the revision's is the last row the batch returns.
@@ -199,6 +160,56 @@ namespace Vertex.Server.History
             VertexMetrics.CommitDuration.Record(Stopwatch.GetElapsedTime(commit, done).TotalSeconds, VertexMetrics.Tag("operation", "submit"));
             VertexMetrics.ProjectLockHeld.Record(Stopwatch.GetElapsedTime(locked, done).TotalSeconds, VertexMetrics.Tag("operation", "submit"));
             return new SubmitOutcome(number, [], [], eventSeq, locks.Count);
+        }
+
+        /// <summary>
+        /// Adds the commands that record revision <paramref name="number"/> on a branch and move the branch head to it:
+        /// the revision with its changes, then the head rows it writes and deletes. Each change's action is 0 (added),
+        /// 1 (changed) or 2 (deleted). The batch's transaction must already hold the project's counters row.
+        /// </summary>
+        internal static void AddRevisionCommands(NpgsqlBatch batch, Guid projectId, Guid branchId, long number, Guid userId, string message,
+            IReadOnlyList<(SubmitChange Change, short Action)> applied)
+        {
+            // The revision and its changes in one statement; arrays and unnest write every row at once, however many
+            // files the revision has.
+            NpgsqlBatchCommand revision = new(
+                "WITH r AS (INSERT INTO revisions.revisions (project_id, branch_id, number, user_id, message, created_at) " +
+                "VALUES (@ProjectId, @BranchId, @Number, @UserId, @Message, @CreatedAt) RETURNING id) " +
+                "INSERT INTO revisions.changes (revision_id, path, action, file_id) " +
+                "SELECT r.id, t.path, t.action, t.file_id FROM r, unnest(@Paths::TEXT[], @Actions::SMALLINT[], @FileIds::TEXT[]) AS t(path, action, file_id);");
+            revision.Parameters.Add(new NpgsqlParameter<Guid>("ProjectId", projectId));
+            revision.Parameters.Add(new NpgsqlParameter<Guid>("BranchId", branchId));
+            revision.Parameters.Add(new NpgsqlParameter<long>("Number", number));
+            revision.Parameters.Add(new NpgsqlParameter<Guid>("UserId", userId));
+            revision.Parameters.Add(new NpgsqlParameter<string>("Message", message));
+            revision.Parameters.Add(new NpgsqlParameter<long>("CreatedAt", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
+            revision.Parameters.Add(new NpgsqlParameter<string[]>("Paths", applied.Select(a => a.Change.Path).ToArray()));
+            revision.Parameters.Add(new NpgsqlParameter<short[]>("Actions", applied.Select(a => a.Action).ToArray()));
+            revision.Parameters.Add(new NpgsqlParameter("FileIds", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = applied.Select(a => a.Change.FileId).ToArray() });
+            batch.BatchCommands.Add(revision);
+
+            SubmitChange[] written = applied.Where(a => a.Change.FileId is not null).Select(a => a.Change).ToArray();
+            if (written.Length > 0)
+            {
+                NpgsqlBatchCommand upsert = new("INSERT INTO revisions.head (branch_id, path_key, path, file_id, revision) " +
+                                                "SELECT @BranchId, t.path_key, t.path, t.file_id, @Number FROM unnest(@Keys::TEXT[], @Paths::TEXT[], @FileIds::TEXT[]) AS t(path_key, path, file_id) " +
+                                                "ON CONFLICT (branch_id, path_key) DO UPDATE SET path = excluded.path, file_id = excluded.file_id, revision = excluded.revision;");
+                upsert.Parameters.Add(new NpgsqlParameter<Guid>("BranchId", branchId));
+                upsert.Parameters.Add(new NpgsqlParameter<long>("Number", number));
+                upsert.Parameters.Add(new NpgsqlParameter<string[]>("Keys", written.Select(c => c.PathKey).ToArray()));
+                upsert.Parameters.Add(new NpgsqlParameter<string[]>("Paths", written.Select(c => c.Path).ToArray()));
+                upsert.Parameters.Add(new NpgsqlParameter<string[]>("FileIds", written.Select(c => c.FileId!).ToArray()));
+                batch.BatchCommands.Add(upsert);
+            }
+
+            string[] deleted = applied.Where(a => a.Change.FileId is null).Select(a => a.Change.PathKey).ToArray();
+            if (deleted.Length > 0)
+            {
+                NpgsqlBatchCommand delete = new("DELETE FROM revisions.head WHERE branch_id = @BranchId AND path_key = ANY(@Keys);");
+                delete.Parameters.Add(new NpgsqlParameter<Guid>("BranchId", branchId));
+                delete.Parameters.Add(new NpgsqlParameter<string[]>("Keys", deleted));
+                batch.BatchCommands.Add(delete);
+            }
         }
 
         /// <summary>
