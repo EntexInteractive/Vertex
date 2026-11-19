@@ -15,6 +15,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vertex.Tests", "Vertex.Test
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vertex.Mirror", "Vertex.Mirror\Vertex.Mirror.csproj", "{B02E7C4D-4AED-4337-8E77-D44AB9442585}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vertex.Gui", "Vertex.Gui\Vertex.Gui.csproj", "{B3908738-6CF4-48AD-A303-A70BF5408FD7}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -97,6 +99,18 @@ Global
 		{B02E7C4D-4AED-4337-8E77-D44AB9442585}.Release|x64.Build.0 = Release|Any CPU
 		{B02E7C4D-4AED-4337-8E77-D44AB9442585}.Release|x86.ActiveCfg = Release|Any CPU
 		{B02E7C4D-4AED-4337-8E77-D44AB9442585}.Release|x86.Build.0 = Release|Any CPU
+		{B3908738-6CF4-48AD-A303-A70BF5408FD7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B3908738-6CF4-48AD-A303-A70BF5408FD7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B3908738-6CF4-48AD-A303-A70BF5408FD7}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{B3908738-6CF4-48AD-A303-A70BF5408FD7}.Debug|x64.Build.0 = Debug|Any CPU
+		{B3908738-6CF4-48AD-A303-A70BF5408FD7}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{B3908738-6CF4-48AD-A303-A70BF5408FD7}.Debug|x86.Build.0 = Debug|Any CPU
+		{B3908738-6CF4-48AD-A303-A70BF5408FD7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B3908738-6CF4-48AD-A303-A70BF5408FD7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B3908738-6CF4-48AD-A303-A70BF5408FD7}.Release|x64.ActiveCfg = Release|Any CPU
+		{B3908738-6CF4-48AD-A303-A70BF5408FD7}.Release|x64.Build.0 = Release|Any CPU
+		{B3908738-6CF4-48AD-A303-A70BF5408FD7}.Release|x86.ActiveCfg = Release|Any CPU
+		{B3908738-6CF4-48AD-A303-A70BF5408FD7}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

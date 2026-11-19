@@ -1,114 +1,157 @@
+// Copyright 2026 Entex Interactive
+
 using System.Drawing;
-using System.Text.Json;
-using System.Text;
-using EntexInteractive.Extensions.Globalization;
+using System.Net.Sockets;
+using System.Reflection;
+using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.Extensions.FileProviders;
 using Photino.NET;
-using Photino.NET.Server;
+using Vertex.Gui.Hosting;
 
 namespace Vertex.Gui
 {
-    //NOTE: To hide the console window, go to the project properties and change the Output Type to Windows Application.
-// Or edit the .csproj file and change the <OutputType> tag from "WinExe" to "Exe".
-
-    class Program
+    /// <summary>
+    /// Starts the local API (ASP.NET Core on loopback, which also serves the embedded web build) and opens the
+    /// Photino window on it. The UI calls C# with plain HTTP: see <c>Vertex.Gui/ReadMe.md</c>.
+    /// </summary>
+    public static class Program
     {
-        public static bool IsDebugMode = false; //serve files from asp.net runtime
-        private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+        /// <summary>
+        /// The Vite dev server (<c>npm run dev</c> in Vertex.Web). With <c>-debug</c> the window loads it for hot
+        /// reload and Vite proxies <c>/api</c> to <see cref="DevApiPort"/>.
+        /// </summary>
+        private const string ViteDevServer = "http://localhost:5173";
+
+        /// <summary>
+        /// The fixed API port in <c>-debug</c> runs, matching the proxy in <c>Vertex.Web/vite.config.ts</c>.
+        /// <c>VX_GUI_PORT</c> overrides it.
+        /// </summary>
+        private const int DevApiPort = 5180;
 
         [STAThread]
-        static void Main(string[] args)
+        public static void Main(string[] args)
         {
-            PhotinoServer.CreateStaticFileServer(args, out string baseUrl).RunAsync();
+            bool debug = args.Any(arg => arg is "-debug" or "--debug");
 
-            // The appUrl is set to the local development server when in debug mode.
-            // This helps with hot reloading and debugging.
-            string appUrl = IsDebugMode ? "http://localhost:3000" : $"{baseUrl}/index.html";
-            Console.WriteLine($"Serving React app at {appUrl}");
+            WebApplication app = BuildApp(args, debug);
+            app.StartAsync().GetAwaiter().GetResult();
 
-            // Window title declared here for visibility
-            string windowTitle = "Vertex Desktop";
+            HostIdentity identity = app.Services.GetRequiredService<HostIdentity>();
+            identity.SetPort(BoundPort(app));
 
-            // Creating a new PhotinoWindow instance with the fluent API
+            string pageOrigin = identity.Origin;
+            if (debug && IsListening(ViteDevServer))
+            {
+                pageOrigin = ViteDevServer;
+                identity.AllowOrigin(ViteDevServer);
+            }
+            else if (debug)
+            {
+                app.Logger.LogWarning("The Vite dev server isn't running at {Url}, so the embedded UI is shown. Run 'npm run dev' in Vertex.Web for hot reload.", ViteDevServer);
+            }
+
+            // The fragment never leaves the window, so the token isn't logged or sent anywhere; the page reads it once.
+            string pageUrl = $"{pageOrigin}/#token={identity.Token}";
+            app.Logger.LogInformation("Serving the Vertex UI from {Origin}", pageOrigin);
+
             PhotinoWindow window = new PhotinoWindow()
-                .SetTitle(windowTitle)
+                .SetTitle("Vertex")
                 .SetUseOsDefaultSize(false)
-                .SetSize(new Size(2048, 1024))
-                // Resize to a percentage of the main monitor work area
-                //.Resize(50, 50, "%")
-                .SetUseOsDefaultSize(false)
-                .SetSize(new Size(800, 600))
-                // Center window in the middle of the screen
+                .SetSize(new Size(1280, 800))
                 .Center()
-                // Users can resize windows by default.
-                // Let's make this one fixed instead.
                 .SetResizable(true)
-                .RegisterCustomSchemeHandler("app", (object sender, string scheme, string url, out string contentType) =>
-                {
-                    contentType = "text/javascript";
-                    return new MemoryStream(Encoding.UTF8.GetBytes(@"
-                        (() =>{
-                            window.setTimeout(() => {
-                                alert(`🎉 Dynamically inserted JavaScript.`);
-                            }, 1000);
-                        })();
-                    "));
-                })
-                // Most event handlers can be registered after the
-                // PhotinoWindow was instantiated by calling a registration 
-                // method like the following RegisterWebMessageReceivedHandler.
-                // This could be added in the PhotinoWindowOptions if preferred.
-                .RegisterWebMessageReceivedHandler((sender, message) => HandleUiMessage((PhotinoWindow)sender!, message))
-                .Load(appUrl); // Can be used with relative path strings or "new URI()" instance to load a website.
+                .SetDevToolsEnabled(debug)
+                .SetContextMenuEnabled(debug)
+                .Load(pageUrl);
 
-            window.WaitForClose(); // Starts the application event loop
+            window.WaitForClose();
+            app.StopAsync().GetAwaiter().GetResult();
         }
 
-        private static void HandleUiMessage(PhotinoWindow? window, string message)
+        private static WebApplication BuildApp(string[] args, bool debug)
         {
-            UiRequest? request;
+            WebApplicationBuilder builder = WebApplication.CreateBuilder(new WebApplicationOptions
+            {
+                Args = args,
+                ContentRootPath = AppContext.BaseDirectory
+            });
+
+            int port = debug ? DevPort() : 0;
+            builder.WebHost.ConfigureKestrel(kestrel => kestrel.Listen(System.Net.IPAddress.Loopback, port));
+
+            builder.Services.AddSingleton(new HostIdentity(debug ? DevToken() : null));
+            builder.Services.AddSingleton<HostEvents>();
+            builder.Services.AddSingleton<ServerSession>();
+            builder.Services.AddProblemDetails();
+            builder.Services.AddExceptionHandler<ServerErrorHandler>();
+            builder.Services.AddOpenApi();
+            // The OpenAPI schemas are generated from these options, so they must match the controllers' below.
+            builder.Services.ConfigureHttpJsonOptions(options =>
+            {
+                options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
+                options.SerializerOptions.NumberHandling = JsonNumberHandling.Strict;
+            });
+            builder.Services.AddControllers(options => options.Filters.Add(new Microsoft.AspNetCore.Mvc.ProducesAttribute("application/json")))
+                .AddJsonOptions(options =>
+                {
+                    options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+                    // Numbers stay numbers in the OpenAPI document (and so in TypeScript), not "integer or string".
+                    options.JsonSerializerOptions.NumberHandling = JsonNumberHandling.Strict;
+                });
+
+            WebApplication app = builder.Build();
+
+            app.UseExceptionHandler();
+            app.UseStatusCodePages();
+            app.UseMiddleware<HostSecurityMiddleware>();
+
+            ManifestEmbeddedFileProvider files = new(Assembly.GetExecutingAssembly(), "Resources/wwwroot");
+            app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = files });
+            app.UseStaticFiles(new StaticFileOptions { FileProvider = files });
+
+            app.MapControllers();
+            if (debug) app.MapOpenApi("/api/openapi.json");
+            app.MapFallback("/api/{**path}", () => Results.Problem(statusCode: StatusCodes.Status404NotFound, detail: "The desktop app has no such API. Rebuild Vertex.Gui if the UI is newer than the host."));
+            app.MapFallbackToFile("index.html", new StaticFileOptions { FileProvider = files });
+
+            return app;
+        }
+
+        private static int DevPort()
+        {
+            return int.TryParse(Environment.GetEnvironmentVariable("VX_GUI_PORT"), out int port) && port is > 0 and < 65536 ? port : DevApiPort;
+        }
+
+        /// <summary>
+        /// <c>VX_GUI_TOKEN</c> fixes the token in <c>-debug</c> runs, so scripts and headless browsers can call the API
+        /// (open <c>http://127.0.0.1:5180/#token=&lt;token&gt;</c>). It must be at least 32 characters.
+        /// </summary>
+        private static string? DevToken()
+        {
+            string? token = Environment.GetEnvironmentVariable("VX_GUI_TOKEN");
+            return token is { Length: >= 32 } && token.All(char.IsAsciiLetterOrDigit) ? token : null;
+        }
+
+        private static int BoundPort(WebApplication app)
+        {
+            string address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First();
+            return new Uri(address).Port;
+        }
+
+        private static bool IsListening(string url)
+        {
+            Uri uri = new(url);
             try
             {
-                request = JsonSerializer.Deserialize<UiRequest>(message, JsonOptions);
+                using TcpClient client = new();
+                return client.ConnectAsync(uri.Host, uri.Port).Wait(TimeSpan.FromMilliseconds(300)) && client.Connected;
             }
-            catch (JsonException)
+            catch (Exception ex) when (ex is SocketException or AggregateException)
             {
-                return;
+                return false;
             }
-
-            if (request is null || request.Type != "request" || string.IsNullOrWhiteSpace(request.Id))
-                return;
-
-            object? result = null;
-            string? error = null;
-            try
-            {
-                // Keep this switch as the explicit allowlist of methods the UI may call.
-                result = request.Method switch
-                {
-                    "app.getGreeting" => GetGreeting(request.Payload),
-                    _ => throw new InvalidOperationException($"Unknown backend method: {request.Method}")
-                };
-            }
-            catch (Exception exception)
-            {
-                error = exception.Message;
-            }
-
-            window?.SendWebMessage(JsonSerializer.Serialize(new UiResponse("response", request.Id, error is null, result, error), JsonOptions));
         }
-
-        private static string GetGreeting(JsonElement payload)
-        {
-            var name = payload.ValueKind == JsonValueKind.Object &&
-                       payload.TryGetProperty("name", out var nameValue) &&
-                       nameValue.ValueKind == JsonValueKind.String
-                ? nameValue.GetString()
-                : null;
-
-            return $"Hello, {(!string.IsNullOrWhiteSpace(name) ? name : "there")}! This response came from C#.";
-        }
-
-        private sealed record UiRequest(string Type, string Id, string Method, JsonElement Payload);
-        private sealed record UiResponse(string Type, string Id, bool Success, object? Result, string? Error);
     }
 }

@@ -1,0 +1,220 @@
+.view-frame {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 30px 36px 50px;
+  background: var(--color-bg-sidebar);
+}
+.view-frame > header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 25px;
+}
+.view-frame > header span {
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  color: #d85ce9;
+}
+.view-frame h1 {
+  margin: 5px 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.5px;
+}
+.view-frame header p {
+  font-size: 10px;
+  color: #928a98;
+}
+.view-frame > header > button {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  color: white;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 500;
+  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-deep));
+  box-shadow: 0 4px 14px #7324ae4f;
+}
+.summary-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin-bottom: 18px;
+  background: white;
+  border: 1px solid #d9dade;
+  border-radius: 5px;
+}
+.summary {
+  height: 75px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 18px;
+  border-right: 1px solid #e1e2e5;
+}
+.summary:last-child {
+  border: 0;
+}
+.summary strong {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.summary span {
+  margin-top: 5px;
+  color: #898b92;
+  font-size: 9px;
+}
+.summary.warning strong {
+  color: #c0594f;
+}
+.table-head,
+.data-row {
+  display: grid;
+  grid-template-columns: 100px 2fr 140px 160px 110px;
+  align-items: center;
+}
+.table-head {
+  height: 30px;
+  padding: 0 13px;
+  border: 1px solid #d8d9dc;
+  border-radius: 5px 5px 0 0;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.35px;
+  color: var(--color-text-secondary);
+  background: #25202a;
+  border-color: var(--color-border);
+}
+.data-table {
+  overflow: hidden;
+  border: 1px solid #d8d9dc;
+  border-top: 0;
+  border-radius: 0 0 5px 5px;
+  background: white;
+}
+.data-row {
+  min-height: 51px;
+  padding: 0 13px;
+  border-bottom: 1px solid #e6e7e9;
+  font-size: 9px;
+}
+.data-row:last-child {
+  border: 0;
+}
+.data-row:hover {
+  background: #251e2a;
+}
+.data-row code {
+  font: 9px "JetBrains Mono";
+  color: var(--color-accent-text);
+}
+.data-row > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.data-row small {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #85878e;
+  font-size: 8px;
+}
+.badge {
+  width: fit-content;
+  display: inline-flex !important;
+  padding: 3px 6px;
+  border-radius: 3px;
+  font-size: 8px;
+  color: #bdb5c2;
+  background: #302a35;
+}
+.badge.in-progress,
+.badge.feature-editor-redesign {
+  color: var(--color-accent-text-bright);
+  background: var(--color-accent-surface);
+}
+.badge.review,
+.badge.medium {
+  color: #a36e13;
+  background: #fff0d2;
+}
+.badge.blocked,
+.badge.high {
+  color: #b5444a;
+  background: #fae3e4;
+}
+.badge.low,
+.badge.fix-ready,
+.badge.verified,
+.badge.main {
+  color: #277957;
+  background: #def2e8;
+}
+.data-row .avatar {
+  width: 22px;
+  height: 22px;
+}
+.summary-row,
+.data-table {
+  background: var(--color-bg-pane);
+  border-color: var(--color-border);
+}
+.summary,
+.data-row {
+  border-color: var(--color-border-subtle);
+}
+.summary span,
+.data-row small {
+  color: var(--color-text-muted);
+}
+@media (max-width: 1180px) {
+  .table-head,
+  .data-row {
+    grid-template-columns: 90px 2fr 120px 130px 90px;
+  }
+}
+/* Marks screens and panels that show made-up data because their feature isn't built yet. */
+.preview-tag {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 2px 6px;
+  color: var(--color-accent-text-bright);
+  background: var(--color-accent-surface);
+  border-radius: 3px;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: none;
+  white-space: nowrap;
+}
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 48px 20px;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+.empty-state b {
+  color: var(--color-text);
+  font-size: 11px;
+  font-weight: 600;
+}
+.empty-state p {
+  max-width: 360px;
+  font-size: 9px;
+  line-height: 1.5;
+}
+button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}

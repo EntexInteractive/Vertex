@@ -1,0 +1,111 @@
+.graph-shell {
+  height: 455px;
+  display: grid;
+  grid-template-columns: 230px 1fr;
+  overflow: hidden;
+  border: 1px solid #d7d8dc;
+  border-radius: 5px;
+  background: var(--color-bg-pane);
+  border-color: var(--color-border);
+}
+.graph-canvas {
+  position: relative;
+  border-right: 1px solid #dedfe2;
+  background: var(--color-bg-app);
+  border-color: var(--color-border);
+}
+.graph-canvas svg {
+  position: absolute;
+  width: 100%;
+  height: 440px;
+}
+.graph-canvas path {
+  fill: none;
+  stroke-width: 2;
+}
+.line-purple {
+  stroke: var(--color-accent);
+}
+.line-green {
+  stroke: var(--color-green);
+}
+.line-orange {
+  stroke: var(--color-orange);
+}
+.line-blue {
+  stroke: var(--color-blue);
+}
+.node {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 3px solid var(--color-violet);
+  border-radius: 50%;
+  border-color: var(--color-accent);
+  background: var(--color-bg-app);
+  box-shadow: 0 0 0 2px var(--color-bg-app);
+}
+.n0 {
+  left: 42px;
+  top: 29px;
+}
+.n1 {
+  left: 96px;
+  top: 102px;
+}
+.n2 {
+  left: 96px;
+  top: 170px;
+  border-color: var(--color-green);
+}
+.n3 {
+  left: 160px;
+  top: 236px;
+  border-color: var(--color-orange);
+}
+.n4 {
+  left: 96px;
+  top: 302px;
+  border-color: var(--color-green);
+}
+.n5 {
+  left: 160px;
+  top: 369px;
+  border-color: var(--color-blue);
+}
+.graph-list {
+  padding-top: 10px;
+}
+.graph-item {
+  height: 67px;
+  display: grid;
+  grid-template-columns: 1fr 130px 80px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 15px;
+  border-bottom: 1px solid #e7e7e9;
+  border-color: var(--color-border-subtle);
+}
+.graph-item > div b {
+  display: block;
+  font-size: 9px;
+}
+.graph-item > div span {
+  display: flex;
+  gap: 8px;
+  margin-top: 5px;
+}
+.graph-item code {
+  color: #898b92;
+  font: 8px "JetBrains Mono";
+}
+.graph-item > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 8px;
+}
+.graph-item small {
+  font-size: 8px;
+  color: var(--color-text-muted);
+}

@@ -8,8 +8,9 @@
         <ReactDist>$(ReactRoot)dist/</ReactDist>
     </PropertyGroup>
 
-    <!-- Build the shared React app before either host compiles or publishes. -->
-    <Target Name="BuildVertexReact" BeforeTargets="PrepareForBuild">
+    <!-- Build the shared React app before either host compiles or publishes. Pass -p:SkipVertexReact=true to reuse
+         the last build, e.g. to regenerate Vertex.Gui's OpenAPI document after changing a controller. -->
+    <Target Name="BuildVertexReact" BeforeTargets="PrepareForBuild" Condition="'$(SkipVertexReact)' != 'true'">
 
         <Message Text="Building Vertex.Web..." Importance="high"/>
 

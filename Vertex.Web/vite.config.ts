@@ -11,6 +11,15 @@ export default defineConfig({
         react(),
         tailwindcss()
     ],
+    // `npm run dev` for the desktop app: `dotnet run --project Vertex.Gui -- -debug` loads this server and listens for
+    // /api on 127.0.0.1:5180 (VX_GUI_PORT). changeOrigin makes the Host header match what the host accepts.
+    server: {
+        port: 5173,
+        strictPort: true,
+        proxy: {
+            '/api': {target: `http://127.0.0.1:${process.env.VX_GUI_PORT ?? 5180}`, changeOrigin: true},
+        },
+    },
     resolve: {
         alias: {
             "@": path.resolve(__dirname, "./src"),

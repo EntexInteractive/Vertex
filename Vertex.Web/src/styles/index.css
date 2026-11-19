@@ -1,0 +1,17 @@
+/* Global styles, in cascade order. Each feature's own stylesheet lives next to its components. */
+@import "tailwindcss";
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+@import "./tokens.css";
+@import "./base.css";
+@import "../components/components.css";
+@import "../app/layout/layout.css";
+@import "../app/layout/utilities.css";
+@import "../features/workspace/workspace.css";
+@import "../features/history/history.css";
+@import "../features/tasks/tasks.css";
+@import "../features/graph/graph.css";
+@import "../features/auth/login.css";

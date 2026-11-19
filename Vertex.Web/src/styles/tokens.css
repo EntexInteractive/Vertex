@@ -1,0 +1,40 @@
+/* The Vertex palette (dark). Use these instead of new hex values; the one-off colors left in feature stylesheets
+   are leftovers from the Figma export and can move here when they're touched. */
+:root {
+  /* Accent: the purple used for active items, primary buttons and highlights. */
+  --color-accent: #c128da;
+  --color-accent-deep: #7324ae;
+  --color-accent-surface: #43204b;
+  --color-accent-text: #df76ed;
+  --color-accent-text-bright: #efa4f9;
+
+  /* Surfaces, darkest to lightest. */
+  --color-bg-deepest: #0f0d12;
+  --color-bg-sidebar: #151218;
+  --color-bg-input: #18141c;
+  --color-bg-app: #18151c;
+  --color-bg-pane: #1c1820;
+  --color-bg-panel: #211c26;
+  --color-bg-raised: #2d2633;
+  --color-bg-hover: #312638;
+
+  /* Lines. */
+  --color-divider: #302837;
+  --color-border-subtle: #332b39;
+  --color-border: #39303f;
+  --color-border-strong: #46394e;
+
+  /* Text. */
+  --color-text: #eeeaf1;
+  --color-text-soft: #aaa2b0;
+  --color-text-secondary: #9b92a0;
+  --color-text-muted: #8f8795;
+  --color-text-dim: #8f8797;
+
+  /* Status and branch colors. */
+  --color-green: #3c9a72;
+  --color-orange: #cf8b24;
+  --color-red: #c74d53;
+  --color-blue: #4b8ec5;
+  --color-violet: #6659c7;
+}

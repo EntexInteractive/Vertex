@@ -1,0 +1,238 @@
+.rail {
+  width: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 10px 0 8px;
+  border-right: 1px solid #25262a;
+  color: var(--color-text-dim);
+  background: var(--color-bg-input);
+  border-right-color: var(--color-divider);
+}
+.vertex-mark {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 14px;
+  color: white;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 16px;
+  background: linear-gradient(145deg, var(--color-accent), var(--color-accent-deep));
+  box-shadow:
+    inset 0 0 0 1px #ffffff2b,
+    0 5px 16px #7324ae45;
+}
+.rail > :is(button, a) {
+  position: relative;
+  width: 52px;
+  height: 47px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 3px;
+  margin-bottom: 3px;
+  border-radius: 5px;
+  font-size: 8px;
+}
+.rail > :is(button, a):hover {
+  color: white;
+  background: var(--color-bg-raised);
+}
+.rail > :is(button, a).active {
+  color: #fff;
+  background: var(--color-bg-hover);
+}
+.rail > :is(button, a).active:before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  width: 3px;
+  height: 28px;
+  background: #8c80ef;
+  border-radius: 0 3px 3px 0;
+}
+.rail > :is(button, a) b {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  min-width: 14px;
+  height: 14px;
+  display: grid;
+  place-items: center;
+  padding: 0 3px;
+  color: white;
+  border: 2px solid #323338;
+  border-radius: 8px;
+  font-size: 7px;
+  background: var(--color-accent);
+  border-color: var(--color-bg-input);
+}
+.rail-spacer {
+  flex: 1;
+}
+.rail > :is(button, a) .avatar {
+  width: 23px;
+  height: 23px;
+}
+.toolbar {
+  height: 66px;
+  display: flex;
+  justify-content: space-between;
+  flex: 0 0 auto;
+  border-bottom: 1px solid #cfd1d5;
+  background: var(--color-bg-pane);
+  border-bottom-color: var(--color-border);
+  box-shadow: none;
+}
+.toolbar-selectors {
+  display: flex;
+}
+.selector-wrap {
+  position: relative;
+  border-right: 1px solid #dfe0e3;
+}
+.selector {
+  min-width: 225px;
+  height: 65px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  text-align: left;
+}
+.selector:hover {
+  background: #fafafa;
+}
+.selector > span small,
+.selector > span b {
+  display: block;
+}
+.selector > span small {
+  margin-bottom: 5px;
+  color: #8a8c93;
+  font-size: 9px;
+}
+.selector > span b {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #292b30;
+  font-size: 12px;
+  font-weight: 600;
+}
+.selector > svg {
+  transform: rotate(90deg);
+  color: var(--color-text-secondary);
+}
+.selector-menu {
+  position: absolute;
+  z-index: 50;
+  top: 59px;
+  left: 8px;
+  width: 270px;
+  padding: 6px;
+  border: 1px solid #cfd1d6;
+  border-radius: 6px;
+  color: #e8e2eb;
+  background: var(--color-bg-panel);
+  border-color: var(--color-border-strong);
+  box-shadow: 0 14px 35px #00000066;
+}
+.selector-menu label {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px;
+  border: 1px solid #d9dade;
+  border-radius: 4px;
+  color: var(--color-text-muted);
+  background: var(--color-bg-input);
+  border-color: var(--color-border-strong);
+}
+.selector-menu input {
+  min-width: 0;
+  width: 100%;
+  font-size: 10px;
+  color: var(--color-text);
+  background: transparent;
+}
+.selector-menu button {
+  width: 100%;
+  height: 32px;
+  display: grid;
+  grid-template-columns: 19px 1fr 17px;
+  align-items: center;
+  padding: 0 7px;
+  text-align: left;
+  border-radius: 4px;
+  font-size: 10px;
+}
+.selector-menu button:hover,
+.selector-menu button.selected {
+  color: #eea4fa;
+  background: #3a2142;
+}
+.toolbar-actions {
+  display: flex;
+  align-items: stretch;
+}
+.toolbar-actions > button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 16px;
+  color: #54565e;
+  border-left: 1px solid #e2e3e5;
+}
+.toolbar-actions > button:hover {
+  background: #fafafa;
+}
+.toolbar-actions b,
+.toolbar-actions small {
+  display: block;
+  text-align: left;
+}
+.toolbar-actions b {
+  font-size: 10px;
+  font-weight: 600;
+}
+.toolbar-actions small {
+  margin-top: 3px;
+  color: #92949a;
+  font-size: 8px;
+}
+.rail > :is(button, a).active::before {
+  background: var(--color-accent);
+}
+.selector-wrap,
+.toolbar-actions > button {
+  border-color: var(--color-border);
+}
+.selector:hover,
+.toolbar-actions > button:hover {
+  background: #251f2a;
+}
+.selector > span small,
+.toolbar-actions small {
+  color: var(--color-text-muted);
+}
+.selector > span b,
+.toolbar-actions > button {
+  color: #e8e2eb;
+}
+@media (max-width: 1180px) {
+  .selector {
+    min-width: 195px;
+  }
+  .toolbar-actions > button {
+    padding: 0 10px;
+  }
+  .toolbar-actions small {
+    display: none;
+  }
+}

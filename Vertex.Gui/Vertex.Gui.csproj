@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
     <PropertyGroup>
         <OutputType>WinExe</OutputType>
@@ -6,7 +6,7 @@
         <Platforms>AnyCPU</Platforms>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
-        <!-- Generate embedded file manifest when using the Photino.NET StaticFileServer -->
+        <!-- The embedded web build is served through a ManifestEmbeddedFileProvider. -->
         <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
         <ApplicationIcon>vertex-icon.ico</ApplicationIcon>
         <AssemblyName>Vertex</AssemblyName>
@@ -16,18 +16,28 @@
         <FileVersion>$(AssemblyVersion)</FileVersion>
         <Version>$(VersionPrefix)$(AssemblyVersion)</Version>
         <Authors>$(Company)</Authors>
+
+        <!-- Write the local API's OpenAPI document on build. Vertex.Web generates its typed client from it. -->
+        <OpenApiGenerateDocuments>true</OpenApiGenerateDocuments>
+        <OpenApiDocumentsDirectory>$(MSBuildThisFileDirectory)../Vertex.Web/src/host</OpenApiDocumentsDirectory>
+        <OpenApiGenerateDocumentsOptions>--file-name host-api</OpenApiGenerateDocumentsOptions>
     </PropertyGroup>
 
     <ItemGroup>
         <PackageReference Include="EntexInteractive.Extensions" Version="10.0.6"/>
-        <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="8.0.34"/>
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.15"/>
+        <PackageReference Include="Microsoft.Extensions.ApiDescription.Server" Version="10.0.15">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="10.0.15"/>
         <PackageReference Include="Photino.NET" Version="3.2.3"/>
-        <PackageReference Include="Photino.NET.Server" Version="3.0.11"/>
         <PackageReference Include="System.Runtime.CompilerServices.Unsafe" Version="6.1.2"/>
     </ItemGroup>
 
     <ItemGroup>
         <ProjectReference Include="..\Vertex.Core\Vertex.Core.csproj"/>
+        <ProjectReference Include="..\Vertex.Core.Client\Vertex.Core.Client.csproj"/>
     </ItemGroup>
 
     <Import Project="..\Vertex.React.targets"/>
