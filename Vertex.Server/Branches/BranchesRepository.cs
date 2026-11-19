@@ -44,8 +44,7 @@ namespace Vertex.Server.Branches
 
             // Lock the project's counters row like a submit does, so no revision lands on the parent between reading
             // its head and copying its files, and no other branch change races the merge-target checks.
-            if (branch.ParentId is not null || branch.MergeTo is not null)
-                await connection.ExecuteAsync(new CommandDefinition(LockSql, new { branch.ProjectId }, transaction, cancellationToken: cancellationToken));
+            if (branch.ParentId is not null || branch.MergeTo is not null) await connection.ExecuteAsync(new CommandDefinition(LockSql, new { branch.ProjectId }, transaction, cancellationToken: cancellationToken));
 
             long baseRevision = 0;
             if (branch.ParentId is Guid parentId)

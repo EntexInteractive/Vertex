@@ -105,6 +105,19 @@ The full documentation is in [`docs/`](docs/README.md):
   [Workspaces](docs/internals/workspaces.md), [History and revisions](docs/internals/history.md),
   [Events](docs/internals/events.md), [Caching](docs/internals/caching.md)
 
+### Mirroring to and from git or Perforce
+
+`Vertex.Mirror` builds `vx-mirror`. `pull` replays a git repository into a Vertex branch, one commit per `--interval`
+(default 5 minutes), syncs each revision back and checks every byte against git, so it doubles as an all-day
+integrity check. `push` commits every revision of a Vertex branch to a git repository or a Perforce workspace as it
+lands, one commit or changelist each, and picks up where it left off on the next run.
+
+```sh
+dotnet run -c Release --project Vertex.Mirror -- pull --project gitignore --git https://github.com/github/gitignore.git --duration 9h
+dotnet run -c Release --project Vertex.Mirror -- push --project game --git git@github.com:studio/game-mirror.git
+dotnet run -c Release --project Vertex.Mirror -- push --project game --p4 game-mirror-ws
+```
+
 ## Contributing
 
 Contributions are welcome: bug reports, ideas, docs, and code. Read [CONTRIBUTING.md](CONTRIBUTING.md) to get started, and follow the [Code of Conduct](CODE_OF_CONDUCT.md). Report security issues privately as described in [SECURITY.md](SECURITY.md), not in public issues.

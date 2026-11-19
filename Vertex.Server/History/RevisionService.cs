@@ -41,8 +41,7 @@ namespace Vertex.Server.History
         private readonly BranchesRepository _branches;
         private readonly AutoMerger _autoMerger;
 
-        public RevisionService(ILogger<RevisionService> logger, RevisionsRepository revisions, AccessService access, FilesRepository files, CacheContext cache, INotificationService notifications,
-            MergesRepository merges, BranchesRepository branches, AutoMerger autoMerger)
+        public RevisionService(ILogger<RevisionService> logger, RevisionsRepository revisions, AccessService access, FilesRepository files, CacheContext cache, INotificationService notifications, MergesRepository merges, BranchesRepository branches, AutoMerger autoMerger)
         {
             _autoMerger = autoMerger;
             _merges = merges;
