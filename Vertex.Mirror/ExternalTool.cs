@@ -36,7 +36,20 @@ namespace Vertex.Mirror
         /// <summary>
         /// Runs the tool with extra environment variables (e.g. a git commit's author) and returns its trimmed output.
         /// </summary>
-        public async Task<string> RunAsync(string? workingDirectory, IReadOnlyDictionary<string, string>? environment, CancellationToken ct, params string[] args)
+        public Task<string> RunAsync(string? workingDirectory, IReadOnlyDictionary<string, string>? environment, CancellationToken ct, params string[] args)
+        {
+            return RunCoreAsync(workingDirectory, environment, null, ct, args);
+        }
+
+        /// <summary>
+        /// Runs the tool with <paramref name="input"/> on its standard input (e.g. a spec for 'p4 client -i').
+        /// </summary>
+        public Task<string> RunWithInputAsync(string? workingDirectory, string input, CancellationToken ct, params string[] args)
+        {
+            return RunCoreAsync(workingDirectory, null, input, ct, args);
+        }
+
+        private async Task<string> RunCoreAsync(string? workingDirectory, IReadOnlyDictionary<string, string>? environment, string? input, CancellationToken ct, string[] args)
         {
             ProcessStartInfo info = new(_executable)
             {
@@ -65,7 +78,8 @@ namespace Vertex.Mirror
 
             using (process)
             {
-                // Nothing reads stdin: close it so a tool that wants to prompt fails instead of hanging.
+                // Write the input, if any, then close stdin so a tool that wants to prompt fails instead of hanging.
+                if (input is not null) await process.StandardInput.WriteAsync(input.AsMemory(), ct);
                 process.StandardInput.Close();
                 Task<string> output = process.StandardOutput.ReadToEndAsync(ct);
                 Task<string> error = process.StandardError.ReadToEndAsync(ct);

@@ -24,12 +24,12 @@ namespace Vertex.Mirror
             {
                 config.SetApplicationName("vx-mirror");
                 config.AddExample("pull", "--project", "gitignore", "--git", "https://github.com/github/gitignore.git");
-                config.AddExample("pull", "--project", "vertex-self", "--git", @"D:\Git\Vertex", "--start", "1", "--interval", "1m");
+                config.AddExample("pull", "--project", "game", "--p4", "//depot/game/...");
                 config.AddExample("push", "--project", "game", "--git", "git@github.com:studio/game-mirror.git");
                 config.AddExample("push", "--project", "game", "--p4", "game-mirror-ws", "--once");
 
                 config.AddCommand<PullCommand>("pull")
-                    .WithDescription("git -> Vertex: replays a git repository's commits into a Vertex branch, one per --interval, and checks every byte comes back the same.");
+                    .WithDescription("git or Perforce -> Vertex: replays a git repository (--git) or a depot path (--p4) into a Vertex branch from its first commit or changelist, one per --interval, checks every byte comes back the same, and resumes where it stopped.");
                 config.AddCommand<PushCommand>("push")
                     .WithDescription("Vertex -> git or Perforce: commits every new revision of a Vertex branch to a git repository (--git) or a Perforce workspace (--p4).");
             });

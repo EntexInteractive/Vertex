@@ -1,6 +1,6 @@
 // Copyright 2026 Entex Interactive
 
-using System.Text;
+using System.Globalization;
 using System.Text.RegularExpressions;
 using Vertex.Core.Net.Interfaces;
 
@@ -18,17 +18,14 @@ namespace Vertex.Mirror.Push
     public sealed partial class PerforceTarget : IPushTarget
     {
         private readonly string _client;
-        private readonly ExternalTool _p4;
+        private readonly P4 _p4;
         private readonly List<string> _adds = new();
         private string _root = string.Empty;
 
         public PerforceTarget(string client, string? port, string? user)
         {
             _client = client;
-            List<string> global = ["-c", client];
-            if (port is not null) global.AddRange(["-p", port]);
-            if (user is not null) global.AddRange(["-u", user]);
-            _p4 = new ExternalTool("p4", "Install the Perforce command-line client (Helix Core P4) so that 'p4 -V' works, then run this again.", global);
+            _p4 = new P4(client, port, user);
         }
 
         public string Describe => $"Perforce workspace {_client}";
@@ -57,7 +54,7 @@ namespace Vertex.Mirror.Push
             foreach (string change in recent)
             {
                 string description = await RunAsync(ct, [], "-ztag", "-F", "%desc%", "describe", "-s", change);
-                if (Trailer.Find(description) is long revision) return revision;
+                if (Trailer.FindRevision(description) is long revision) return revision;
             }
 
             if (recent.Length == 0) return 0;
@@ -103,11 +100,11 @@ namespace Vertex.Mirror.Push
                 bool exists = File.Exists(local);
                 if (change.FileId is null)
                 {
-                    if (exists) deletes.Add(Escape(local));
+                    if (exists) deletes.Add(P4.Escape(local));
                 }
                 else if (exists)
                 {
-                    edits.Add(Escape(local));
+                    edits.Add(P4.Escape(local));
                 }
                 else
                 {
@@ -115,21 +112,21 @@ namespace Vertex.Mirror.Push
                 }
             }
 
-            if (edits.Count > 0) await RunListAsync(edits, ct, "edit");
-            if (deletes.Count > 0) await RunListAsync(deletes, ct, "delete");
+            if (edits.Count > 0) await _p4.RunListAsync(edits, ct, "edit");
+            if (deletes.Count > 0) await _p4.RunListAsync(deletes, ct, "delete");
         }
 
         public async Task<string?> CommitAsync(RevisionSummary revision, IReadOnlyList<RevisionChange> changes, CancellationToken ct)
         {
             // -f: names with @ # % * are taken literally.
-            if (_adds.Count > 0) await RunListAsync(_adds, ct, "add", "-f");
+            if (_adds.Count > 0) await _p4.RunListAsync(_adds, ct, "add", "-f");
             _adds.Clear();
 
             string opened = await RunAsync(ct, ["file(s) not opened"], "-ztag", "-F", "%depotFile%", "opened", View);
             if (opened.Length == 0) return null;
 
             string who = revision.DisplayName is null ? revision.Username : $"{revision.DisplayName} ({revision.Username})";
-            string description = Trailer.Append(revision.Message, revision.Number, $"Submitted to Vertex by {who} at {revision.CreatedAt.UtcDateTime:yyyy-MM-dd HH:mm:ss} UTC.");
+            string description = Trailer.Append(revision.Message, Trailer.VertexRevision, revision.Number.ToString(CultureInfo.InvariantCulture), $"Submitted to Vertex by {who} at {revision.CreatedAt.UtcDateTime:yyyy-MM-dd HH:mm:ss} UTC.");
             string output = await RunAsync(ct, [], "submit", "-d", description);
             Match match = SubmittedPattern().Match(output);
             return match.Success ? "change " + (match.Groups[2].Success ? match.Groups[2].Value : match.Groups[1].Value) : "submitted";
@@ -146,45 +143,9 @@ namespace Vertex.Mirror.Push
             return Path.Combine(_root, path.Replace('/', Path.DirectorySeparatorChar));
         }
 
-        /// <summary>
-        /// Perforce's escapes for the characters it reserves in file names (edit and delete need them; add -f doesn't).
-        /// </summary>
-        private static string Escape(string path)
+        private Task<string> RunAsync(CancellationToken ct, string[] harmless, params string[] args)
         {
-            return path.Replace("%", "%25").Replace("@", "%40").Replace("#", "%23").Replace("*", "%2A");
-        }
-
-        /// <summary>
-        /// Runs a p4 command over a list of files passed in a file (-x), so any number of paths fits.
-        /// </summary>
-        private async Task RunListAsync(IReadOnlyList<string> files, CancellationToken ct, params string[] command)
-        {
-            string list = Path.GetTempFileName();
-            try
-            {
-                await File.WriteAllLinesAsync(list, files, new UTF8Encoding(false), ct);
-                await RunAsync(ct, [], ["-x", list, .. command]);
-            }
-            finally
-            {
-                File.Delete(list);
-            }
-        }
-
-        /// <summary>
-        /// Runs p4. A failure whose message contains one of <paramref name="harmless"/> (e.g. "file(s) up-to-date",
-        /// which p4 reports as an error) counts as success with no output.
-        /// </summary>
-        private async Task<string> RunAsync(CancellationToken ct, string[] harmless, params string[] args)
-        {
-            try
-            {
-                return await _p4.RunAsync(null, ct, args);
-            }
-            catch (ToolFailedException ex) when (harmless.Any(h => ex.Output.Contains(h, StringComparison.OrdinalIgnoreCase)) && !ex.Output.Contains("error", StringComparison.OrdinalIgnoreCase))
-            {
-                return string.Empty;
-            }
+            return _p4.RunAsync(ct, harmless, args);
         }
 
         [GeneratedRegex(@"Change (\d+) (?:renamed change (\d+) and )?submitted")]

@@ -3,13 +3,12 @@
 namespace Vertex.Mirror.Pull
 {
     /// <summary>
-    /// <c>vx-mirror pull</c>: git -> Vertex. See <see cref="GitPull"/>.
+    /// <c>vx-mirror pull</c>: git (--git) or Perforce (--p4) -> Vertex. See <see cref="PullRun"/>.
     /// </summary>
     public sealed class PullCommand : AsyncCommand<PullSettings>
     {
-        public static readonly TimeSpan DefaultInterval = TimeSpan.FromMinutes(5);
-        public const int DefaultReplay = 300;
-        public const int DefaultFullCheckEvery = 12;
+        public static readonly TimeSpan DefaultInterval = TimeSpan.FromSeconds(5);
+        public const int DefaultFullCheckEvery = 100;
 
         public override async Task<int> ExecuteAsync(CommandContext context, PullSettings settings, CancellationToken cancellationToken)
         {
@@ -19,8 +18,11 @@ namespace Vertex.Mirror.Pull
             {
                 using VertexConnection vertex = await VertexConnection.ConnectAsync(settings, true, cancellationToken);
                 MirrorLog log = new(settings.Out, "pull", runId);
-                GitPull pull = new(vertex, log, settings.Git!, work.Path);
-                long problems = await pull.RunAsync(settings.IntervalOr(DefaultInterval), settings.ParsedDuration, settings.Start, settings.Replay ?? DefaultReplay,
+                await using IPullSource source = settings.Git is not null
+                    ? new GitSource(settings.Git, Path.Combine(work.Path, "git"))
+                    : new PerforceSource(settings.P4Path!, settings.P4Port, settings.P4User, Path.Combine(work.Path, "p4"), runId);
+                PullRun pull = new(vertex, source, log, work.Path);
+                long problems = await pull.RunAsync(settings.IntervalOr(DefaultInterval), settings.ParsedDuration, settings.Start,
                     settings.FullCheckEvery ?? DefaultFullCheckEvery, cancellationToken);
                 return problems == 0 ? 0 : 1;
             }

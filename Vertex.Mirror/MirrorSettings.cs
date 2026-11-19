@@ -44,6 +44,14 @@ namespace Vertex.Mirror
         [DefaultValue("mirror-results")]
         public string Out { get; set; } = "mirror-results";
 
+        [CommandOption("--p4-port")]
+        [Description("Perforce server (P4PORT), with --p4. Defaults to p4's own settings.")]
+        public string? P4Port { get; set; }
+
+        [CommandOption("--p4-user")]
+        [Description("Perforce user (P4USER), with --p4. Defaults to p4's own settings.")]
+        public string? P4User { get; set; }
+
         public TimeSpan? ParsedDuration => Duration is null ? null : ParseDuration(Duration);
 
         public TimeSpan IntervalOr(TimeSpan fallback)
@@ -93,28 +101,31 @@ namespace Vertex.Mirror
     public sealed class PullSettings : MirrorSettings
     {
         [CommandOption("--git|-g")]
-        [Description("The git repository to pull from: a URL or a local path. Required.")]
+        [Description("Pull from this git repository: a URL or a local path. Use either --git or --p4.")]
         public string? Git { get; set; }
 
+        [CommandOption("--p4")]
+        [Description("Pull from this Perforce depot path, e.g. //depot/game/... (vx-mirror makes its own client workspace). Use either --git or --p4.")]
+        public string? P4Path { get; set; }
+
         [CommandOption("--start")]
-        [Description("Commit to start at: a number (1 = the repository's first commit) or a sha/tag. Overrides --replay.")]
+        [Description("Where to start instead of the first commit or changelist (or where the last run stopped): for git a commit number (1 = the first) or a sha/tag, for Perforce a changelist number.")]
         public string? Start { get; set; }
 
-        [CommandOption("--replay")]
-        [Description("Commits behind the repository's head to start at, so every cycle has a change to submit. Defaults to 300.")]
-        public int? Replay { get; set; }
-
         [CommandOption("--full-check-every")]
-        [Description("Every N cycles, also compare the whole branch listing and re-download every file. Defaults to 12 (hourly at 5m).")]
+        [Description("Every N cycles, also compare the whole branch listing and re-download every file. Defaults to 100; it also runs when caught up.")]
         public int? FullCheckEvery { get; set; }
 
         public override ValidationResult Validate()
         {
-            if (string.IsNullOrWhiteSpace(Git))
-                return ValidationResult.Error("Name the git repository to pull from with --git <url or path>.");
+            if (string.IsNullOrWhiteSpace(Git) == string.IsNullOrWhiteSpace(P4Path))
+                return ValidationResult.Error("Say where to pull from: --git <url or path> for a git repository, or --p4 //depot/path/... for Perforce.");
 
-            if (Replay is < 0 || FullCheckEvery is < 1)
-                return ValidationResult.Error("--replay can't be negative and --full-check-every must be at least 1.");
+            if (P4Path is not null && (!P4Path.Trim().StartsWith("//", StringComparison.Ordinal) || P4Path.Contains('@') || P4Path.Contains('#')))
+                return ValidationResult.Error($"--p4 '{P4Path}' isn't a depot path. Pass the folder to pull in depot syntax, e.g. --p4 //depot/game/...");
+
+            if (FullCheckEvery is < 1)
+                return ValidationResult.Error("--full-check-every must be at least 1.");
 
             return base.Validate();
         }
@@ -133,14 +144,6 @@ namespace Vertex.Mirror
         [CommandOption("--p4")]
         [Description("Submit to this Perforce client workspace. Its root and view decide where files go. Use either --git or --p4.")]
         public string? P4Client { get; set; }
-
-        [CommandOption("--p4-port")]
-        [Description("Perforce server (P4PORT). Defaults to p4's own settings.")]
-        public string? P4Port { get; set; }
-
-        [CommandOption("--p4-user")]
-        [Description("Perforce user (P4USER). Defaults to p4's own settings.")]
-        public string? P4User { get; set; }
 
         [CommandOption("--once")]
         [Description("Push every revision not mirrored yet, then exit instead of waiting for new ones.")]

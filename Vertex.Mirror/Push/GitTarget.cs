@@ -69,8 +69,8 @@ namespace Vertex.Mirror.Push
             await Git.RunAsync(Root, ct, "clean", "--quiet", "-d", "-x", "--force");
             if (!exists) return 0;
 
-            string message = await Git.RunAsync(Root, ct, "log", "-1", $"--grep=^{Trailer.Name}: ", "--format=%B", "HEAD");
-            if (Trailer.Find(message) is long revision) return revision;
+            string message = await Git.RunAsync(Root, ct, "log", "-1", $"--grep=^{Trailer.VertexRevision}: ", "--format=%B", "HEAD");
+            if (Trailer.FindRevision(message) is long revision) return revision;
             throw new MirrorSetupException($"{_branch} in {_repository} already has commits that didn't come from vx-mirror. " +
                                            "Push to an empty repository, or to a new branch with --git-branch <name>.");
         }
@@ -100,7 +100,7 @@ namespace Vertex.Mirror.Push
             await Git.RunAsync(Root, ct, "add", "--all", "--force", ".");
 
             string messageFile = Path.Combine(Root, ".git", "VX_MIRROR_MESSAGE");
-            await File.WriteAllTextAsync(messageFile, Trailer.Append(revision.Message, revision.Number), ct);
+            await File.WriteAllTextAsync(messageFile, Trailer.Append(revision.Message, Trailer.VertexRevision, revision.Number.ToString(CultureInfo.InvariantCulture)), ct);
             string name = revision.DisplayName ?? revision.Username;
             string email = $"{revision.Username}@{_authorDomain}";
             string date = "@" + revision.CreatedAt.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture) + " +0000";

@@ -10,28 +10,34 @@ using Vertex.Server;
 namespace Vertex.Mirror.Pull
 {
     /// <summary>
-    /// git -> Vertex: replays a git repository into a Vertex branch one commit per interval, syncs every revision back
-    /// into a second folder the way <c>vx sync</c> does, and compares every byte with git's copy. Runs until the
-    /// duration passes or Ctrl+C, so it can run all day and show whether anything was ever corrupted or got slow.
+    /// git or Perforce -> Vertex: walks a source's history from its first commit or changelist (or --start, or where
+    /// the last run stopped), submitting each one as a revision every --interval, syncs every revision back into a
+    /// second folder the way <c>vx sync</c> does, and compares every byte with the source's copy. Once caught up it
+    /// keeps following new changes until the duration passes or Ctrl+C.
     /// </summary>
     /// <remarks>
-    /// The branch is the mirror: files go at the repository's own paths, each commit is one revision with the commit's
-    /// raw message, and anything on the branch that isn't in the repository is deleted by the first revision. It starts
-    /// --replay commits behind the repository's head (or at --start) so every cycle has a real change to submit even
-    /// when the upstream is quiet, and fetches new upstream commits once it catches up. Every cycle is one line on the
-    /// console and one row in <c>pull-&lt;run&gt;.csv</c>; every problem goes to <c>pull-&lt;run&gt;.log</c>, and files that
-    /// came back different are kept under <c>pull-&lt;run&gt;-evidence/</c>.
+    /// The branch is the mirror: files go at the source's own paths, each change is one revision with the change's
+    /// message plus its author, time and a trailer naming it (<c>Git-Commit: sha</c>, <c>Perforce-Change: N</c>), and
+    /// anything on the branch that isn't in the source is deleted by the first revision. A rerun reads the newest
+    /// trailer on the branch and continues from there. Every cycle is one line on the console and one row in
+    /// <c>pull-&lt;run&gt;.csv</c>; every problem goes to <c>pull-&lt;run&gt;.log</c>, and files that came back different
+    /// are kept under <c>pull-&lt;run&gt;-evidence/</c>.
     /// </remarks>
-    public sealed class GitPull
+    public sealed class PullRun
     {
         private const int DownloadParallelism = 8;
         private const string Host = "vx-mirror";
 
+        /// <summary>Newest revisions read at start to find the last trailer.</summary>
+        private const int ResumeSearch = 100;
+
+        /// <summary>Time between checks for new changes once caught up, so an idle mirror doesn't hammer the source.</summary>
+        private static readonly TimeSpan IdleInterval = TimeSpan.FromMinutes(1);
+
         private readonly VertexConnection _vertex;
+        private readonly IPullSource _source;
         private readonly MirrorLog _log;
-        private readonly string _repository;
         private readonly string _work;
-        private readonly string _clone;
         private readonly string _sync;
         private readonly string _csvPath;
         private readonly string _evidence;
@@ -45,33 +51,32 @@ namespace Vertex.Mirror.Pull
         private readonly PhaseStats _syncTimer = new("Sync (listing + downloads)");
         private readonly PhaseStats _verifyTimer = new("Verify synced files");
         private readonly PhaseStats _fullTimer = new("Full check (listing + fresh download)");
-        private readonly PhaseStats _fetchTimer = new("git fetch");
+        private readonly PhaseStats _fetchTimer = new("Check source for new changes");
 
         // The clone as last scanned (by relative path), and what the server holds for it (by path key).
         private Dictionary<string, LocalFile> _local = new(StringComparer.Ordinal);
         private Dictionary<string, LocalFile> _expected = new(StringComparer.Ordinal);
         private Dictionary<string, SubmittedFile> _submitted = new(StringComparer.Ordinal);
-        private string _branch = string.Empty;
-        private string _commit = string.Empty;
-
-        /// <summary>The current commit's position on the branch's first-parent line, 1 for the first commit.</summary>
-        private int _commitNumber;
 
         private long _syncRevision;
         private long _lastRevision;
         private int _cycle;
         private int _cycleProblems;
-        private long _commitsMirrored;
+        private bool _caughtUp;
+
+        /// <summary>The run started at the change the branch already holds (from its trailer), so cycle 1 adds nothing new.</summary>
+        private bool _resumed;
+
+        private long _changesMirrored;
         private long _revisionsSubmitted;
         private long _filesVerified;
 
-        public GitPull(VertexConnection vertex, MirrorLog log, string repository, string work)
+        public PullRun(VertexConnection vertex, IPullSource source, MirrorLog log, string work)
         {
             _vertex = vertex;
+            _source = source;
             _log = log;
-            _repository = repository;
             _work = work;
-            _clone = Path.Combine(work, "git");
             _sync = Path.Combine(work, "sync");
             _csvPath = Path.Combine(log.OutFolder, $"pull-{log.RunId}.csv");
             _evidence = Path.Combine(log.OutFolder, $"pull-{log.RunId}-evidence");
@@ -82,27 +87,29 @@ namespace Vertex.Mirror.Pull
         private sealed record SubmittedFile(string Path, string FileId);
 
         /// <returns>The number of problems found.</returns>
-        public async Task<long> RunAsync(TimeSpan interval, TimeSpan? duration, string? start, int replay, int fullEvery, CancellationToken ct)
+        public async Task<long> RunAsync(TimeSpan interval, TimeSpan? duration, string? start, int fullEvery, CancellationToken ct)
         {
             // A reused --work folder starts clean.
-            WorkFolder.DeleteTree(_clone);
             WorkFolder.DeleteTree(_sync);
             Directory.CreateDirectory(_sync);
-            await CloneAsync(start, replay, ct);
 
-            // The branch is the mirror: whatever it already holds is the base of the first submit, and anything on it
-            // that isn't in the repository gets deleted, like a 'git push --force' of the starting commit.
-            await ReloadSubmittedAsync(ct);
-            if (_submitted.Count > 0)
-                _log.Info($"{_vertex.Describe} already has {_submitted.Count:N0} file(s); the first revision brings it in line with the starting commit.");
+            // What the branch holds is the base of the first submit; its newest trailer says where the last run stopped.
+            await ReloadSubmittedAsync(true, ct);
+            string? resumeAt = start is null ? await FindResumePointAsync(ct) : null;
+            await _source.OpenAsync(start, resumeAt, ct);
+            _resumed = resumeAt is not null;
+            string position = resumeAt is null ? $"Starting at {_source.Current.Label}" : $"Resuming at {_source.Current.Label}, the last one on {_vertex.Describe}";
+            _log.Info($"{position}; {_source.Remaining:N0} more to mirror after it.");
+            if (_submitted.Count > 0 && resumeAt is null)
+                _log.Info($"{_vertex.Describe} already has {_submitted.Count:N0} file(s); the first revision brings it in line with {_source.Current.Label}.");
 
             using CancellationTokenSource stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
             if (duration is TimeSpan limit) stop.CancelAfter(limit);
             CancellationToken token = stop.Token;
 
-            File.AppendAllText(_csvPath, "utc,cycle,commit_number,commit,added,modified,deleted,uploaded_bytes,scan_ms,upload_ms,submit_ms,sync_ms,verify_ms,full_check,revision,problems\n");
-            _log.Info($"Pulling {_repository} into {_vertex.Describe} on {_vertex.Server} every {Format.Duration(interval)}, " +
-                      $"{(duration is null ? "until Ctrl+C" : $"for {Format.Duration(duration.Value)}")}. Full check every {fullEvery} cycle(s).");
+            File.AppendAllText(_csvPath, "utc,cycle,change,added,modified,deleted,uploaded_bytes,scan_ms,upload_ms,submit_ms,sync_ms,verify_ms,full_check,revision,problems\n");
+            _log.Info($"Pulling {_source.Describe} into {_vertex.Describe} on {_vertex.Server}, one change every {Format.Duration(interval)}, " +
+                      $"{(duration is null ? "until Ctrl+C" : $"for {Format.Duration(duration.Value)}")}. Full check every {fullEvery} cycle(s) and when caught up.");
             AnsiConsole.MarkupLine($"[grey]Per-cycle numbers: {Markup.Escape(_csvPath)}[/]");
             AnsiConsole.MarkupLine($"[grey]Problems:          {Markup.Escape(_log.FilePath)}[/]");
 
@@ -113,8 +120,8 @@ namespace Vertex.Mirror.Pull
                 {
                     Stopwatch cycle = Stopwatch.StartNew();
                     _cycle++;
-                    await RunCycleAsync(_cycle == 1 || _cycle % fullEvery == 0, token);
-                    TimeSpan wait = interval - cycle.Elapsed;
+                    await RunCycleAsync(fullEvery, token);
+                    TimeSpan wait = (_caughtUp && interval < IdleInterval ? IdleInterval : interval) - cycle.Elapsed;
                     if (wait > TimeSpan.Zero) await Task.Delay(wait, token);
                 }
             }
@@ -127,119 +134,68 @@ namespace Vertex.Mirror.Pull
             return _log.Problems;
         }
 
+        /// <summary>
+        /// The source id in the newest of the branch's recent revisions that has this source's trailer, or null when
+        /// none has one (a new branch, or one this source never pulled into).
+        /// </summary>
+        private async Task<string?> FindResumePointAsync(CancellationToken ct)
+        {
+            if (_lastRevision == 0) return null;
+            IReadOnlyList<RevisionSummary> recent = await _vertex.Revisions.GetRevisionsAsync(_vertex.ProjectId, _vertex.BranchId, Math.Max(0, _lastRevision - ResumeSearch), ResumeSearch, ct);
+            for (int i = recent.Count - 1; i >= 0; i--)
+            {
+                if (Trailer.Find(recent[i].Message, _source.TrailerName) is string id) return id;
+            }
+
+            return null;
+        }
+
         private void PrintSummary(TimeSpan elapsed)
         {
             AnsiConsole.WriteLine();
             PhaseStats.Print([_cycleTimer, _scanTimer, _uploadTimer, _submitTimer, _syncTimer, _verifyTimer, _fullTimer, _fetchTimer]);
-            string summary = $"Pulled {_commitsMirrored:N0} commit(s) from {_repository} ({_branch}) in {_cycleTimer.Summarize().Count:N0} cycle(s) over {Format.Duration(elapsed)}: " +
-                             $"{_revisionsSubmitted:N0} revision(s), {_filesVerified:N0} file(s) verified, {_log.Problems:N0} problem(s). Last commit {_commitNumber:N0} {Format.ShortSha(_commit)}.";
+            string summary = $"Pulled {_changesMirrored:N0} change(s) from {_source.Describe} in {_cycleTimer.Summarize().Count:N0} cycle(s) over {Format.Duration(elapsed)}: " +
+                             $"{_revisionsSubmitted:N0} revision(s), {_filesVerified:N0} file(s) verified, {_log.Problems:N0} problem(s). Last: {_source.Current.Label}, {_source.Remaining:N0} to go.";
             _log.Write(summary);
             AnsiConsole.MarkupLine(_log.Problems == 0 ? $"[green]{Markup.Escape(summary)}[/]" : $"[red]{Markup.Escape(summary)}[/] [grey]See {Markup.Escape(_log.FilePath)}.[/]");
         }
 
         /// <summary>
-        /// Clones the repository and checks out the first commit to mirror: <paramref name="start"/> when given (a
-        /// commit number, 1 for the first commit, or a sha/tag on the branch), otherwise <paramref name="replay"/>
-        /// first-parent commits before its head.
+        /// Moves the source one change forward. A failure to reach the source (offline for a while) isn't a Vertex
+        /// problem: it's logged, not counted, and the next cycle tries again.
         /// </summary>
-        private async Task CloneAsync(string? start, int replay, CancellationToken ct)
+        private async Task<bool> AdvanceAsync(CancellationToken ct)
         {
-            AnsiConsole.MarkupLine($"[grey]Cloning {Markup.Escape(_repository)}...[/]");
+            Stopwatch timer = Stopwatch.StartNew();
+            bool checking = _source.Remaining == 0;
             try
             {
-                await Git.RunAsync(_work, ct, "clone", "--quiet", "--no-checkout", "--single-branch", _repository, _clone);
+                bool moved = await _source.AdvanceAsync(ct);
+                if (checking) _fetchTimer.Record(timer.Elapsed);
+                return moved;
             }
             catch (ToolFailedException ex)
             {
-                throw new MirrorSetupException($"Couldn't clone {_repository}: {ex.Message}. Check the address, or pass another --git.");
+                _fetchTimer.Error();
+                _log.Write($"Couldn't move {_source.Describe} forward (not counted as a problem): {ex.Message}");
+                return false;
             }
-
-            Git.DisableConversions(_clone);
-            _branch = await Git.RunAsync(_clone, ct, "symbolic-ref", "--short", "HEAD");
-            // The branch's first-parent line, oldest first: commit N is history[N - 1].
-            string[] history;
-            try
-            {
-                history = Format.Lines(await Git.RunAsync(_clone, ct, "rev-list", "--first-parent", "--reverse", "HEAD"));
-            }
-            catch (ToolFailedException)
-            {
-                throw new MirrorSetupException($"{_repository} has no commits yet.");
-            }
-
-            int index;
-            if (start is null)
-            {
-                index = Math.Max(0, history.Length - 1 - replay);
-            }
-            else if (start.Length < 7 && int.TryParse(start, NumberStyles.None, CultureInfo.InvariantCulture, out int number))
-            {
-                if (number < 1 || number > history.Length)
-                    throw new MirrorSetupException($"--start {number} is past the end: {_branch} has {history.Length:N0} commit(s). Use a number from 1 to {history.Length:N0}.");
-                index = number - 1;
-            }
-            else
-            {
-                string sha;
-                try
-                {
-                    sha = await Git.RunAsync(_clone, ct, "rev-parse", "--verify", "--quiet", $"{start}^{{commit}}");
-                }
-                catch (ToolFailedException)
-                {
-                    throw new MirrorSetupException($"--start '{start}' isn't a commit in {_repository}. Use a commit number (1 = the first commit), a sha or a tag.");
-                }
-
-                index = Array.IndexOf(history, sha);
-                if (index < 0)
-                    throw new MirrorSetupException($"--start '{start}' isn't on {_branch}'s main line (it may be inside a merged branch). Use a commit number instead, from 1 to {history.Length:N0}.");
-            }
-
-            _commit = history[index];
-            _commitNumber = index + 1;
-            await Git.RunAsync(_clone, ct, "checkout", "--quiet", "--force", "--detach", _commit);
-            _log.Info($"Starting at commit {_commitNumber:N0} of {history.Length:N0} on {_branch} ({Format.ShortSha(_commit)}), {history.Length - _commitNumber:N0} to replay.");
         }
 
-        /// <summary>
-        /// Moves the clone one commit forward, fetching new upstream commits once the replay caught up.
-        /// </summary>
-        /// <returns>True when the clone moved to a new commit.</returns>
-        private async Task<bool> AdvanceAsync(CancellationToken ct)
-        {
-            string[] ahead = Format.Lines(await Git.RunAsync(_clone, ct, "rev-list", "--first-parent", "--reverse", $"{_commit}..origin/{_branch}"));
-            if (ahead.Length == 0)
-            {
-                Stopwatch fetch = Stopwatch.StartNew();
-                try
-                {
-                    await Git.RunAsync(_clone, ct, "fetch", "--quiet", "origin");
-                    _fetchTimer.Record(fetch.Elapsed);
-                }
-                catch (ToolFailedException ex)
-                {
-                    // Offline for a while is not a Vertex problem; mirror what we have and try again next cycle.
-                    _fetchTimer.Error();
-                    _log.Write($"git fetch failed (not counted as a problem): {ex.Message}");
-                }
-
-                ahead = Format.Lines(await Git.RunAsync(_clone, ct, "rev-list", "--first-parent", "--reverse", $"{_commit}..origin/{_branch}"));
-                if (ahead.Length == 0) return false;
-            }
-
-            await Git.RunAsync(_clone, ct, "checkout", "--quiet", "--force", "--detach", ahead[0]);
-            _commit = ahead[0];
-            _commitNumber++;
-            return true;
-        }
-
-        private async Task RunCycleAsync(bool fullCheck, CancellationToken ct)
+        private async Task RunCycleAsync(int fullEvery, CancellationToken ct)
         {
             Stopwatch total = Stopwatch.StartNew();
             _cycleProblems = 0;
             bool moved = _cycle == 1 || await AdvanceAsync(ct);
-            if (moved) _commitsMirrored++;
-            string message = await CommitMessageAsync(ct);
+            if (moved && !(_cycle == 1 && _resumed)) _changesMirrored++;
+            bool justCaughtUp = _source.Remaining == 0 && !_caughtUp;
+            _caughtUp = _source.Remaining == 0;
+            bool fullCheck = _cycle == 1 || _cycle % fullEvery == 0 || justCaughtUp;
+            if (justCaughtUp) _log.Info($"Caught up with {_source.Describe} at {_source.Current.Label}. Checking for new changes every {Format.Duration(IdleInterval)}.");
+
+            // Nothing new and no check due: nothing to do until the source moves.
+            if (!moved && !fullCheck) return;
+            string message = Message(_source.Current);
 
             // 1. Scan the clone, hashing only files whose size or write time changed.
             Stopwatch phase = Stopwatch.StartNew();
@@ -322,11 +278,11 @@ namespace Vertex.Mirror.Pull
                     catch (Exception ex) when (!ct.IsCancellationRequested)
                     {
                         _submitTimer.Error();
-                        Problem($"Submit of {changes.Count:N0} change(s) at {Format.ShortSha(_commit)} failed: {VertexConnection.DescribeError(ex)}");
+                        Problem($"Submit of {changes.Count:N0} file change(s) at {_source.Current.Label} failed: {VertexConnection.DescribeError(ex)}");
                         inStep = false;
 
                         // It may have committed even though the answer was lost: diff against the server from now on.
-                        await ReloadSubmittedAsync(ct);
+                        await ReloadSubmittedAsync(false, ct);
                     }
                 }
             }
@@ -349,26 +305,27 @@ namespace Vertex.Mirror.Pull
             _cycleTimer.Record(total.Elapsed);
             WriteCsv(added, modified, deleted, uploadedBytes, scan, upload, submit, sync, verify, fullCheck, revision);
 
-            string change = !moved ? "no new commits" : $"+{added} ~{modified} -{deleted}, {Format.Bytes(uploadedBytes)} up";
+            string change = !moved ? "no new changes" : $"+{added} ~{modified} -{deleted}, {Format.Bytes(uploadedBytes)} up";
             string status = _cycleProblems == 0 ? "[green]OK[/]" : $"[red]{_cycleProblems} problem(s), see the log[/]";
-            AnsiConsole.MarkupLine($"[grey]{DateTime.Now:HH:mm:ss}[/] cycle {_cycle,-4} commit {_commitNumber,-5} {Format.ShortSha(_commit)} #{revision,-6} ({change}) | " +
+            AnsiConsole.MarkupLine($"[grey]{DateTime.Now:HH:mm:ss}[/] cycle {_cycle,-4} {Markup.Escape(_source.Current.Label),-20} #{revision,-6} ({change}) | " +
                                    $"scan {Format.Milliseconds(scan)} | upload {Format.Milliseconds(upload)} | submit {Format.Milliseconds(submit)} | " +
                                    $"sync {Format.Milliseconds(sync)} | verify {Format.Milliseconds(verify)} | " +
                                    $"{status}{(fullCheck && inStep ? " [grey](full check)[/]" : "")}");
         }
 
         /// <summary>
-        /// The clone's files by path key. Unchanged files (same size and write time) keep their hashes.
+        /// The source folder's files by path key. Unchanged files (same size and write time) keep their hashes.
         /// </summary>
         private Dictionary<string, LocalFile> Scan(CancellationToken ct)
         {
             // Hidden files count too; symlinks and submodule links are skipped, like everything under .git.
             EnumerationOptions top = new() { AttributesToSkip = FileAttributes.ReparsePoint };
             EnumerationOptions deep = new() { AttributesToSkip = FileAttributes.ReparsePoint, RecurseSubdirectories = true };
-            List<string> paths = Directory.EnumerateFiles(_clone, "*", top).ToList();
-            foreach (string directory in Directory.EnumerateDirectories(_clone, "*", top))
+            string root = _source.Root;
+            List<string> paths = Directory.EnumerateFiles(root, "*", top).ToList();
+            foreach (string directory in Directory.EnumerateDirectories(root, "*", top))
             {
-                if (Path.GetFileName(directory) == ".git") continue;
+                if (_source.SkipFolder is not null && string.Equals(Path.GetFileName(directory), _source.SkipFolder, StringComparison.OrdinalIgnoreCase)) continue;
                 paths.AddRange(Directory.EnumerateFiles(directory, "*", deep));
             }
 
@@ -376,7 +333,7 @@ namespace Vertex.Mirror.Pull
             List<(string Full, string Relative, FileInfo Info)> changed = new();
             foreach (string full in paths)
             {
-                string relative = Path.GetRelativePath(_clone, full).Replace('\\', '/');
+                string relative = Path.GetRelativePath(root, full).Replace('\\', '/');
                 if (!RepositoryPath.IsValid(relative))
                 {
                     if (_reported.Add("invalid:" + relative)) _log.Write($"Skipped '{relative}': not a valid Vertex path.");
@@ -392,7 +349,7 @@ namespace Vertex.Mirror.Pull
                 local[file.Relative] = file;
             _local = local;
 
-            // Vertex compares paths ignoring case; a repository with two spellings of one path keeps the first.
+            // Vertex compares paths ignoring case; a source with two spellings of one path keeps the first.
             Dictionary<string, LocalFile> byKey = new(StringComparer.Ordinal);
             foreach (LocalFile file in local.Values.OrderBy(f => f.Relative, StringComparer.Ordinal))
             {
@@ -468,7 +425,7 @@ namespace Vertex.Mirror.Pull
         }
 
         /// <summary>
-        /// The sync folder must hold exactly the clone's files: same set, same sizes, and the same bytes for every file
+        /// The sync folder must hold exactly the source's files: same set, same sizes, and the same bytes for every file
         /// downloaded this cycle (every file on a full check).
         /// </summary>
         private void VerifySynced(List<string> downloaded, bool everything)
@@ -491,7 +448,7 @@ namespace Vertex.Mirror.Pull
 
             foreach ((string key, string full) in synced)
             {
-                if (!_expected.ContainsKey(key)) Problem($"'{Path.GetRelativePath(_sync, full)}' is in the synced folder but not in the repository (a delete didn't sync).");
+                if (!_expected.ContainsKey(key)) Problem($"'{Path.GetRelativePath(_sync, full)}' is in the synced folder but not in the source (a delete didn't sync).");
             }
 
             IEnumerable<string> keys = everything ? _expected.Keys : downloaded.Select(RepositoryPath.ToKey).Where(_expected.ContainsKey);
@@ -506,7 +463,7 @@ namespace Vertex.Mirror.Pull
         }
 
         /// <summary>
-        /// The whole branch listing must match what was submitted, and a fresh download of every file must match git.
+        /// The whole branch listing must match what was submitted, and a fresh download of every file must match the source.
         /// </summary>
         private async Task FullCheckAsync(CancellationToken ct)
         {
@@ -533,7 +490,7 @@ namespace Vertex.Mirror.Pull
 
             foreach ((string key, HeadChange entry) in listed)
             {
-                if (!_expected.ContainsKey(key)) Problem($"Full listing has '{entry.Path}', which isn't in the repository.");
+                if (!_expected.ContainsKey(key)) Problem($"Full listing has '{entry.Path}', which isn't in the source.");
             }
 
             // A fresh workspace: download everything again and compare bytes.
@@ -571,9 +528,9 @@ namespace Vertex.Mirror.Pull
 
         /// <summary>
         /// Rebuilds what the branch holds from a full listing: at start (so a reused --project continues from its
-        /// current state), and after a submit whose outcome is unknown.
+        /// current state; a failure there stops the run), and after a submit whose outcome is unknown.
         /// </summary>
-        private async Task ReloadSubmittedAsync(CancellationToken ct)
+        private async Task ReloadSubmittedAsync(bool required, CancellationToken ct)
         {
             try
             {
@@ -582,19 +539,19 @@ namespace Vertex.Mirror.Pull
                     .ToDictionary(f => RepositoryPath.ToKey(f.Path), f => new SubmittedFile(f.Path, f.FileId!), StringComparer.Ordinal);
                 _lastRevision = Math.Max(_lastRevision, all.HeadRevision);
             }
-            catch (Exception ex) when (!ct.IsCancellationRequested)
+            catch (Exception ex) when (!ct.IsCancellationRequested && !required)
             {
                 _log.Write($"Couldn't read the branch's files: {ex.Message}");
             }
         }
 
         /// <summary>
-        /// Records a problem: the console line, the log, and a copy of the bad file next to git's.
+        /// Records a problem: the console line, the log, and a copy of the bad file next to the source's.
         /// </summary>
         private void Problem(string message, string? badFile = null, LocalFile? expected = null)
         {
             Interlocked.Increment(ref _cycleProblems);
-            string detail = $"(cycle {_cycle} at {Format.ShortSha(_commit)})";
+            string detail = $"(cycle {_cycle} at {_source.Current.Label})";
             if (badFile is not null && expected is not null)
             {
                 try
@@ -603,7 +560,7 @@ namespace Vertex.Mirror.Pull
                     string copy = Path.Combine(folder, expected.Relative.Replace('/', Path.DirectorySeparatorChar));
                     Directory.CreateDirectory(Path.GetDirectoryName(copy)!);
                     File.Copy(badFile, copy + ".vertex", true);
-                    File.Copy(expected.FullPath, copy + ".git", true);
+                    File.Copy(expected.FullPath, copy + ".source", true);
                     detail += $" Kept both copies in {folder}.";
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -621,8 +578,7 @@ namespace Vertex.Mirror.Pull
             string row = string.Join(',',
                 DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
                 _cycle.ToString(CultureInfo.InvariantCulture),
-                _commitNumber.ToString(CultureInfo.InvariantCulture),
-                Format.ShortSha(_commit),
+                _source.Current.Id,
                 added.ToString(CultureInfo.InvariantCulture),
                 modified.ToString(CultureInfo.InvariantCulture),
                 deleted.ToString(CultureInfo.InvariantCulture),
@@ -639,13 +595,14 @@ namespace Vertex.Mirror.Pull
         }
 
         /// <summary>
-        /// The commit's raw message, exactly as 'vx submit -m' would get it. The server refuses an empty message, so
-        /// a commit made with --allow-empty-message is described by its sha instead.
+        /// The revision message: the change's own message as written, then who made it and when (the revision's
+        /// submitter is the mirror's login), and the trailer a rerun resumes from. The server refuses an empty message,
+        /// so a change without one is described by its label.
         /// </summary>
-        private async Task<string> CommitMessageAsync(CancellationToken ct)
+        private string Message(SourceChange change)
         {
-            string message = await Git.RunAsync(_clone, ct, "log", "-1", "--format=%B", _commit);
-            return message.Length == 0 ? Format.ShortSha(_commit) : message;
+            string body = change.Message.Trim().Length == 0 ? change.Label : change.Message;
+            return Trailer.Append(body, _source.TrailerName, change.Id, $"Authored by {change.Author} at {change.Time.UtcDateTime:yyyy-MM-dd HH:mm:ss} UTC.");
         }
 
         private string SyncPath(string relative)

@@ -1,6 +1,5 @@
 // Copyright 2026 Entex Interactive
 
-using System.Text.RegularExpressions;
 using Vertex.Core.Net.Interfaces;
 
 namespace Vertex.Mirror.Push
@@ -52,32 +51,5 @@ namespace Vertex.Mirror.Push
         /// Publishes the commits made since the last call (git push). Called after each batch of revisions.
         /// </summary>
         Task PublishAsync(CancellationToken ct);
-    }
-
-    public static partial class Trailer
-    {
-        public const string Name = "Vertex-Revision";
-
-        /// <summary>
-        /// The revision's message with the trailer that marks where it came from.
-        /// </summary>
-        public static string Append(string message, long revision, string? extra = null)
-        {
-            string body = message.TrimEnd();
-            return $"{body}\n\n{(extra is null ? "" : extra + "\n")}{Name}: {revision}\n";
-        }
-
-        /// <summary>
-        /// The revision named by the last trailer in one commit message, or null when it has none. The last one
-        /// counts: a message that already quoted a trailer (a commit pulled from another mirror) gets ours after it.
-        /// </summary>
-        public static long? Find(string message)
-        {
-            MatchCollection matches = Pattern().Matches(message);
-            return matches.Count == 0 ? null : long.Parse(matches[^1].Groups[1].Value);
-        }
-
-        [GeneratedRegex(@"^\s*Vertex-Revision: (\d+)\s*$", RegexOptions.Multiline)]
-        private static partial Regex Pattern();
     }
 }
