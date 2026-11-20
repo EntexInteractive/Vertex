@@ -36,7 +36,7 @@ Submitted revisions are held for review, built, and then, if a build fails, Vert
 
 | Feature | Status | Notes/Roadmap |
 | :--- | :--- | :--- |
-| Source Control | 🟥 Early | Centralized version control with branches, revisions, and merging. Complete synchronization, conflict resolution, and file locking. |
+| Source Control | 🟨 Beta | Centralized version control with branches, revisions, and merging. Complete synchronization, conflict resolution, and file locking. |
 | Branch Automation | ⬜ Planned | Automated branch integration and change propagation, similar to Epic Games' Robomerge. |
 | Content-Addressable Storage | 🟧 Experimental | SHA-256 addressing, FastCDC chunking, deduplication, and Zstandard compression. Improve integrity verification and garbage collection. |
 | File Transfers | 🟧 Experimental | gRPC-based uploads and downloads with S3-compatible storage. Improve performance, reliability, and the ability to resume transfers. |
