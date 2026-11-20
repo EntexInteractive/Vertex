@@ -37,8 +37,8 @@ Submitted revisions are held for review, built, and then, if a build fails, Vert
 | Feature | Status | Notes/Roadmap |
 | :--- | :--- | :--- |
 | Source Control | 🟨 Beta | Centralized version control with branches, revisions, and merging. Complete synchronization, conflict resolution, and file locking. |
-| Branch Automation | ⬜ Planned | Automated branch integration and change propagation, similar to Epic Games' Robomerge. |
-| Content-Addressable Storage | 🟧 Experimental | SHA-256 addressing, FastCDC chunking, deduplication, and Zstandard compression. Improve integrity verification and garbage collection. |
+| Branch Automation | 🟧 Experimental | Automated branch integration and change propagation, similar to Epic Games' Robomerge. |
+| Content-Addressable Storage | 🟧 Experimental | SHA-256 addressing, file chunking, deduplication, and Zstandard compression. Improve integrity verification and garbage collection. |
 | File Transfers | 🟧 Experimental | gRPC-based uploads and downloads with S3-compatible storage. Improve performance, reliability, and the ability to resume transfers. |
 | Command-Line Interface | 🟧 Experimental | Core `vx` commands for interacting with Vertex. Expand repository management and source-control workflows. |
 | Web Dashboard | 🟥 Early | Centralized project management, administration, and monitoring. |
@@ -58,8 +58,7 @@ Submitted revisions are held for review, built, and then, if a build fails, Vert
 
 ## Quick start
 
-You need [Docker](https://docs.docker.com/get-docker/). Start a local server (with PostgreSQL, Redis and RustFS) on
-`http://127.0.0.1:5000`:
+You need [Docker](https://docs.docker.com/get-docker/). Start a local server (with PostgreSQL, Redis, and RustFS) on `http://127.0.0.1:5000`:
 
 ```sh
 git clone https://github.com/EntexInteractive/Vertex.git
@@ -67,8 +66,7 @@ cd Vertex
 docker compose up -d --build
 ```
 
-Install `vx` on Linux and macOS (on Windows, download `vx-win-x64.zip` from
-[Releases](https://github.com/EntexInteractive/Vertex/releases), or [build it](docs/getting-started.md#2-install-vx)):
+Install `vx` on Linux and macOS (on Windows, download `vx-win-x64.zip` from [Releases](https://github.com/EntexInteractive/Vertex/releases), or [build it](docs/getting-started.md#2-install-vx)):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/EntexInteractive/Vertex/main/install.sh | bash
@@ -86,8 +84,7 @@ vx submit -m "First" # submits every change as one revision (#1)
 vx sync              # gets what others submitted
 ```
 
-To get an existing project into a folder, run `vx clone <project>` inside it. Run `vx` with no command to keep a
-session open that locks files as you save them.
+To get an existing project into a folder, run `vx clone <project>` inside it. Run `vx` with no command to keep a session open that locks files as you save them.
 
 ## Documentation
 
@@ -107,9 +104,7 @@ The full documentation is in [`docs/`](docs/README.md):
 
 ### Mirroring to and from git or Perforce
 
-`Vertex.Mirror` builds `vx-mirror`. `pull` replays a git repository into a Vertex branch, one commit per `--interval`
-(default 5 minutes), syncs each revision back and checks every byte against git, so it doubles as an all-day
-integrity check. `push` commits every revision of a Vertex branch to a git repository or a Perforce workspace as it
+`Vertex.Mirror` builds `vx-mirror`. `pull` replays a git repository into a Vertex branch, one commit per `--interval` (default 5 minutes), syncs each revision back and checks every byte against git, so it doubles as an all-day integrity check. `push` commits every revision of a Vertex branch to a git repository or a Perforce workspace as it
 lands, one commit or changelist each, and picks up where it left off on the next run.
 
 ```sh
