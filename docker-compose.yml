@@ -77,7 +77,7 @@ services:
       retries: 20
 
   rustfs:
-    image: rustfs/rustfs:1.0.4
+    image: rustfs/rustfs:1.0.6
     restart: unless-stopped
     ports:
       - "127.0.0.1:9000:9000"   # S3 API
@@ -92,7 +92,7 @@ services:
 
   # Creates the bucket the server stores chunks in, then exits. Safe to rerun.
   rustfs-init:
-    image: amazon/aws-cli:2.39.7
+    image: amazon/aws-cli:2.41.2
     depends_on:
       - rustfs
     environment:
