@@ -31,3 +31,23 @@ export function formatRevision(number: number): string {
 export function plural(count: number, noun: string): string {
     return `${count.toLocaleString()} ${noun}${count === 1 ? '' : 's'}`
 }
+
+/** "512 B", "3.4 MB", "1.20 GB". */
+export function formatBytes(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+}
+
+/** The last part of a path: "Content/Hero.uasset" -> "Hero.uasset". */
+export function fileName(path: string): string {
+    const slash = path.lastIndexOf('/')
+    return slash >= 0 ? path.slice(slash + 1) : path
+}
+
+/** The folder part of a path, or "" at the root. */
+export function folderOf(path: string): string {
+    const slash = path.lastIndexOf('/')
+    return slash >= 0 ? path.slice(0, slash) : ''
+}

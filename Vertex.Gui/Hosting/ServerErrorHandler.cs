@@ -3,6 +3,7 @@
 using Grpc.Core;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using Vertex.Core.Client.Workspaces;
 using Vertex.Core.Net;
 
 namespace Vertex.Gui.Hosting
@@ -15,7 +16,7 @@ namespace Vertex.Gui.Hosting
     {
         public async ValueTask<bool> TryHandleAsync(HttpContext context, Exception exception, CancellationToken cancellationToken)
         {
-            (int status, string detail) = Describe(exception);
+            (int status, string detail) = Describe(exception, session);
             if (status >= 500) logger.LogError(exception, "{Method} {Path} failed", context.Request.Method, context.Request.Path);
 
             context.Response.StatusCode = status;
@@ -27,7 +28,10 @@ namespace Vertex.Gui.Hosting
             });
         }
 
-        private (int Status, string Detail) Describe(Exception exception)
+        /// <summary>
+        /// The status code and one-line message for a failure, also used for operations that run in the background.
+        /// </summary>
+        public static (int Status, string Detail) Describe(Exception exception, ServerSession session)
         {
             string server = session.Server;
             string notLoggedIn = $"Not logged in to {server}. Log in, or run '{session.LoginCommand}'.";
@@ -35,6 +39,11 @@ namespace Vertex.Gui.Hosting
             {
                 case HostProblemException problem:
                     return (problem.StatusCode, problem.Message);
+                case CheckoutIncompleteException incomplete when incomplete.InnerException is not null:
+                    (int status, string detail) = Describe(incomplete.InnerException, session);
+                    return (status, $"{detail} The workspace is on '{incomplete.Branch}' now; sync to finish updating its files.");
+                case InvalidOperationException or ArgumentException or IOException:
+                    return (StatusCodes.Status409Conflict, exception.Message);
                 case NotLoggedInException:
                 case RpcException { StatusCode: StatusCode.Unauthenticated }:
                     return (StatusCodes.Status401Unauthorized, notLoggedIn);

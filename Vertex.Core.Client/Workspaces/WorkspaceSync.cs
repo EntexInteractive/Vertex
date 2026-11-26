@@ -1,14 +1,12 @@
-﻿// Copyright 2026 Entex Interactive
+// Copyright 2026 Entex Interactive
 
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using Vertex.Core.Client.IO;
-using Vertex.Core.Client.Workspaces;
 using Vertex.Core.Data;
 using Vertex.Core.Net;
 using Vertex.Core.Net.Interfaces;
 
-namespace Vertex.Cli.Files
+namespace Vertex.Core.Client.Workspaces
 {
     /// <summary>
     /// What a sync did.
@@ -22,29 +20,41 @@ namespace Vertex.Cli.Files
     }
 
     /// <summary>
-    /// Brings a workspace's files to a revision of its branch, for <c>vx sync</c> and <c>vx checkout</c>. Files
-    /// changed locally are never overwritten; they come back as conflicts.
+    /// Brings a workspace's files to a revision of its branch, for sync, checkout and clone. Files changed locally are
+    /// never overwritten; they come back as conflicts.
     /// </summary>
     public static class WorkspaceSync
     {
+        /// <summary>
+        /// Scans the workspace, then syncs it to <paramref name="revision"/> (0 for the latest).
+        /// </summary>
+        /// <exception cref="InvalidOperationException">The server is too old to sync to an older revision.</exception>
+        public static async Task<SyncOutcome> RunAsync(LinkedWorkspace linked, WorkspaceConnection connection, long revision, IOperationReporter reporter,
+            CancellationToken cancellationToken)
+        {
+            using WorkspaceIndex index = linked.Workspace.OpenIndex();
+
+            // Scan first so local edits are known and never overwritten.
+            WorkspaceStatus status = await reporter.ScanAsync("Scanning...", linked.Workspace, index, new ScanOptions { MaxConcurrency = connection.Parallel }, cancellationToken);
+            return await RunAsync(linked, connection, index, status, revision, reporter, cancellationToken);
+        }
+
         /// <summary>
         /// Syncs from the index's synced revision to <paramref name="revision"/> (0 for the latest).
         /// </summary>
         /// <param name="status">A scan of the workspace made just before, so local edits are known.</param>
         /// <exception cref="InvalidOperationException">The server is too old to sync to an older revision.</exception>
-        public static async Task<SyncOutcome> RunAsync(LinkedWorkspace linked, WorkspaceIndex index, WorkspaceStatus status, WorkspaceSettings settings, long revision, CancellationToken cancellationToken)
+        public static async Task<SyncOutcome> RunAsync(LinkedWorkspace linked, WorkspaceConnection connection, WorkspaceIndex index, WorkspaceStatus status, long revision,
+            IOperationReporter reporter, CancellationToken cancellationToken)
         {
             VWorkspace workspace = linked.Workspace;
-            int parallel = Math.Max(1, settings.MaxConcurrency);
+            int parallel = connection.Parallel;
             long.TryParse(index.GetMeta(WorkspaceIndex.SyncedRevisionKey), out long synced);
 
-            HeadChanges head = null!;
-            using (RevisionInterface revisions = new(settings.ServerAddress, settings.Token))
+            HeadChanges head;
+            using (RevisionInterface revisions = new(connection.ServerAddress, connection.Token))
             {
-                await AnsiConsole.Status().StartAsync("Checking server...", async _ =>
-                {
-                    head = await revisions.GetHeadChangesAsync(linked.ProjectId, linked.BranchId, synced, revision, cancellationToken);
-                });
+                head = await reporter.StepAsync("Checking server...", () => revisions.GetHeadChangesAsync(linked.ProjectId, linked.BranchId, synced, revision, cancellationToken));
             }
 
             // A server from before targeted sync ignores the revision and answers with the latest.
@@ -114,26 +124,24 @@ namespace Vertex.Cli.Files
             long bytes = 0;
             try
             {
-                using FilesInterface files = new(settings.ServerAddress, settings.Token) { MaxConcurrency = 2 };
+                using FilesInterface files = new(connection.ServerAddress, connection.Token) { MaxConcurrency = 2 };
                 if (downloads.Count > 0)
                 {
                     TransferProgress transfer = new();
-                    await TransferDisplay.Progress().StartAsync(async progress =>
-                    {
-                        ProgressTask task = progress.AddTask("Syncing", maxValue: downloads.Count);
-                        Task all = Parallel.ForEachAsync(downloads, new ParallelOptions { MaxDegreeOfParallelism = parallel, CancellationToken = cancellationToken }, async (file, ct) =>
+                    OperationPhase phase = new("Syncing", PhaseUnit.Files) { Detail = $"{downloads.Count:N0} file(s)", Transfer = transfer };
+                    phase.SetTotal(downloads.Count);
+                    await reporter.ProgressAsync([phase], () => Parallel.ForEachAsync(downloads,
+                        new ParallelOptions { MaxDegreeOfParallelism = parallel, CancellationToken = cancellationToken }, async (file, ct) =>
                         {
                             string fullPath = workspace.ToFullPath(file.Path);
                             DownloadResult result = await files.DownloadAsync(file.FileId!, fullPath, ct, transfer);
                             Interlocked.Add(ref bytes, result.CompressedBytesDownloaded);
 
                             FileInfo info = new(fullPath);
-                            downloaded.Add(new IndexEntry(status.Entries.TryGetValue(file.Path, out IndexEntry? entry) ? entry.Path : file.Path, info.Length, info.LastWriteTimeUtc.Ticks, file.FileId!, file.FileId, DateTime.UtcNow.Ticks));
-                            task.Increment(1);
-                        });
-
-                        await TransferDisplay.FollowAsync(all, task, transfer, "Syncing", $"{downloads.Count:N0} file(s)");
-                    });
+                            downloaded.Add(new IndexEntry(status.Entries.TryGetValue(file.Path, out IndexEntry? entry) ? entry.Path : file.Path, info.Length, info.LastWriteTimeUtc.Ticks,
+                                file.FileId!, file.FileId, DateTime.UtcNow.Ticks));
+                            phase.Add(1);
+                        }));
                 }
             }
             finally
@@ -149,9 +157,8 @@ namespace Vertex.Cli.Files
             else if (head.Full) index.SetMeta(WorkspaceIndex.SyncedRevisionKey, "0");
 
             // Replacing a file drops its read-only flag, so check the files just written against everyone's locks.
-            using LockInterface lockClient = new(settings.ServerAddress, settings.Token);
-            LockReport locks = await LockOutput.Open(linked, index, lockClient, settings)
-                .ReconcileAsync(status.Changes, downloaded.Select(d => d.Path), cancellationToken);
+            using LockInterface lockClient = new(connection.ServerAddress, connection.Token);
+            LockReport locks = await connection.OpenLocks(linked, index, lockClient).ReconcileAsync(status.Changes, downloaded.Select(d => d.Path), cancellationToken);
 
             return new SyncOutcome(head, downloaded.Count, deletes.Count, conflicts, bytes, locks);
         }
@@ -194,29 +201,6 @@ namespace Vertex.Cli.Files
 
                 folder = Path.GetDirectoryName(folder);
             }
-        }
-
-        /// <summary>Conflicts listed before "and N more".</summary>
-        private const int ListedConflicts = 10;
-
-        /// <summary>
-        /// Prints the conflicts a sync left alone and the command that resolves them.
-        /// </summary>
-        public static void PrintConflicts(VWorkspace workspace, IReadOnlyList<string> conflicts)
-        {
-            if (conflicts.Count == 0) return;
-            AnsiConsole.MarkupLine($"[yellow]{conflicts.Count:N0} file(s) changed both here and on the server were left as they are:[/]");
-            foreach (string path in conflicts.Take(ListedConflicts)) AnsiConsole.MarkupLine($"[yellow]  {Markup.Escape(path)}[/]");
-            if (conflicts.Count > ListedConflicts) AnsiConsole.MarkupLine($"[yellow]  ...and {conflicts.Count - ListedConflicts:N0} more[/]");
-            AnsiConsole.MarkupLine($"[yellow]To take the server's version, run 'vx revert {Markup.Escape(SyncCommand.CommandPath(workspace, conflicts[0]))}' (discards your change), then 'vx sync'.[/]");
-        }
-
-        /// <summary>
-        /// Prints the downloaded size and time, when anything changed.
-        /// </summary>
-        public static void PrintTransfer(SyncOutcome outcome, Stopwatch timer)
-        {
-            if (outcome.Updated > 0) AnsiConsole.MarkupLine($"[grey]Synced {TransferDisplay.Bytes(outcome.Bytes)} in {timer.Elapsed.TotalSeconds:N2}s.[/]");
         }
     }
 }

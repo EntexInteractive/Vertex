@@ -28,6 +28,18 @@ export type IconName =
     | 'storage'
     | 'tasks'
     | 'user'
+    | 'close'
+    | 'alert'
+    | 'bell'
+    | 'undo'
+    | 'upload'
+    | 'download'
+    | 'list'
+    | 'tree'
+    | 'external'
+    | 'copy'
+    | 'command'
+    | 'unlock'
 
 const iconPaths: Record<IconName, ReactNode> = {
     archive: (
@@ -152,6 +164,63 @@ const iconPaths: Record<IconName, ReactNode> = {
         <>
             <circle cx="12" cy="8" r="4" />
             <path d="M4 21a8 8 0 0 1 16 0" />
+        </>
+    ),
+    close: <path d="M6 6l12 12M18 6L6 18" />,
+    alert: (
+        <>
+            <path d="M12 3l9.5 17h-19z" />
+            <path d="M12 10v4M12 17.5v.01" />
+        </>
+    ),
+    bell: (
+        <>
+            <path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z" />
+            <path d="M10 21h4" />
+        </>
+    ),
+    undo: (
+        <>
+            <path d="M9 14L4 9l5-5" />
+            <path d="M4 9h10a6 6 0 0 1 0 12h-3" />
+        </>
+    ),
+    upload: (
+        <>
+            <path d="M12 16V4M7 9l5-5 5 5" />
+            <path d="M4 16v4h16v-4" />
+        </>
+    ),
+    download: (
+        <>
+            <path d="M12 4v12M7 11l5 5 5-5" />
+            <path d="M4 16v4h16v-4" />
+        </>
+    ),
+    list: <path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" />,
+    tree: (
+        <>
+            <path d="M4 4h6v5H4zM14 10h6v4h-6zM14 17h6v4h-6z" />
+            <path d="M7 9v10h7M7 12h7" />
+        </>
+    ),
+    external: (
+        <>
+            <path d="M14 4h6v6M20 4l-9 9" />
+            <path d="M18 14v6H4V6h6" />
+        </>
+    ),
+    copy: (
+        <>
+            <path d="M9 9h11v11H9z" />
+            <path d="M5 15H4V4h11v1" />
+        </>
+    ),
+    command: <path d="M9 6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3z" />,
+    unlock: (
+        <>
+            <path d="M5 11h14v10H5z" />
+            <path d="M8 11V7a4 4 0 0 1 7.5-2" />
         </>
     ),
 }

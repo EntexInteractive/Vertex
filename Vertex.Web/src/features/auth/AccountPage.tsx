@@ -75,7 +75,7 @@ function LoginForm() {
         try {
             const next = await call(host.POST('/api/session/login', {body: {server, username, password}}))
             setSession(next)
-            navigate('/workspace')
+            navigate('/changes')
         } catch (e) {
             setError(e instanceof HostError ? e.message : String(e))
         } finally {
@@ -166,7 +166,7 @@ function SignedIn() {
                 <h2>Logged in as {session?.username}</h2>
                 <p>On {session?.server}. The vx command line uses the same login.</p>
             </div>
-            <Link className="login-submit" to="/workspace">
+            <Link className="login-submit" to="/changes">
                 Continue to Vertex <Icon name="chevron" size={15}/>
             </Link>
             {error && <p className="login-error" role="alert">{error}</p>}

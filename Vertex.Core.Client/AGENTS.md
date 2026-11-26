@@ -1,6 +1,6 @@
 # Vertex.Core.Client
 
-Client-side workspace logic used by the CLI (and later by the agent and GUI). See the root AGENTS.md for project-wide
+Client-side workspace logic used by the CLI and the desktop app (and later by the agent). See the root AGENTS.md for project-wide
 rules.
 
 - `Workspaces/VWorkspace.cs`: a workspace is any folder with a `.vx/` directory. It holds `config`
@@ -28,6 +28,11 @@ rules.
   It re-reads the login token when the old one is revoked and raises events (`LockConflict`, `Activity`,
   `ProblemChanged`) instead of printing; activity is held for 1 s so a touch (lock, then release) isn't reported.
   Hosts must `PauseAsync`/`Resume` it around their own scans so the index has one writer.
+- Workspace operations shared by every host: `WorkspaceSubmit`, `WorkspaceSync`, `WorkspaceRevert` and
+  `WorkspaceCheckout`, with `LinkedWorkspace` (a workspace with its project and branch), `PathFilter` (which changes an
+  operation touches) and `WorkspaceConnection` (server, token, user, parallelism). They never print: progress goes to
+  an `IOperationReporter` (the CLI's `ConsoleReporter` draws bars, the GUI's pushes events) and results come back as
+  outcome records that each host words for its users.
 - `Workspaces/WorkspaceScanner.ScanPaths`: checks only some paths (files or folders) with the same per-file logic as
   `Scan`, using the index's case-insensitive path lookups (`WorkspaceIndex.Find`) instead of reading every row.
 - `IO/IgnoreRules.cs`: `.vxignore` matching with gitignore syntax. Ignoring a file that is already tracked doesn't

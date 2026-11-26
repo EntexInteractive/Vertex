@@ -14,6 +14,14 @@ for it. See the root AGENTS.md for project-wide rules and `ReadMe.md` for how th
 - Push state changes to the UI with `HostEvents.Publish`; don't make the UI poll.
 - Call the Vertex server through `ServerSession.Connect` and let exceptions reach `ServerErrorHandler`, or throw
   `HostProblemException` with a message that names the fix. Don't catch and swallow server errors in controllers.
+- `Hosting/WorkspaceRegistry.cs` holds the open workspace, the recent list (`workspaces.json` next to the CLI's
+  credentials) and the one `WorkspaceMonitor` that locks files as they're saved. Anything that touches the workspace
+  index runs inside `ExclusiveAsync`, which pauses the monitor. Monitor results reach the UI as `workspace.changed`
+  (rescan), `workspace.activity`, `workspace.lockConflict` and `workspace.problem` events.
+- `Hosting/OperationRunner.cs` runs one long operation (submit, sync, revert, checkout, clone) at a time in the
+  background and pushes `operation.progress` / `operation.done`. The operations themselves are the Core.Client ones
+  (`WorkspaceSubmit`, `WorkspaceSync`, ...) the CLI runs too; don't copy their logic here.
+- `Hosting/DesktopShell.cs` is the native folder picker and "show in file manager".
 - `../Vertex.React.targets` embeds the web build at build time. This project has no UI source folder of its own.
 
 Build: `dotnet build Vertex.Gui/Vertex.Gui.csproj` from the repository root, then check the interaction in the running

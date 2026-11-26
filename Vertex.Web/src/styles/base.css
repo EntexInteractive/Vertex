@@ -1,8 +1,15 @@
 :root {
+  color-scheme: dark;
   font-family: "Inter", sans-serif;
   font-synthesis: none;
   color: var(--color-text);
   background: var(--color-bg-deepest);
+  font-size: var(--text-md);
+  line-height: 1.4;
+}
+code,
+kbd {
+  font-family: "JetBrains Mono", monospace;
 }
 @layer base {
   * {
@@ -21,11 +28,6 @@ input,
 textarea {
   font: inherit;
 }
-.desktop-app {
-  min-width: 980px;
-  min-height: 100vh;
-  background: var(--color-bg-sidebar);
-}
 .avatar {
   width: 24px;
   height: 24px;
@@ -36,15 +38,4 @@ textarea {
   border-radius: 50%;
   font-size: 8px;
   font-weight: 600;
-}
-.app-body {
-  height: 100vh;
-  display: flex;
-}
-.app-main {
-  min-width: 0;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  margin-right: 64px;
 }

@@ -97,19 +97,10 @@ namespace Vertex.Cli.Workspaces
             }
 
             LinkedWorkspace linked = LinkedWorkspace.TryFrom(workspace)!;
-            using WorkspaceIndex index = workspace.OpenIndex();
-
-            // Scan so files already in the folder are adopted or kept, never overwritten.
-            WorkspaceStatus status = null!;
-            AnsiConsole.Status().Start("Scanning directory...", _ =>
-            {
-                status = WorkspaceScanner.Scan(workspace, index, new ScanOptions { MaxConcurrency = Math.Max(1, settings.MaxConcurrency) }, cancellationToken);
-            });
-
             SyncOutcome outcome;
             try
             {
-                outcome = await WorkspaceSync.RunAsync(linked, index, status, settings, 0, cancellationToken);
+                outcome = await WorkspaceSync.RunAsync(linked, settings.Connection, 0, ConsoleReporter.Instance, cancellationToken);
             }
             catch (Exception)
             {
@@ -126,8 +117,8 @@ namespace Vertex.Cli.Workspaces
             }
 
             AnsiConsole.MarkupLine($"Cloned [purple]{Markup.Escape(project.Name)}/{Markup.Escape(branch.Name)}[/] at [purple]#{outcome.Head.HeadRevision}[/] into [purple]{Markup.Escape(workspace.Root)}[/]: {outcome.Updated:N0} file(s) downloaded.");
-            WorkspaceSync.PrintTransfer(outcome, timer);
-            WorkspaceSync.PrintConflicts(workspace, outcome.Conflicts);
+            SyncOutput.PrintTransfer(outcome, timer);
+            SyncOutput.PrintConflicts(workspace, outcome.Conflicts);
             return outcome.Conflicts.Count == 0 ? 0 : 1;
         }
     }

@@ -42,16 +42,7 @@ namespace Vertex.Cli.Files
         {
             Stopwatch timer = Stopwatch.StartNew();
             LinkedWorkspace linked = LinkedWorkspace.FromCurrentDirectory();
-            using WorkspaceIndex index = linked.Workspace.OpenIndex();
-
-            // Scan first so local edits are known and never overwritten.
-            WorkspaceStatus status = null!;
-            AnsiConsole.Status().Start("Scanning...", _ =>
-            {
-                status = WorkspaceScanner.Scan(linked.Workspace, index, new ScanOptions { MaxConcurrency = Math.Max(1, settings.MaxConcurrency) }, cancellationToken);
-            });
-
-            SyncOutcome outcome = await WorkspaceSync.RunAsync(linked, index, status, settings, settings.TargetRevision, cancellationToken);
+            SyncOutcome outcome = await WorkspaceSync.RunAsync(linked, settings.Connection, settings.TargetRevision, ConsoleReporter.Instance, cancellationToken);
             timer.Stop();
 
             LockOutput.PrintError(outcome.Locks);
@@ -64,8 +55,8 @@ namespace Vertex.Cli.Files
             }
 
             AnsiConsole.MarkupLine($"Synced to [purple]#{head.HeadRevision}[/]{behind}: {outcome.Updated:N0} updated, {outcome.Deleted:N0} deleted.");
-            WorkspaceSync.PrintTransfer(outcome, timer);
-            WorkspaceSync.PrintConflicts(linked.Workspace, outcome.Conflicts);
+            SyncOutput.PrintTransfer(outcome, timer);
+            SyncOutput.PrintConflicts(linked.Workspace, outcome.Conflicts);
             return outcome.Conflicts.Count == 0 ? 0 : 1;
         }
 

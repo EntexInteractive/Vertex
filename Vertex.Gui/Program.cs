@@ -66,6 +66,7 @@ namespace Vertex.Gui
                 .SetContextMenuEnabled(debug)
                 .Load(pageUrl);
 
+            app.Services.GetRequiredService<DesktopShell>().Attach(window);
             window.WaitForClose();
             app.StopAsync().GetAwaiter().GetResult();
         }
@@ -84,6 +85,9 @@ namespace Vertex.Gui
             builder.Services.AddSingleton(new HostIdentity(debug ? DevToken() : null));
             builder.Services.AddSingleton<HostEvents>();
             builder.Services.AddSingleton<ServerSession>();
+            builder.Services.AddSingleton<WorkspaceRegistry>();
+            builder.Services.AddSingleton<OperationRunner>();
+            builder.Services.AddSingleton<DesktopShell>();
             builder.Services.AddProblemDetails();
             builder.Services.AddExceptionHandler<ServerErrorHandler>();
             builder.Services.AddOpenApi();

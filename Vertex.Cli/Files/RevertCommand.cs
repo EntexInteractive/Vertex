@@ -1,10 +1,7 @@
 // Copyright 2026 Entex Interactive
 
 using System.ComponentModel;
-using Vertex.Core.Client.IO;
 using Vertex.Core.Client.Workspaces;
-using Vertex.Core.Data;
-using Vertex.Core.Net.Interfaces;
 
 namespace Vertex.Cli.Files
 {
@@ -27,68 +24,20 @@ namespace Vertex.Cli.Files
             LinkedWorkspace linked = LinkedWorkspace.FromCurrentDirectory();
             VWorkspace workspace = linked.Workspace;
             PathFilter filter = PathFilter.Create(workspace, settings.Paths);
-            int parallel = Math.Max(1, settings.MaxConcurrency);
-            using WorkspaceIndex index = workspace.OpenIndex();
-
-            WorkspaceStatus status = null!;
-            AnsiConsole.Status().Start("Scanning for changes...", _ =>
-            {
-                status = WorkspaceScanner.Scan(workspace, index, new ScanOptions { MaxConcurrency = parallel }, cancellationToken);
-            });
-
-            List<WorkspaceChange> selected = status.Changes.Where(filter.Matches).ToList();
-            List<WorkspaceChange> added = selected.Where(c => c.Type == ChangeType.Created).ToList();
-            List<WorkspaceChange> restore = selected.Where(c => c.Type != ChangeType.Created).ToList();
-            if (selected.Count == 0)
+            RevertOutcome outcome = await WorkspaceRevert.RunAsync(linked, settings.Connection, filter, ConsoleReporter.Instance, cancellationToken);
+            if (outcome.NothingToRevert)
             {
                 AnsiConsole.MarkupLine("[grey]Nothing to revert.[/]");
                 return 0;
             }
 
-            // Each restored file goes back to its base content, at its old path for a move.
-            List<(string Path, string FileId)> downloads = restore.Select(c => (c.PreviousPath ?? c.Path, c.Type == ChangeType.Modified ? status.Entries[c.Path].BaseId! : c.FileId)).ToList();
-            List<IndexEntry> upserts = new();
-            List<string> deletes = new();
-            using (FilesInterface files = new(settings.ServerAddress, settings.Token) { MaxConcurrency = 2 })
-            {
-                object gate = new();
-                await AnsiConsole.Status().StartAsync("Reverting...", async _ =>
-                {
-                    await Parallel.ForEachAsync(downloads, new ParallelOptions { MaxDegreeOfParallelism = parallel, CancellationToken = cancellationToken }, async (file, ct) =>
-                    {
-                        string fullPath = workspace.ToFullPath(file.Path);
-                        await files.DownloadAsync(file.FileId, fullPath, ct);
-                        FileInfo info = new(fullPath);
-                        lock (gate) upserts.Add(new IndexEntry(file.Path, info.Length, info.LastWriteTimeUtc.Ticks, file.FileId, file.FileId, DateTime.UtcNow.Ticks));
-                    });
-                });
-            }
+            if (outcome.Reverted > 0) AnsiConsole.MarkupLine($"Reverted {outcome.Reverted:N0} file(s).");
+            if (outcome.Locks is not null) LockOutput.PrintError(outcome.Locks);
 
-            // The new path of a move holds the same content that was just restored at the old path, so removing it
-            // loses nothing.
-            foreach (WorkspaceChange move in restore.Where(c => c.Type == ChangeType.Renamed))
-            {
-                string fullPath = workspace.ToFullPath(move.Path);
-                FileSystemUtility.MakeWritable(fullPath);
-                File.Delete(fullPath);
-                deletes.Add(move.Path);
-            }
-
-            index.Apply(upserts, deletes);
-
-            // Reverted files are no longer changed, so their locks are released; restored files someone else holds
-            // become read-only again.
-            HashSet<WorkspaceChange> reverted = restore.ToHashSet();
-            using LockInterface lockClient = new(settings.ServerAddress, settings.Token);
-            LockReport locks = await LockOutput.Open(linked, index, lockClient, settings)
-                .ReconcileAsync(status.Changes.Where(c => !reverted.Contains(c)).ToList(), downloads.Select(d => d.Path), cancellationToken);
-
-            if (restore.Count > 0) AnsiConsole.MarkupLine($"Reverted {restore.Count:N0} file(s).");
-            LockOutput.PrintError(locks);
-
+            IReadOnlyList<string> added = outcome.LeftAdded;
             if (added.Count > 0)
             {
-                string example = SyncCommand.CommandPath(workspace, added[0].Path);
+                string example = SyncCommand.CommandPath(workspace, added[0]);
                 AnsiConsole.MarkupLine($"[yellow]{added.Count:N0} new file(s) left as they are, e.g. {Markup.Escape(example)}: the server has no earlier version. Delete them, or add them to .vxignore to stop tracking them.[/]");
             }
 

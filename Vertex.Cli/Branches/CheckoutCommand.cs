@@ -2,6 +2,7 @@
 
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Runtime.ExceptionServices;
 using Vertex.Cli.Files;
 using Vertex.Core.Client.Workspaces;
 using Vertex.Core.Data;
@@ -52,55 +53,47 @@ namespace Vertex.Cli.Branches
             }
 
             VBranch branch = result.Data!;
-            if (branch.Id == linked.BranchId)
+            CheckoutOutcome checkout;
+            try
+            {
+                checkout = await WorkspaceCheckout.RunAsync(linked, settings.Connection, branch, ConsoleReporter.Instance, cancellationToken);
+            }
+            catch (CheckoutIncompleteException ex) when (ex.InnerException is OperationCanceledException)
+            {
+                AnsiConsole.MarkupLine($"[yellow]Stopped. The workspace is on [purple]{Markup.Escape(branch.Name)}[/] now; run 'vx sync' to finish updating its files.[/]");
+                ExceptionDispatchInfo.Throw(ex.InnerException);
+                throw;
+            }
+            catch (CheckoutIncompleteException ex)
+            {
+                AnsiConsole.MarkupLine($"[yellow]The workspace is on [purple]{Markup.Escape(branch.Name)}[/] now, but its files aren't all updated yet. Run 'vx sync' to finish.[/]");
+                ExceptionDispatchInfo.Throw(ex.InnerException!);
+                throw;
+            }
+
+            if (checkout.AlreadyOnBranch)
             {
                 AnsiConsole.MarkupLine($"Already on [purple]{Markup.Escape(branch.Name)}[/].");
                 return 0;
             }
 
-            using WorkspaceIndex index = workspace.OpenIndex();
-            WorkspaceStatus status = null!;
-            AnsiConsole.Status().Start("Scanning for changes...", _ =>
+            IReadOnlyList<WorkspaceChange> changes = checkout.LocalChanges;
+            if (changes.Count > 0)
             {
-                status = WorkspaceScanner.Scan(workspace, index, new ScanOptions { MaxConcurrency = Math.Max(1, settings.MaxConcurrency) }, cancellationToken);
-            });
-
-            if (status.Changes.Count > 0)
-            {
-                AnsiConsole.MarkupLine($"[red]{status.Changes.Count:N0} file(s) changed here. Submit them ('vx submit -m \"...\"') or discard them ('vx revert .') before switching branches.[/]");
-                foreach (WorkspaceChange change in status.Changes.Take(ListedChanges))
+                AnsiConsole.MarkupLine($"[red]{changes.Count:N0} file(s) changed here. Submit them ('vx submit -m \"...\"') or discard them ('vx revert .') before switching branches.[/]");
+                foreach (WorkspaceChange change in changes.Take(ListedChanges))
                     AnsiConsole.MarkupLine($"[red]  {Markup.Escape(SyncCommand.CommandPath(workspace, change.Path))}[/]");
-                if (status.Changes.Count > ListedChanges) AnsiConsole.MarkupLine($"[red]  ...and {status.Changes.Count - ListedChanges:N0} more[/]");
+                if (changes.Count > ListedChanges) AnsiConsole.MarkupLine($"[red]  ...and {changes.Count - ListedChanges:N0} more[/]");
                 return 1;
             }
 
-            // The old branch's locks don't apply on the new one; the sync's lock step loads the new branch's.
-            WorkspaceLocks.ForgetBranch(workspace, index);
-            index.SetMeta(WorkspaceIndex.SyncedRevisionKey, "0");
-            VWorkspace switched = workspace.SwitchBranch(branch.Name, branch.Id);
-            LinkedWorkspace moved = linked with { Workspace = switched, BranchId = branch.Id };
-
-            SyncOutcome outcome;
-            try
-            {
-                outcome = await WorkspaceSync.RunAsync(moved, index, status, settings, 0, cancellationToken);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                AnsiConsole.MarkupLine($"[yellow]The workspace is on [purple]{Markup.Escape(branch.Name)}[/] now, but its files aren't all updated yet. Run 'vx sync' to finish.[/]");
-                throw;
-            }
-            catch (OperationCanceledException)
-            {
-                AnsiConsole.MarkupLine($"[yellow]Stopped. The workspace is on [purple]{Markup.Escape(branch.Name)}[/] now; run 'vx sync' to finish updating its files.[/]");
-                throw;
-            }
-
+            SyncOutcome outcome = checkout.Sync!;
+            VWorkspace switched = checkout.Workspace.Workspace;
             timer.Stop();
             LockOutput.PrintError(outcome.Locks);
             AnsiConsole.MarkupLine($"Switched to [purple]{Markup.Escape(branch.Name)}[/] at [purple]#{outcome.Head.HeadRevision}[/]: {outcome.Updated:N0} updated, {outcome.Deleted:N0} deleted.");
-            WorkspaceSync.PrintTransfer(outcome, timer);
-            WorkspaceSync.PrintConflicts(switched, outcome.Conflicts);
+            SyncOutput.PrintTransfer(outcome, timer);
+            SyncOutput.PrintConflicts(switched, outcome.Conflicts);
             return outcome.Conflicts.Count == 0 ? 0 : 1;
         }
     }

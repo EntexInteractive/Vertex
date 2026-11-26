@@ -1,7 +1,6 @@
 // Copyright 2026 Entex Interactive
 
-using System.Diagnostics;
-using Vertex.Core.Net;
+using Vertex.Core.Client.Workspaces;
 
 namespace Vertex.Cli.Files
 {
@@ -10,9 +9,6 @@ namespace Vertex.Cli.Files
     /// </summary>
     public static class TransferDisplay
     {
-        /// <summary>How often the byte counts and speed in a task's description are refreshed.</summary>
-        private static readonly TimeSpan RefreshInterval = TimeSpan.FromMilliseconds(250);
-
         /// <summary>
         /// A progress display whose tasks count files: description (with bytes and speed), bar, percentage and time
         /// left. Byte-counted tasks also work, since the bytes are in the description.
@@ -26,55 +22,18 @@ namespace Vertex.Cli.Files
         }
 
         /// <summary>
-        /// Keeps <paramref name="task"/>'s description showing the bytes moved and the speed until <paramref name="work"/>
-        /// finishes, then awaits it (so its exception surfaces).
+        /// A phase's bar label: its name, then for a transfer the bytes moved and the speed, e.g.
+        /// "Syncing 120 file(s) (3.4 MB, 1.1 MB/s)" or "Submitting 210 MB of 344 MB, 40 MB/s".
         /// </summary>
-        /// <param name="what">The task's name, e.g. "Downloading".</param>
-        /// <param name="detail">What the bar counts, e.g. "120 file(s)".</param>
-        public static async Task FollowAsync(Task work, ProgressTask task, TransferProgress transfer, string what, string detail)
+        public static string Describe(OperationPhase phase, TimeSpan elapsed)
         {
-            Stopwatch timer = Stopwatch.StartNew();
-            while (!work.IsCompleted)
-            {
-                task.Description = Describe(what, detail, transfer, timer.Elapsed);
-                await Task.WhenAny(work, Task.Delay(RefreshInterval));
-            }
+            string name = Markup.Escape(phase.Name);
+            if (phase.Transfer is null) return name;
 
-            task.Description = Describe(what, detail, transfer, timer.Elapsed);
-            await work;
-        }
-
-        /// <summary>
-        /// Keeps a byte-counted task's value and maximum in step with <paramref name="transfer"/> until
-        /// <paramref name="work"/> finishes, with the bytes and speed in its description.
-        /// </summary>
-        public static async Task FollowBytesAsync(Task work, ProgressTask task, TransferProgress transfer, string what)
-        {
-            Stopwatch timer = Stopwatch.StartNew();
-            while (!work.IsCompleted)
-            {
-                Update(task, transfer, what, timer.Elapsed);
-                await Task.WhenAny(work, Task.Delay(RefreshInterval));
-            }
-
-            await work;
-            Update(task, transfer, what, timer.Elapsed);
-            task.Value = task.MaxValue;
-        }
-
-        private static void Update(ProgressTask task, TransferProgress transfer, string what, TimeSpan elapsed)
-        {
-            long total = transfer.TotalBytes;
-            task.MaxValue = Math.Max(1, total);
-            task.Value = Math.Min(transfer.DoneBytes, task.MaxValue);
-            long done = transfer.DoneBytes;
-            task.Description = $"{what} [grey]{Bytes(done)} of {Bytes(total)}{Speed(done, elapsed)}[/]";
-        }
-
-        private static string Describe(string what, string detail, TransferProgress transfer, TimeSpan elapsed)
-        {
-            long done = transfer.DoneBytes;
-            return $"{what} {Markup.Escape(detail)} [grey]({Bytes(done)}{Speed(done, elapsed)})[/]";
+            long done = phase.Transfer.DoneBytes;
+            return phase.Unit == PhaseUnit.Bytes
+                ? $"{name} [grey]{Bytes(done)} of {Bytes(phase.Transfer.TotalBytes)}{Speed(done, elapsed)}[/]"
+                : $"{name} {Markup.Escape(phase.Detail ?? "")} [grey]({Bytes(done)}{Speed(done, elapsed)})[/]";
         }
 
         private static string Speed(long done, TimeSpan elapsed)

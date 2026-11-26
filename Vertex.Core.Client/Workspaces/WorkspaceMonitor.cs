@@ -102,6 +102,13 @@ namespace Vertex.Core.Client.Workspaces
         /// </summary>
         public event Action<Exception?>? ProblemChanged;
 
+        /// <summary>
+        /// Files touched in the workspace were checked (and locked or released), so its changes may differ now. Raised
+        /// on the monitor's thread with the paths checked (empty after a full scan); a host that lists changes reloads
+        /// them. Don't pause the monitor from the handler.
+        /// </summary>
+        public event Action<IReadOnlyList<string>>? FilesChecked;
+
         /// <param name="getToken">Reads the current login token. It's read again when the server says the token is no
         /// longer valid, so logging in again elsewhere doesn't leave the monitor stuck.</param>
         public WorkspaceMonitor(VWorkspace workspace, string serverAddress, Func<string?> getToken, Guid projectId, Guid branchId, Guid workspaceId, string username)
@@ -227,6 +234,7 @@ namespace Vertex.Core.Client.Workspaces
                 try
                 {
                     await RunOnceAsync(paths, fullScan, ct);
+                    if (paths.Length > 0 || fullScan) FilesChecked?.Invoke(paths);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
                 {

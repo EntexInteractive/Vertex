@@ -8,14 +8,18 @@ The `vx` command line client, built on Spectre.Console.Cli. See the root AGENTS.
 - Commands are grouped by area: `Workspaces/` (`init`, `clone`), `Files/` (`status`, `submit`, `sync`, `revert`;
   `WorkspaceSettings.cs` has their shared settings, the linked-workspace lookup and path filtering), `Branches/`
   (`branch`, `checkout`, `merge`; `MergeOutput` is shared with `submit --merge-to` and prints merge chains with `PrintAutoMerges`; `vx branch` scans for unsubmitted changes before creating a branch from the workspace's branch), `Projects/`, `Profiles/`, `Net/` (`info`), `Utils/`.
-- `Files/WorkspaceSync.cs` is the sync both `vx sync` (`-r` for any revision) and `vx checkout` run: one listing from
+- Submit, sync, revert and checkout logic lives in `Vertex.Core.Client/Workspaces` (`WorkspaceSubmit`,
+  `WorkspaceSync`, ...) so the desktop app runs the same code; the commands here parse options, call it with
+  `ConsoleReporter.Instance` (spinners and progress bars) and print the outcome. `Files/SyncOutput.cs` prints sync
+  conflicts and transfer totals.
+- `WorkspaceSync` is the sync `vx sync` (`-r` for any revision), `vx checkout` and `vx clone` run: one listing from
   `GetHeadChanges`, downloads only files whose content id differs from the index, and when the listing is full
   (`HeadChanges.Full`: a first sync, an older revision, or a new branch) removes tracked files that aren't in it.
   `checkout` refuses while there are local changes, forgets the old branch's locks (`WorkspaceLocks.ForgetBranch`),
   switches `.vx/config` first and then syncs from revision 0, so an interrupted checkout is finished by `vx sync`.
   The interactive session restarts its `WorkspaceMonitor` when a command changed the branch.
-- `Files/TransferDisplay.cs` draws the submit and sync progress bars from a `TransferProgress` that
-  `FilesInterface.UploadAsync`/`DownloadAsync` fill once per batch. Use it for any new command that moves content.
+- `Files/TransferDisplay.cs` formats the progress bars `ConsoleReporter` draws from an operation's phases (fed by the
+  `TransferProgress` that `FilesInterface.UploadAsync`/`DownloadAsync` fill once per batch).
 - Shared options live in settings classes: `NetworkSettings` (`--server`, default `http://127.0.0.1:5000`),
   `ProjectSettings`, `BranchSettings` and `FilesSettings`. Extend these instead of redeclaring options.
 - Server calls go through the interfaces in `Vertex.Core/Net/Interfaces`, and workspace logic belongs in

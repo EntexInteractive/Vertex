@@ -5,9 +5,7 @@ using System.Diagnostics;
 using Vertex.Cli.Branches;
 using Vertex.Core.Client.Workspaces;
 using Vertex.Core.Data;
-using Vertex.Core.Net;
 using Vertex.Core.Net.Interfaces;
-using Vertex.Core.Storage;
 using Vertex.Server;
 
 namespace Vertex.Cli.Files
@@ -60,140 +58,35 @@ namespace Vertex.Cli.Files
             }
 
             PathFilter filter = PathFilter.Create(linked.Workspace, settings.Paths);
-            int parallel = Math.Max(1, settings.MaxConcurrency);
-            using WorkspaceIndex index = linked.Workspace.OpenIndex();
+            SubmitOutcome outcome = await WorkspaceSubmit.RunAsync(linked, settings.Connection, filter, settings.Message, ConsoleReporter.Instance, cancellationToken);
 
-            WorkspaceStatus status = null!;
-            AnsiConsole.Status().Start("Scanning...", _ =>
+            if (outcome.Unreadable.Count > 0)
             {
-                status = WorkspaceScanner.Scan(linked.Workspace, index, new ScanOptions { MaxConcurrency = parallel, KeepChunks = true }, cancellationToken);
-            });
-
-            List<WorkspaceChange> selected = status.Changes.Where(filter.Matches).ToList();
-            List<string> unreadable = status.Unreadable.Where(filter.Matches).ToList();
-            if (unreadable.Count > 0)
-            {
-                AnsiConsole.MarkupLine($"[yellow]Skipping {unreadable.Count:N0} file(s) that can't be read, e.g. {Markup.Escape(unreadable[0])}. Close the program using them and submit again.[/]");
+                AnsiConsole.MarkupLine($"[yellow]Skipping {outcome.Unreadable.Count:N0} file(s) that can't be read, e.g. {Markup.Escape(outcome.Unreadable[0])}. Close the program using them and submit again.[/]");
             }
 
-            if (selected.Count == 0)
+            switch (outcome.Result)
             {
-                AnsiConsole.MarkupLine("[grey]Nothing to submit.[/]");
-                return 0;
+                case SubmitResult.NothingToSubmit:
+                    AnsiConsole.MarkupLine("[grey]Nothing to submit.[/]");
+                    return 0;
+                case SubmitResult.Blocked:
+                    HeldLock first = outcome.Blocked[0];
+                    string more = outcome.Blocked.Count > 1 ? $" (and {outcome.Blocked.Count - 1:N0} more)" : "";
+                    AnsiConsole.MarkupLine($"[red]Can't submit '{Markup.Escape(first.Path)}'{more}: {Markup.Escape(LockOutput.Describe(linked.Workspace, first))}.[/]");
+                    return 1;
             }
-
-            // Lock every change before uploading anything, so a file someone else holds stops the submit right away.
-            // The server checks again when the revision is written.
-            using LockInterface lockClient = new(settings.ServerAddress, settings.Token);
-            WorkspaceLocks locks = LockOutput.Open(linked, index, lockClient, settings);
-            LockReport lockReport = await locks.ReconcileAsync(status.Changes, ct: cancellationToken);
-            List<HeldLock> blocked = lockReport.HeldByOthers.Where(h => filter.Matches(h.Path)).ToList();
-            if (blocked.Count > 0)
-            {
-                string more = blocked.Count > 1 ? $" (and {blocked.Count - 1:N0} more)" : "";
-                AnsiConsole.MarkupLine($"[red]Can't submit '{Markup.Escape(blocked[0].Path)}'{more}: {Markup.Escape(LockOutput.Describe(linked.Workspace, blocked[0]))}.[/]");
-                return 1;
-            }
-
-            // Upload content the server doesn't have yet. Files hashed by this scan already have their chunk lists;
-            // others are chunked now, and only when the server is missing them.
-            using FilesInterface files = new(settings.ServerAddress, settings.Token) { MaxConcurrency = parallel };
-            List<WorkspaceChange> withContent = selected.Where(c => c.Type != ChangeType.Deleted).ToList();
-            UploadResult? upload = null;
-            HashSet<string> missing = null!;
-            await AnsiConsole.Status().StartAsync("Checking server...", async _ =>
-            {
-                missing = await files.FindMissingFilesAsync(withContent.Select(c => c.FileId), cancellationToken);
-            });
-
-            List<WorkspaceChange> toSend = withContent.Where(c => missing.Contains(c.FileId)).DistinctBy(c => c.FileId).ToList();
-            if (toSend.Count > 0)
-            {
-                await TransferDisplay.Progress().StartAsync(async progress =>
-                {
-                    // Files the scan didn't hash (their stats hadn't changed since an earlier scan) are chunked now.
-                    List<WorkspaceChange> unchunked = toSend.Where(c => c.Chunks is null).ToList();
-                    ProgressTask? hashing = unchunked.Count > 0 ? progress.AddTask("Hashing", maxValue: Math.Max(1, unchunked.Sum(c => status.Entries[c.Path].Size))) : null;
-                    ProgressTask uploading = progress.AddTask("Submitting", autoStart: false);
-
-                    ChunkedFile[] chunked = await Task.Run(() => toSend.AsParallel().WithDegreeOfParallelism(parallel).WithCancellation(cancellationToken).Select(c =>
-                        {
-                            ChunkedFile file = Chunk(linked.Workspace, c, cancellationToken);
-                            if (c.Chunks is null) hashing?.Increment(status.Entries[c.Path].Size);
-                            return file;
-                        }).ToArray(), cancellationToken);
-
-                    if (hashing is not null) hashing.Value = hashing.MaxValue;
-                    uploading.StartTask();
-                    TransferProgress transfer = new();
-                    Task<UploadResult> send = files.UploadAsync(chunked, ct: cancellationToken, progress: transfer);
-                    await TransferDisplay.FollowBytesAsync(send, uploading, transfer, "Submitting");
-                    upload = await send;
-                });
-            }
-
-            List<FileChange> changes = new();
-            foreach (WorkspaceChange change in selected)
-            {
-                switch (change.Type)
-                {
-                    case ChangeType.Created:
-                        changes.Add(new FileChange { Path = change.Path, FileId = change.FileId });
-                        break;
-                    case ChangeType.Modified:
-                        changes.Add(new FileChange { Path = change.Path, FileId = change.FileId, BaseFileId = status.Entries[change.Path].BaseId! });
-                        break;
-                    case ChangeType.Deleted:
-                        changes.Add(new FileChange { Path = change.Path, BaseFileId = change.FileId });
-                        break;
-                    case ChangeType.Renamed:
-                        // The server stores a move as a deletion and a creation; the content is already there.
-                        changes.Add(new FileChange { Path = change.PreviousPath!, BaseFileId = change.FileId });
-                        changes.Add(new FileChange { Path = change.Path, FileId = change.FileId });
-                        break;
-                }
-            }
-
-            using RevisionInterface revisions = new(settings.ServerAddress, settings.Token);
-            SubmitResponse response = await revisions.SubmitRevisionAsync(linked.ProjectId, linked.BranchId, linked.WorkspaceId, WorkspaceLocks.Host, settings.Message.Trim(), changes,
-                cancellationToken);
-            long revision = response.Revision;
-
-            // The submitted content is now the base the next changes are measured against.
-            List<IndexEntry> upserts = new();
-            List<string> deletes = new();
-            foreach (WorkspaceChange change in selected)
-            {
-                if (change.Type == ChangeType.Deleted)
-                {
-                    deletes.Add(change.Path);
-                    continue;
-                }
-
-                if (change.Type == ChangeType.Renamed) deletes.Add(change.PreviousPath!);
-                upserts.Add(status.Entries[change.Path] with { BaseId = change.FileId });
-            }
-
-            index.Apply(upserts, deletes);
-
-            // When nobody else submitted in between, the workspace is still in step with the branch.
-            long.TryParse(index.GetMeta(WorkspaceIndex.SyncedRevisionKey), out long synced);
-            if (synced == revision - 1) index.SetMeta(WorkspaceIndex.SyncedRevisionKey, revision.ToString());
-
-            // The server released the submitted files' locks; keep the rest locked and catch up with everyone else's.
-            HashSet<WorkspaceChange> submitted = selected.ToHashSet();
-            LockReport after = await locks.ReconcileAsync(status.Changes.Where(c => !submitted.Contains(c)).ToList(), ct: cancellationToken);
 
             timer.Stop();
-            AnsiConsole.MarkupLine($"Submitted [purple]#{revision}[/] ({selected.Count:N0} file(s)).");
-            LockOutput.PrintError(after);
-            if (upload is not null)
+            AnsiConsole.MarkupLine($"Submitted [purple]#{outcome.Revision}[/] ({outcome.Files:N0} file(s)).");
+            LockOutput.PrintError(outcome.Locks!);
+            if (outcome.Upload is UploadResult upload)
             {
                 AnsiConsole.MarkupLine($"[grey]Submitted {TransferDisplay.Bytes(upload.CompressedBytesUploaded)} ({upload.ChunksUploaded:N0} chunks, {upload.ChunksDeduplicated:N0} already on the server) in {timer.Elapsed.TotalSeconds:N2}s.[/]");
             }
 
             // The branch's merge chain (vx branch --merge-to) ran on the server; a stopped chain warns but the submit stands.
-            MergeOutput.PrintAutoMerges(response.AutoMerges);
+            MergeOutput.PrintAutoMerges(outcome.Response!.AutoMerges);
 
             if (mergeTarget is not null)
             {
@@ -204,13 +97,6 @@ namespace Vertex.Cli.Files
             }
 
             return 0;
-        }
-
-        private static ChunkedFile Chunk(VWorkspace workspace, WorkspaceChange change, CancellationToken cancellationToken)
-        {
-            ChunkedFile chunked = change.Chunks ?? ContentChunker.ChunkFile(workspace.ToFullPath(change.Path), cancellationToken);
-            if (chunked.FileId != change.FileId) throw new IOException($"{change.Path} changed while it was being submitted. Run 'vx submit' again.");
-            return chunked;
         }
     }
 }
