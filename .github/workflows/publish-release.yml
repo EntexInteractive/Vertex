@@ -4,7 +4,9 @@ name: Publish Release
 #   1. The version is taken from the branch name and passed to every build (-p:Version / -p:AssemblyVersion). Nothing
 #      is committed: the .csproj files keep their 0.0.0.0 development version.
 #   2. Every app in APPS is published as a self-contained, single-file executable for every platform below.
-#   3. The server image is pushed to GHCR and Docker Hub, tagged <version>, plus stable for non-pre-release versions.
+#   3. The server image is pushed to GHCR and Docker Hub, tagged <version> (1.0.3). A full release also moves
+#      <major>.<minor> (1.0) if it's the newest patch of that minor, and stable if it's the newest release overall, so
+#      a late hotfix (release/1.0.4 after 1.1.0) never moves stable back. Pre-releases get only their exact tag.
 #   4. A GitHub release v<version> is created on the pushed commit, with one archive per app and platform
 #      (vx-win-x64.zip, VertexServer-linux-arm64.tar.gz, ...); GitHub shows each file's SHA-256. It is published only after every
 #      build and the image succeed.
@@ -44,6 +46,9 @@ jobs:
       version: ${{ steps.parse.outputs.version }}
       numeric: ${{ steps.parse.outputs.numeric }}
       prerelease: ${{ steps.parse.outputs.prerelease }}
+      minor: ${{ steps.parse.outputs.minor }}
+      tag_minor: ${{ steps.latest.outputs.tag_minor }}
+      tag_stable: ${{ steps.latest.outputs.tag_stable }}
       sha: ${{ github.sha }}
 
     steps:
@@ -61,8 +66,36 @@ jobs:
           echo "version=$version"       >> "$GITHUB_OUTPUT"
           echo "numeric=$numeric"       >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "minor=${BASH_REMATCH[1]}.${BASH_REMATCH[2]}" >> "$GITHUB_OUTPUT"
           # AssemblyVersion/FileVersion must be numeric (1.2.0.0); Version carries the full version (1.3.0-beta.1).
           echo "Releasing $version (assembly version $numeric, pre-release: $prerelease) from ${GITHUB_SHA:0:7}"
+
+      # Compares against the existing full-release tags (v1.0.3), so re-running or hotfixing an older version never moves
+      # 1.0 or stable to an older image.
+      - name: Decide floating image tags
+        id: latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.parse.outputs.version }}
+          MINOR: ${{ steps.parse.outputs.minor }}
+          PRERELEASE: ${{ steps.parse.outputs.prerelease }}
+        run: |
+          if [[ "$PRERELEASE" == "true" ]]; then
+            echo "tag_minor=false"  >> "$GITHUB_OUTPUT"
+            echo "tag_stable=false" >> "$GITHUB_OUTPUT"
+            echo "Pre-release: only the $VERSION image tag is pushed."
+            exit 0
+          fi
+          set -euo pipefail
+          tags=$(gh api --paginate "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/v" --jq '.[].ref')
+          releases=$( { sed -n 's|^refs/tags/v\([0-9]*\.[0-9]*\.[0-9]*\)$|\1|p' <<< "$tags"; echo "$VERSION"; } | sort -uV)
+          newest=$(tail -n 1 <<< "$releases")
+          newest_minor=$(awk -F. -v m="$MINOR" '$1 "." $2 == m' <<< "$releases" | tail -n 1)
+          tag_minor=false;  [[ "$VERSION" == "$newest_minor" ]] && tag_minor=true
+          tag_stable=false; [[ "$VERSION" == "$newest" ]] && tag_stable=true
+          echo "tag_minor=$tag_minor"   >> "$GITHUB_OUTPUT"
+          echo "tag_stable=$tag_stable" >> "$GITHUB_OUTPUT"
+          echo "Newest $MINOR.x: $newest_minor, newest release: $newest. Tag $MINOR: $tag_minor, tag stable: $tag_stable."
 
   build:
     name: Build ${{ matrix.platform }}
@@ -150,10 +183,12 @@ jobs:
       ref: ${{ needs.version.outputs.sha }}
       version: ${{ needs.version.outputs.version }}
       assembly_version: ${{ needs.version.outputs.numeric }}
-      # Pre-releases get only their exact version; full releases also move stable.
+      # Pre-releases get only their exact version; full releases also move <major>.<minor> and stable when they're the
+      # newest of each (see the version job).
       tags: |
         type=raw,value=${{ needs.version.outputs.version }}
-        type=raw,value=stable,enable=${{ needs.version.outputs.prerelease != 'true' }}
+        type=raw,value=${{ needs.version.outputs.minor }},enable=${{ needs.version.outputs.tag_minor == 'true' }}
+        type=raw,value=stable,enable=${{ needs.version.outputs.tag_stable == 'true' }}
     secrets: inherit
 
   release:
