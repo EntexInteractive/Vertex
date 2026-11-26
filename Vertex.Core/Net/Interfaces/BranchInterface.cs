@@ -54,6 +54,43 @@ namespace Vertex.Core.Net.Interfaces
             return await SendAsync<IReadOnlyList<VBranch>>(HttpMethod.Get, $"/api/v1/branches?projectId={projectId}", null, cancellationToken);
         }
 
+        /// <summary>
+        /// The branch's upstreams (at most one for now) and how far behind it is. With <paramref name="differences"/>,
+        /// also how many of the upstream's files differ (the server compares both file lists).
+        /// </summary>
+        public async Task<ServerResult<IReadOnlyList<VUpstream>>> GetUpstreamsAsync(Guid projectId, Guid branchId, bool differences = false, CancellationToken cancellationToken = default)
+        {
+            string query = $"/api/v1/branches/upstream?projectId={projectId}&branchId={branchId}&differences={(differences ? "true" : "false")}";
+            return await SendAsync<IReadOnlyList<VUpstream>>(HttpMethod.Get, query, null, cancellationToken);
+        }
+
+        /// <summary>
+        /// Makes <paramref name="upstreamProject"/>/<paramref name="upstreamBranch"/> the branch's upstream, or changes the
+        /// link's settings. Fails with 404 (no such project or branch), 403 (no read access to it) or 400 (same project,
+        /// or a loop), each with a one-line reason.
+        /// </summary>
+        /// <param name="paths">The folders and files the upstream owns, comma-separated, or "auto" for its top-level ones;
+        /// null keeps the link's.</param>
+        /// <param name="readOnly">Refuse submits to those paths on the branch; null keeps the link's setting.</param>
+        public async Task<ServerResult<VUpstream>> SetUpstreamAsync(Guid projectId, Guid branchId, string upstreamProject, string upstreamBranch, string? paths = null,
+            bool? readOnly = null, CancellationToken cancellationToken = default)
+        {
+            string query = $"/api/v1/branches/upstream?projectId={projectId}&branchId={branchId}&upstreamProject={Uri.EscapeDataString(upstreamProject)}" +
+                           $"&upstreamBranch={Uri.EscapeDataString(upstreamBranch)}";
+            if (paths is not null) query += $"&paths={Uri.EscapeDataString(paths)}";
+            if (readOnly is bool value) query += $"&readOnly={(value ? "true" : "false")}";
+            return await SendAsync<VUpstream>(HttpMethod.Put, query, null, cancellationToken);
+        }
+
+        /// <summary>
+        /// Unlinks the branch from its upstream; its files stay.
+        /// </summary>
+        /// <returns>The links removed (empty when it had none).</returns>
+        public async Task<ServerResult<IReadOnlyList<VUpstream>>> ClearUpstreamAsync(Guid projectId, Guid branchId, CancellationToken cancellationToken = default)
+        {
+            return await SendAsync<IReadOnlyList<VUpstream>>(HttpMethod.Delete, $"/api/v1/branches/upstream?projectId={projectId}&branchId={branchId}", null, cancellationToken);
+        }
+
         public async Task<ServerResult<VBranch>> GetBranchByNameAsync(Guid projectId, string branchName, CancellationToken cancellationToken = default)
         {
             return await SendAsync<VBranch>(HttpMethod.Get, $"/api/v1/branches/by-name?projectId={projectId}&name={Uri.EscapeDataString(branchName)}", null, cancellationToken);

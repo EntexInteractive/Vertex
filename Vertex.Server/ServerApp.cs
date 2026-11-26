@@ -126,6 +126,8 @@ namespace Vertex.Server
             builder.Services.AddScoped<RevisionsRepository>();
             builder.Services.AddScoped<MergesRepository>();
             builder.Services.AddScoped<AutoMerger>();
+            builder.Services.AddScoped<UpstreamsRepository>();
+            builder.Services.AddScoped<UpstreamLinks>();
             builder.Services.AddScoped<LocksRepository>();
             builder.Services.AddSingleton<ProjectWriteQueue>();
 

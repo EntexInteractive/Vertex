@@ -43,7 +43,9 @@ namespace Vertex.Server.Events
     /// <param name="Conflicts">Conflicting paths (the first few, for a refused merge).</param>
     /// <param name="Auto">The source branch's merge target ran it, rather than someone merging by hand. A refused
     /// automatic merge means the chain is stuck until someone settles it.</param>
-    public sealed record MergePayload(Guid SourceBranchId, long SourceRevision, long? Revision, int Files, string[] Conflicts, bool Auto = false);
+    /// <param name="SourceProjectId">The source branch's project, when the merge was between a branch and its upstream
+    /// in another project (<see cref="SourceRevision"/> is then that project's revision); null within the project.</param>
+    public sealed record MergePayload(Guid SourceBranchId, long SourceRevision, long? Revision, int Files, string[] Conflicts, bool Auto = false, Guid? SourceProjectId = null);
 
     /// <summary>
     /// An event to record, before it has a seq.

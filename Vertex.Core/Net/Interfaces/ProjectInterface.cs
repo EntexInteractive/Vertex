@@ -11,9 +11,20 @@ namespace Vertex.Core.Net.Interfaces
         /// <summary>
         /// Creates a project and its default branch. Fails with status 409 when the name is taken.
         /// </summary>
-        public async Task<ServerResult<CreateProjectResponse>> CreateProjectAsync(string projectName, string defaultBranch = "main", CancellationToken cancellationToken = default)
+        /// <param name="upstream">A branch of another project ("UE5/release") the default branch takes its files from:
+        /// linked, and its files copied onto the branch as the first revision. Fails with 404 or 403 when the caller can't
+        /// read it, before anything is created.</param>
+        /// <param name="upstreamReadOnly">Refuse submits to the upstream's files on the new branch.</param>
+        public async Task<ServerResult<CreateProjectResponse>> CreateProjectAsync(string projectName, string defaultBranch = "main", CancellationToken cancellationToken = default,
+            string? upstream = null, bool upstreamReadOnly = false)
         {
             string query = $"/api/v1/projects?name={Uri.EscapeDataString(projectName)}&defaultBranch={Uri.EscapeDataString(defaultBranch)}";
+            if (!string.IsNullOrWhiteSpace(upstream))
+            {
+                (string project, string branch) = VUpstream.ParseName(upstream);
+                query += $"&upstreamProject={Uri.EscapeDataString(project)}&upstreamBranch={Uri.EscapeDataString(branch)}&upstreamReadOnly={(upstreamReadOnly ? "true" : "false")}";
+            }
+
             return await SendAsync<CreateProjectResponse>(HttpMethod.Post, query, null, cancellationToken);
         }
 

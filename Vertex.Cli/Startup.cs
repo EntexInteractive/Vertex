@@ -22,7 +22,9 @@ namespace Vertex.Cli
             config.AddCommand<ClearCommand>("clear").WithDescription("Clears the console window.");
             config.AddCommand<ClearCommand>("cls").WithDescription("Clears the console window.");
 
-            config.AddCommand<InitCommand>("init").WithDescription("Creates a project on the server and makes this folder its workspace.");
+            config.AddCommand<InitCommand>("init").WithDescription("Creates a project on the server and makes this folder its workspace.")
+                .WithExample("init")
+                .WithExample("init", "--upstream", "UE5/release");
             config.AddCommand<CloneCommand>("clone").WithDescription("Makes a folder a workspace of an existing project and downloads its latest files.")
                 .WithExample("clone", "game")
                 .WithExample("clone", "game", "D:/Work/Game", "-b", "feature-x");
@@ -35,7 +37,18 @@ namespace Vertex.Cli
                 .WithExample("submit", "-m", "\"Fix jump\"", "--merge-to", "main");
             config.AddCommand<MergeCommand>("merge").WithDescription("Merges another branch's changes into this branch (or --into another), on the server.")
                 .WithExample("merge", "feature-x")
-                .WithExample("merge", "feature-x", "--into", "main", "--take-source");
+                .WithExample("merge", "feature-x", "--into", "main", "--take-source")
+                .WithExample("merge", "upstream")
+                .WithExample("merge", "--into", "upstream");
+            config.AddBranch("upstream", branch =>
+            {
+                branch.SetDescription("Shows or changes the branch of another project this branch takes its files from (a studio engine for a game).");
+                branch.SetDefaultCommand<UpstreamCommand>();
+                branch.AddCommand<UpstreamSetCommand>("set").WithDescription("Takes this branch's files from another project's branch, or changes how.")
+                    .WithExample("upstream", "set", "UE5/release")
+                    .WithExample("upstream", "set", "UE5/release", "--read-only");
+                branch.AddCommand<UpstreamClearCommand>("clear").WithDescription("Stops taking files from the upstream. The files stay.");
+            });
 
             config.AddCommand<SyncCommand>("sync").WithDescription("Gets the latest (or a given) revision of the branch, keeping local changes.")
                 .WithExample("sync")
@@ -87,11 +100,6 @@ namespace Vertex.Cli
                 branch.AddCommand<GrantAccessCommand>("grant").WithDescription("Gives a user or group read, write or admin access.")
                     .WithExample("access", "grant", "artists", "write");
                 branch.AddCommand<RevokeAccessCommand>("revoke").WithDescription("Removes a user's or group's access.");
-            });
-
-            config.AddBranch("project", branch =>
-            {
-                branch.AddCommand<CreateProjectCommand>("create").WithDescription("Creates a new project.");
             });
 
             config.AddCommand<BranchCommand>("branch").WithDescription("Shows, lists, creates (as a copy of the current branch) or deletes branches.")

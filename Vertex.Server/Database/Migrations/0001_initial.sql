@@ -338,3 +338,32 @@ CREATE INDEX IF NOT EXISTS idx_branches_merge_to ON branches.branches (merge_to)
 -- Projects have no visibility: access comes only from grants (and the server-admin flag). Projects that were
 -- 'internal' are no longer readable without a grant; grant read to a group where that's wanted.
 ALTER TABLE projects.projects DROP COLUMN IF EXISTS visibility;
+
+-- Upstreams: a branch can take its files from a branch of another project, the way a game takes a studio engine
+-- (vx init --upstream UE5/release). The game's branch holds its own copy of the upstream's files (metadata only: content
+-- is shared), takes new upstream revisions with vx merge upstream and sends its fixes back with vx merge --into upstream.
+-- paths: what the upstream owns, the prefixes ('Engine/') or files a merge back up is limited to, so the game's own
+-- files never go up; NULL means the upstream's current top-level folders and files. read_only: submits to those paths
+-- are refused on this branch. A branch made from one inherits its upstreams. An upstream with downstreams can't be deleted.
+CREATE TABLE IF NOT EXISTS branches.upstreams
+(
+    branch_id   UUID    NOT NULL,
+    upstream_id UUID    NOT NULL,
+    paths       TEXT[]  NULL,
+    read_only   BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at  BIGINT  NOT NULL,
+
+    CONSTRAINT pk_upstreams PRIMARY KEY (branch_id, upstream_id),
+    CONSTRAINT fk_upstreams_branch FOREIGN KEY (branch_id) REFERENCES branches.branches (id) ON DELETE CASCADE,
+    CONSTRAINT fk_upstreams_upstream FOREIGN KEY (upstream_id) REFERENCES branches.branches (id) ON DELETE NO ACTION,
+    CONSTRAINT chk_upstreams_not_self CHECK (branch_id <> upstream_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_upstreams_upstream_id ON branches.upstreams (upstream_id);
+
+-- Merges between a branch and its upstream (in either direction) also record the two revisions they leave in step:
+-- upstream_revision, the upstream's state the downstream has taken in (the base of the next merge between them, read
+-- from the upstream's history), and downstream_revision, the downstream's revision at that point (so a branch made
+-- from the downstream at or after it inherits the same base). Both NULL for merges within a project.
+ALTER TABLE revisions.merges ADD COLUMN IF NOT EXISTS upstream_revision BIGINT NULL;
+ALTER TABLE revisions.merges ADD COLUMN IF NOT EXISTS downstream_revision BIGINT NULL;

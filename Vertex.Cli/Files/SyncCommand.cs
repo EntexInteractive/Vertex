@@ -2,6 +2,7 @@
 
 using System.ComponentModel;
 using System.Diagnostics;
+using Vertex.Cli.Branches;
 using Vertex.Core.Client.Workspaces;
 using Vertex.Core.Net.Interfaces;
 
@@ -60,12 +61,14 @@ namespace Vertex.Cli.Files
             if (!outcome.Changed && outcome.Conflicts.Count == 0)
             {
                 AnsiConsole.MarkupLine($"Already up to date at [purple]#{head.HeadRevision}[/]{behind}.");
+                await UpstreamOutput.PrintBehindAsync(settings, linked, cancellationToken);
                 return 0;
             }
 
             AnsiConsole.MarkupLine($"Synced to [purple]#{head.HeadRevision}[/]{behind}: {outcome.Updated:N0} updated, {outcome.Deleted:N0} deleted.");
             WorkspaceSync.PrintTransfer(outcome, timer);
             WorkspaceSync.PrintConflicts(linked.Workspace, outcome.Conflicts);
+            await UpstreamOutput.PrintBehindAsync(settings, linked, cancellationToken);
             return outcome.Conflicts.Count == 0 ? 0 : 1;
         }
 

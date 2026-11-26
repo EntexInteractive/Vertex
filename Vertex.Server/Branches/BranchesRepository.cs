@@ -4,6 +4,7 @@ using Dapper;
 using Npgsql;
 using Vertex.Core.Data;
 using Vertex.Server.Database;
+using Vertex.Server.History;
 
 namespace Vertex.Server.Branches
 {
@@ -31,12 +32,14 @@ namespace Vertex.Server.Branches
         /// Creates a branch. A branch with a parent starts with the parent's files as of its latest revision: the
         /// parent's file list is copied (metadata only, never content) and that revision is kept as
         /// <see cref="VBranch.BaseRevision"/>. Without a parent the branch starts empty. With
-        /// <see cref="VBranch.MergeTo"/> set, its revisions are merged on into that branch.
+        /// <see cref="VBranch.MergeTo"/> set, its revisions are merged on into that branch. A branch made from one with an
+        /// upstream (in another project) gets the same upstream, as far along it as the parent was at that revision.
         /// </summary>
+        /// <param name="userId">Who creates it, recorded on the upstream state it inherits.</param>
         /// <returns>False when the project already has a branch with that name.</returns>
         /// <exception cref="ArgumentException">The parent or merge target isn't a branch of the project, or the target
         /// shares no history with the new branch.</exception>
-        public async Task<bool> AddBranchAsync(VBranch branch, CancellationToken cancellationToken = default)
+        public async Task<bool> AddBranchAsync(VBranch branch, Guid userId, CancellationToken cancellationToken = default)
         {
             await using NpgsqlConnection connection = _database.CreateConnection();
             await connection.OpenAsync(cancellationToken);
@@ -74,6 +77,20 @@ namespace Vertex.Server.Branches
                 const string copySql = "INSERT INTO revisions.head (branch_id, path_key, path, file_id, revision) " +
                                        "SELECT @BranchId, path_key, path, file_id, revision FROM revisions.head WHERE branch_id = @ParentId;";
                 await connection.ExecuteAsync(new CommandDefinition(copySql, new { BranchId = branch.Id, ParentId = parent }, transaction, commandTimeout: 300, cancellationToken: cancellationToken));
+
+                // The parent's upstreams, and how far it had taken each in as of the copied revision, so 'vx merge
+                // upstream' on the new branch takes only what's newer.
+                const string upstreamsSql = "INSERT INTO branches.upstreams (branch_id, upstream_id, paths, read_only, created_at) " +
+                                            "SELECT @BranchId, upstream_id, paths, read_only, @CreatedAt FROM branches.upstreams WHERE branch_id = @ParentId;";
+                long createdAt = (long)branch.CreatedAt.TotalMilliseconds;
+                if (await connection.ExecuteAsync(new CommandDefinition(upstreamsSql, new { BranchId = branch.Id, ParentId = parent, CreatedAt = createdAt }, transaction,
+                        cancellationToken: cancellationToken)) > 0)
+                {
+                    await connection.ExecuteAsync(new CommandDefinition(MergesRepository.CarryUpstreamsSql, new
+                    {
+                        branch.ProjectId, Source = parent, Target = branch.Id, SourceRevision = baseRevision, Downstream = baseRevision, UserId = userId, CreatedAt = createdAt
+                    }, transaction, cancellationToken: cancellationToken));
+                }
             }
 
             await transaction.CommitAsync(cancellationToken);
@@ -155,6 +172,15 @@ namespace Vertex.Server.Branches
                 string source = await connection.ExecuteScalarAsync<string?>(new CommandDefinition(sourceSql, new { ProjectId = projectId, Name = name }, cancellationToken: cancellationToken))
                                 ?? "Another branch";
                 throw new InvalidOperationException($"'{source}' auto-merges into '{name}'. Run 'vx branch {source} --merge-to none' first.", ex);
+            }
+            catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.ForeignKeyViolation && ex.ConstraintName == "fk_upstreams_upstream")
+            {
+                const string downstreamSql = "SELECT p.name || '/' || d.name FROM branches.upstreams u JOIN branches.branches d ON d.id = u.branch_id " +
+                                             "JOIN projects.projects p ON p.id = d.project_id JOIN branches.branches t ON t.id = u.upstream_id " +
+                                             "WHERE t.project_id = @ProjectId AND t.name = @Name ORDER BY 1 LIMIT 1;";
+                string downstream = await connection.ExecuteScalarAsync<string?>(new CommandDefinition(downstreamSql, new { ProjectId = projectId, Name = name },
+                    cancellationToken: cancellationToken)) ?? "Another project";
+                throw new InvalidOperationException($"{downstream} takes its files from '{name}'. Run 'vx upstream clear' in a workspace of {downstream} first.", ex);
             }
             catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.ForeignKeyViolation)
             {

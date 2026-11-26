@@ -13,12 +13,12 @@ namespace Vertex.Cli.Branches
 {
     public sealed class MergeSettings : WorkspaceSettings
     {
-        [CommandArgument(0, "<source>")]
-        [Description("The branch whose changes to take in.")]
-        public string Source { get; set; } = string.Empty;
+        [CommandArgument(0, "[source]")]
+        [Description("The branch whose changes to take in: a branch of this project, 'upstream' (the branch's upstream in another project) or <project>/<branch>. Defaults to the workspace's branch with --into.")]
+        public string? Source { get; set; }
 
         [CommandOption("--into")]
-        [Description("The branch to merge into. Defaults to the workspace's branch.")]
+        [Description("The branch to merge into, or 'upstream' to send this branch's changes to its upstream. Defaults to the workspace's branch.")]
         public string? Into { get; set; }
 
         [CommandOption("--message|-m")]
@@ -39,6 +39,10 @@ namespace Vertex.Cli.Branches
     /// since the last merge between the two, as one revision on the target. Happens entirely on the server, so nothing
     /// is downloaded. Files changed on both branches stop the merge unless <c>--take-source</c> or
     /// <c>--keep-target</c> says which side wins.
+    /// <para>
+    /// <c>vx merge upstream</c> takes in the new revisions of the branch's upstream (another project's branch, such as a
+    /// studio engine), and <c>vx merge --into upstream</c> sends the branch's own changes to the upstream's files back.
+    /// </para>
     /// </summary>
     public sealed class MergeCommand : AsyncCommand<MergeSettings>
     {
@@ -52,14 +56,21 @@ namespace Vertex.Cli.Branches
 
             LinkedWorkspace linked = LinkedWorkspace.FromCurrentDirectory();
             using BranchInterface branches = new(settings.ServerAddress, settings.Token);
-            VBranch? source = await MergeOutput.FindBranchAsync(branches, linked, settings.Source, cancellationToken);
-            if (source is null) return 1;
 
             // The workspace's own branch by default; the server checks it still exists.
-            string? into = string.IsNullOrWhiteSpace(settings.Into) ? null : settings.Into;
-            VBranch? target = into is null
-                ? new VBranch(linked.BranchId, 0, linked.Workspace.Config.Branch ?? "this branch", linked.ProjectId, null)
-                : await MergeOutput.FindBranchAsync(branches, linked, into, cancellationToken);
+            VBranch current = new(linked.BranchId, 0, linked.Workspace.Config.Branch ?? "this branch", linked.ProjectId, null);
+            string? into = string.IsNullOrWhiteSpace(settings.Into) ? null : settings.Into.Trim();
+            string? from = string.IsNullOrWhiteSpace(settings.Source) ? null : settings.Source.Trim();
+            if (from is null && into is null)
+            {
+                AnsiConsole.MarkupLine("[red]Name the branch to merge in, e.g. 'vx merge feature-x', or 'vx merge upstream' to take in the upstream's new revisions.[/]");
+                return 1;
+            }
+
+            VBranch? source = from is null ? current : await MergeOutput.FindBranchAsync(settings, branches, linked, from, cancellationToken);
+            if (source is null) return 1;
+
+            VBranch? target = into is null ? current : await MergeOutput.FindBranchAsync(settings, branches, linked, into, cancellationToken);
             if (target is null) return 1;
 
             if (source.Id == target.Id)
@@ -83,13 +94,30 @@ namespace Vertex.Cli.Branches
         private const int ListedConflicts = 10;
 
         /// <summary>
-        /// Looks up a branch of the workspace's project by name, printing how to fix it when there's none.
+        /// Looks up a branch of the workspace's project by name, printing how to fix it when there's none. 'upstream' is
+        /// the workspace branch's upstream, and a name that isn't a branch here but reads as &lt;project&gt;/&lt;branch&gt;
+        /// is a branch of that project (named so in the result, e.g. "UE5/release").
         /// </summary>
-        public static async Task<VBranch?> FindBranchAsync(BranchInterface branches, LinkedWorkspace linked, string name, CancellationToken cancellationToken)
+        public static async Task<VBranch?> FindBranchAsync(NetworkSettings settings, BranchInterface branches, LinkedWorkspace linked, string name, CancellationToken cancellationToken)
         {
             name = name.Trim();
+            if (name.Equals(UpstreamOutput.Keyword, StringComparison.OrdinalIgnoreCase)) return await UpstreamOutput.FindBranchAsync(branches, linked, cancellationToken);
+
             ServerResult<VBranch> result = await branches.GetBranchByNameAsync(linked.ProjectId, name, cancellationToken);
             if (result.IsSuccessStatusCode) return result.Data!;
+
+            // Branch names may contain '/', so another project's branch is only tried once this project has none.
+            if (result.StatusCode == 404 && name.Contains('/'))
+            {
+                (string projectName, string branchName) = VUpstream.ParseName(name);
+                using ProjectInterface projects = new(settings.ServerAddress, settings.Token);
+                ServerResult<VProject> otherProject = await projects.GetProjectByNameAsync(projectName, cancellationToken);
+                if (otherProject.IsSuccessStatusCode)
+                {
+                    ServerResult<VBranch> other = await branches.GetBranchByNameAsync(otherProject.Data!.Id, branchName, cancellationToken);
+                    if (other.IsSuccessStatusCode) return new VBranch(other.Data!.Id, 0, $"{otherProject.Data.Name}/{other.Data.Name}", otherProject.Data.Id, null);
+                }
+            }
 
             string project = Markup.Escape(linked.Workspace.Config.Project ?? "this project");
             AnsiConsole.MarkupLine(result.StatusCode == 404
@@ -106,7 +134,8 @@ namespace Vertex.Cli.Branches
             MergeResponse response = null!;
             await AnsiConsole.Status().StartAsync($"Merging {Markup.Escape(source.Name)} into {Markup.Escape(target.Name)}...", async _ =>
             {
-                response = await revisions.MergeAsync(linked.ProjectId, source.Id, target.Id, message, resolve, linked.WorkspaceId, WorkspaceLocks.Host, cancellationToken);
+                response = await revisions.MergeAsync(target.ProjectId, source.Id, target.Id, message, resolve, linked.WorkspaceId, WorkspaceLocks.Host, cancellationToken,
+                    source.ProjectId);
             });
 
             string from = Markup.Escape(source.Name);

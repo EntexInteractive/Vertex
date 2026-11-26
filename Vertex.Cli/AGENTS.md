@@ -7,7 +7,7 @@ The `vx` command line client, built on Spectre.Console.Cli. See the root AGENTS.
   registered there.
 - Commands are grouped by area: `Workspaces/` (`init`, `clone`), `Files/` (`status`, `submit`, `sync`, `revert`;
   `WorkspaceSettings.cs` has their shared settings, the linked-workspace lookup and path filtering), `Branches/`
-  (`branch`, `checkout`, `merge`; `MergeOutput` is shared with `submit --merge-to` and prints merge chains with `PrintAutoMerges`; `vx branch` scans for unsubmitted changes before creating a branch from the workspace's branch), `Projects/`, `Profiles/`, `Net/` (`info`), `Utils/`.
+  (`branch`, `checkout`, `merge`, `upstream`; `MergeOutput` is shared with `submit --merge-to` and prints merge chains with `PrintAutoMerges`, and its `FindBranchAsync` resolves `upstream` and `<project>/<branch>` names; `UpstreamOutput` holds the upstream lookups and the "upstream has new revisions" hint `vx sync` prints; `vx branch` scans for unsubmitted changes before creating a branch from the workspace's branch), `Projects/` (project resolution shared by `access` and `branch`; projects are created by `vx init`, with `--upstream` for one that takes its files from another project), `Profiles/`, `Net/` (`info`), `Utils/`.
 - `Files/WorkspaceSync.cs` is the sync both `vx sync` (`-r` for any revision) and `vx checkout` run: one listing from
   `GetHeadChanges`, downloads only files whose content id differs from the index, and when the listing is full
   (`HeadChanges.Full`: a first sync, an older revision, or a new branch) removes tracked files that aren't in it.

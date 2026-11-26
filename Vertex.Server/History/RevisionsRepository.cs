@@ -22,7 +22,10 @@ namespace Vertex.Server.History
     /// </summary>
     /// <param name="EventSeq">The project's event seq after the submit's events, or null when nothing was written.</param>
     /// <param name="LocksReleased">How many of the submitter's locks the submit released.</param>
-    public sealed record SubmitOutcome(long? Revision, IReadOnlyList<string> OutOfDate, IReadOnlyList<LockRow> LockedByOthers, long? EventSeq = null, int LocksReleased = 0);
+    /// <param name="ReadOnly">The first submitted path that belongs to a read-only upstream, and that upstream
+    /// ("UE5/release"); nothing was written.</param>
+    public sealed record SubmitOutcome(long? Revision, IReadOnlyList<string> OutOfDate, IReadOnlyList<LockRow> LockedByOthers, long? EventSeq = null, int LocksReleased = 0,
+        (string Path, string Upstream)? ReadOnly = null);
 
     /// <summary>
     /// A file on a branch, for sync. <see cref="FileId"/> is null when the file was deleted.
@@ -92,6 +95,7 @@ namespace Vertex.Server.History
             string[] keys = changes.Select(c => c.PathKey).ToArray();
             Dictionary<string, string> head = new(StringComparer.Ordinal);
             List<LockRow> locks = new();
+            List<(string[] Paths, string Upstream)> readOnly = new();
             await using (NpgsqlBatch read = new(connection, transaction))
             {
                 NpgsqlBatchCommand headCommand = new("SELECT path_key, file_id FROM revisions.head WHERE branch_id = @BranchId AND path_key = ANY(@Keys);");
@@ -106,11 +110,26 @@ namespace Vertex.Server.History
                 locksCommand.Parameters.Add(new NpgsqlParameter<string[]>("Keys", keys));
                 read.BatchCommands.Add(locksCommand);
 
+                // Paths owned by a read-only upstream (vx upstream set --read-only) change there first, not here.
+                NpgsqlBatchCommand readOnlyCommand = new("SELECT u.paths, p.name || '/' || ub.name FROM branches.upstreams u " +
+                                                         "JOIN branches.branches ub ON ub.id = u.upstream_id JOIN projects.projects p ON p.id = ub.project_id " +
+                                                         "WHERE u.branch_id = @BranchId AND u.read_only AND u.paths IS NOT NULL;");
+                readOnlyCommand.Parameters.Add(new NpgsqlParameter<Guid>("BranchId", branchId));
+                read.BatchCommands.Add(readOnlyCommand);
+
                 await using NpgsqlDataReader reader = await read.ExecuteReaderAsync(cancellationToken);
                 while (await reader.ReadAsync(cancellationToken)) head[reader.GetString(0)] = reader.GetString(1);
                 await reader.NextResultAsync(cancellationToken);
                 while (await reader.ReadAsync(cancellationToken))
                     locks.Add(new LockRow(reader.GetString(0), reader.GetString(1), reader.GetGuid(2), reader.GetGuid(3), reader.GetString(4), reader.GetString(5), reader.GetInt64(6)));
+                await reader.NextResultAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken)) readOnly.Add((reader.GetFieldValue<string[]>(0), reader.GetString(1)));
+            }
+
+            foreach ((string[] paths, string upstream) in readOnly)
+            {
+                SubmitChange? owned = changes.FirstOrDefault(c => MergesRepository.IsInScope(c.PathKey, paths));
+                if (owned is not null) return new SubmitOutcome(null, [], [], ReadOnly: (owned.Path, upstream));
             }
 
             List<string> outOfDate = new();

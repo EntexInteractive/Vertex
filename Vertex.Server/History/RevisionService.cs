@@ -13,6 +13,7 @@ using Vertex.Server.Database;
 using Vertex.Server.Events;
 using Vertex.Server.Telemetry;
 using Vertex.Server.FileServices;
+using Vertex.Server.Projects;
 
 namespace Vertex.Server.History
 {
@@ -40,9 +41,11 @@ namespace Vertex.Server.History
         private readonly MergesRepository _merges;
         private readonly BranchesRepository _branches;
         private readonly AutoMerger _autoMerger;
+        private readonly ProjectsRepository _projects;
 
-        public RevisionService(ILogger<RevisionService> logger, RevisionsRepository revisions, AccessService access, FilesRepository files, CacheContext cache, INotificationService notifications, MergesRepository merges, BranchesRepository branches, AutoMerger autoMerger)
+        public RevisionService(ILogger<RevisionService> logger, RevisionsRepository revisions, AccessService access, FilesRepository files, CacheContext cache, INotificationService notifications, MergesRepository merges, BranchesRepository branches, AutoMerger autoMerger, ProjectsRepository projects)
         {
+            _projects = projects;
             _autoMerger = autoMerger;
             _merges = merges;
             _branches = branches;
@@ -100,6 +103,14 @@ namespace Vertex.Server.History
                 string more = outcome.OutOfDate.Count > ListedPaths ? $" and {outcome.OutOfDate.Count - ListedPaths:N0} more" : "";
                 throw new RpcException(new Status(StatusCode.FailedPrecondition,
                     $"Changed on the server since your last sync: {listed}{more}. Run 'vx sync', then submit again."));
+            }
+
+            if (outcome.ReadOnly is (string ownedPath, string upstream))
+            {
+                VertexMetrics.SubmitsRefused.Add(1, new KeyValuePair<string, object?>("reason", "read_only_upstream"));
+                throw new RpcException(new Status(StatusCode.FailedPrecondition,
+                    $"'{ownedPath}' comes from {upstream}, which is read-only on this branch. Change it in {upstream} and run 'vx merge upstream', " +
+                    $"or allow changes here with 'vx upstream set {upstream} --writable'."));
             }
 
             if (outcome.LockedByOthers.Count > 0) VertexMetrics.SubmitsRefused.Add(1, new KeyValuePair<string, object?>("reason", "locked"));
@@ -252,19 +263,31 @@ namespace Vertex.Server.History
                 _ => throw Invalid("Unknown merge resolution.")
             };
 
-            // Writing to the target needs write access; the source is in the same project, so it's readable too.
+            // Writing to the target needs write access, and the source must be readable: in the same project that
+            // follows, but an upstream or downstream in another project needs its own read access.
+            Guid sourceProjectId = request.SourceProjectId.Length == 0 ? projectId : ParseId(request.SourceProjectId, "source project");
+            bool linked = sourceProjectId != projectId;
             await RequireAsync(user, projectId, targetId, AccessLevel.Write, ct);
-            VBranch? source = await _branches.GetBranchByIdAsync(projectId, sourceId, ct);
+            if (linked) await RequireAsync(user, sourceProjectId, sourceId, AccessLevel.Read, ct);
+            VBranch? source = await _branches.GetBranchByIdAsync(sourceProjectId, sourceId, ct);
             VBranch? target = await _branches.GetBranchByIdAsync(projectId, targetId, ct);
             if (source is null || target is null) throw BranchGone();
 
-            string message = request.Message.Trim() is { Length: > 0 } given ? given : $"Merge {source.Name} into {target.Name}";
+            // Across projects, branches are named with their project: "UE5/release".
+            string sourceName = source.Name, targetName = target.Name;
+            if (linked)
+            {
+                sourceName = $"{(await _projects.GetProjectByIdAsync(sourceProjectId, ct))?.Name}/{source.Name}";
+                targetName = $"{(await _projects.GetProjectByIdAsync(projectId, ct))?.Name}/{target.Name}";
+            }
+
+            string message = request.Message.Trim() is { Length: > 0 } given ? given : $"Merge {sourceName} into {targetName}";
             string? host = request.Host.Trim() is { Length: > 0 } machine ? machine[..Math.Min(machine.Length, 255)] : null;
 
             MergeOutcome outcome;
             try
             {
-                outcome = await _merges.MergeAsync(projectId, sourceId, targetId, user.GetUserId(), workspaceId, host, message, resolve, ct);
+                outcome = await _merges.MergeAsync(projectId, sourceId, targetId, user.GetUserId(), workspaceId, host, message, resolve, ct, sourceProjectId: sourceProjectId);
             }
             catch (ArgumentException)
             {
@@ -278,8 +301,15 @@ namespace Vertex.Server.History
             await _autoMerger.PublishAsync(projectId, targetId, outcome);
             switch (outcome.Status)
             {
+                case MergeStatus.Unrelated when linked:
+                    throw new RpcException(new Status(StatusCode.FailedPrecondition,
+                        $"Neither {sourceName} nor {targetName} is the other's upstream. Link them first: 'vx upstream set <project>/<branch>' in a workspace of the downstream branch."));
                 case MergeStatus.Unrelated:
                     throw new RpcException(new Status(StatusCode.FailedPrecondition, AutoMerger.Unrelated(source.Name, target.Name)));
+                case MergeStatus.Behind:
+                    throw new RpcException(new Status(StatusCode.FailedPrecondition,
+                        $"{sourceName} hasn't taken in {targetName}'s latest revisions, so its changes can't be told apart from theirs. " +
+                        $"Run 'vx merge upstream' on {sourceName} first, then merge into {targetName} again."));
                 case MergeStatus.UpToDate:
                     return new MergeResponse();
                 case MergeStatus.Locked:
@@ -293,7 +323,7 @@ namespace Vertex.Server.History
             }
 
             _logger.LogInformation("Merged {Source} into {Target} in project {ProjectId} as #{Revision}: {Files} file(s), {Resolved} conflict(s) resolved, by {User}",
-                source.Name, target.Name, projectId, outcome.Revision, outcome.Files, outcome.Resolved, user.GetUsername());
+                sourceName, targetName, projectId, outcome.Revision, outcome.Files, outcome.Resolved, user.GetUsername());
             MergeResponse response = new() { Revision = outcome.Revision ?? 0, Files = outcome.Files, Resolved = outcome.Resolved };
 
             // A merge that settles a stuck hop of a chain (or any merge into a branch with a target) carries on along it.

@@ -12,13 +12,20 @@ namespace Vertex.Server.Projects
     [Route("api/v1/branches")]
     public class BranchesController : Controller
     {
+        /// <summary>The <c>paths</c> value that puts a link back to the upstream's own top-level folders and files.</summary>
+        private const string AutoPaths = "auto";
+
         private readonly BranchesRepository _branches;
         private readonly AccessService _access;
+        private readonly UpstreamsRepository _upstreams;
+        private readonly UpstreamLinks _links;
 
-        public BranchesController(BranchesRepository branches, AccessService access)
+        public BranchesController(BranchesRepository branches, AccessService access, UpstreamsRepository upstreams, UpstreamLinks links)
         {
             _branches = branches;
             _access = access;
+            _upstreams = upstreams;
+            _links = links;
         }
 
         /// <summary>
@@ -46,7 +53,7 @@ namespace Vertex.Server.Projects
             bool added;
             try
             {
-                added = await _branches.AddBranchAsync(branch, cancellationToken);
+                added = await _branches.AddBranchAsync(branch, User.GetUserId(), cancellationToken);
             }
             catch (ArgumentException ex)
             {
@@ -88,6 +95,70 @@ namespace Vertex.Server.Projects
             {
                 return BadRequest(ex.Message);
             }
+        }
+
+        /// <summary>
+        /// A branch's upstreams (at most one for now) and how far apart they are: the upstream revision the branch took
+        /// in last and how many came after it; with <paramref name="differences"/>, also how many of the files the
+        /// upstream owns differ between the two (reads both file lists, so only <c>vx upstream</c> asks).
+        /// </summary>
+        [HttpGet("upstream")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public async Task<ActionResult<IReadOnlyList<VUpstream>>> GetUpstreamsAsync([FromQuery] Guid projectId, [FromQuery] Guid branchId, [FromQuery] bool differences = false,
+            CancellationToken cancellationToken = default)
+        {
+            if (await DenyAsync(projectId, AccessLevel.Read, cancellationToken) is ActionResult denied) return denied;
+            return Ok(await _upstreams.ListAsync(projectId, branchId, true, differences, cancellationToken));
+        }
+
+        /// <summary>
+        /// Makes <paramref name="upstreamProject"/>/<paramref name="upstreamBranch"/> the branch's upstream (replacing any
+        /// other) or changes its settings. Linking stores the link only: the next <c>vx merge upstream</c> takes the
+        /// upstream's files in. Needs manage access to the branch's project and read access to the upstream's.
+        /// </summary>
+        /// <param name="projectId">The branch's project.</param>
+        /// <param name="branchId">The branch to link (the downstream).</param>
+        /// <param name="upstreamProject">The upstream's project, by name.</param>
+        /// <param name="upstreamBranch">The upstream branch, by name.</param>
+        /// <param name="paths">Comma-separated folders and files the upstream owns, or <c>auto</c> for its top-level
+        /// ones. Omitted, the link keeps what it has.</param>
+        /// <param name="readOnly">Refuse submits to the upstream's paths on the branch. Omitted, the link keeps its setting.</param>
+        /// <param name="cancellationToken">A token that can be used to cancel the operation.</param>
+        [HttpPut("upstream")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<VUpstream>> SetUpstreamAsync([FromQuery] Guid projectId, [FromQuery] Guid branchId, [FromQuery] string upstreamProject,
+            [FromQuery] string upstreamBranch, [FromQuery] string? paths = null, [FromQuery] bool? readOnly = null, CancellationToken cancellationToken = default)
+        {
+            if (await DenyAsync(projectId, AccessLevel.Manage, cancellationToken) is ActionResult denied) return denied;
+
+            ResolvedUpstream upstream = await _links.ResolveAsync(User, upstreamProject ?? "", upstreamBranch ?? "", cancellationToken);
+            if (upstream.Branch is null) return StatusCode(upstream.StatusCode, upstream.Error);
+
+            try
+            {
+                string[]? entries = paths is null ? null : paths.Trim().Equals(AutoPaths, StringComparison.OrdinalIgnoreCase) ? [] : UpstreamsRepository.Normalize(paths.Split(','));
+                VUpstream? link = await _upstreams.SetAsync(projectId, branchId, upstream.Branch.Id, entries, readOnly, cancellationToken);
+                if (link is null) return NotFound("The branch no longer exists. Run 'vx branch list' to see the project's branches.");
+                return Ok(link);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Unlinks a branch from its upstream. Its files and history stay; it just no longer takes or sends changes.
+        /// </summary>
+        /// <returns>The links removed (empty when it had none).</returns>
+        [HttpDelete("upstream")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public async Task<ActionResult<IReadOnlyList<VUpstream>>> ClearUpstreamAsync([FromQuery] Guid projectId, [FromQuery] Guid branchId, CancellationToken cancellationToken)
+        {
+            if (await DenyAsync(projectId, AccessLevel.Manage, cancellationToken) is ActionResult denied) return denied;
+            return Ok(await _upstreams.ClearAsync(projectId, branchId, cancellationToken));
         }
 
         [HttpDelete]

@@ -50,7 +50,7 @@ namespace Vertex.Cli.Files
             if (!string.IsNullOrWhiteSpace(settings.MergeTo))
             {
                 using BranchInterface branches = new(settings.ServerAddress, settings.Token);
-                mergeTarget = await MergeOutput.FindBranchAsync(branches, linked, settings.MergeTo, cancellationToken);
+                mergeTarget = await MergeOutput.FindBranchAsync(settings, branches, linked, settings.MergeTo, cancellationToken);
                 if (mergeTarget is null) return 1;
                 if (mergeTarget.Id == linked.BranchId)
                 {

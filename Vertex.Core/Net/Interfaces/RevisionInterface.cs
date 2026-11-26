@@ -80,9 +80,11 @@ namespace Vertex.Core.Net.Interfaces
         /// </summary>
         /// <returns>The revision written (0 when the target already had everything), or the conflicts that refused
         /// the merge.</returns>
+        /// <param name="projectId">The target's project.</param>
         /// <param name="message">The revision's description; empty for "Merge source into target".</param>
+        /// <param name="sourceProjectId">The source's project, when one branch is the other's upstream in another project.</param>
         public async Task<MergeResponse> MergeAsync(Guid projectId, Guid sourceBranchId, Guid targetBranchId, string message, MergeResolution resolve = MergeResolution.None,
-            Guid? workspaceId = null, string? host = null, CancellationToken ct = default)
+            Guid? workspaceId = null, string? host = null, CancellationToken ct = default, Guid? sourceProjectId = null)
         {
             MergeRequest request = new()
             {
@@ -92,7 +94,8 @@ namespace Vertex.Core.Net.Interfaces
                 Message = message,
                 Resolve = resolve,
                 WorkspaceId = workspaceId?.ToString() ?? string.Empty,
-                Host = host ?? string.Empty
+                Host = host ?? string.Empty,
+                SourceProjectId = sourceProjectId is Guid other && other != projectId ? other.ToString() : string.Empty
             };
 
             return await RevisionsClient.MergeAsync(request, cancellationToken: ct);

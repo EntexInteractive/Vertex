@@ -38,6 +38,16 @@ project-wide rules.
   lock; the write takes it, re-reads both heads and the latest merge in the same round trip, and replans if either
   moved. Locks on the target block the paths a merge would change. Every merge that settles anything is recorded,
   even with no revision, so a settled conflict never comes back.
+- Upstreams (`Branches/UpstreamsRepository`, `UpstreamLinks`, `branches.upstreams`): a branch can take its files from
+  a branch of another project (a studio engine for a game). It is never a parent (parent chains compare revision
+  numbers, which differ per project): taking the upstream in is an ordinary merge revision on the downstream.
+  `MergesRepository.MergeAsync` with a `sourceProjectId` runs `MergeLinkedAsync`: the base is the upstream at the
+  highest `revisions.merges.upstream_revision` between the two (none before the first merge), a merge into the
+  upstream only compares the paths it owns (`ScopeSql`/`InScope`) and is refused as `Behind` unless the downstream
+  has taken in the upstream's head, and every merge between them records `upstream_revision`/`downstream_revision`
+  even when it changes no files. Branch creation and merges within a project carry those agreements over
+  (`CarryUpstreamsSql`). Read-only links are checked in `RevisionsRepository.SubmitAsync`'s read batch. A merge
+  locks only the target project's counters row.
 - Merge chains (`History/AutoMerger`): a branch's `merge_to` (`vx branch --merge-to`) names the branch each of its
   revisions is merged into. `RevisionService.Submit` and `Merge` run the chain right after their revision commits
   (hop by hop, no resolution, stopping at the first hop that conflicts, is locked or has nothing to do) and return

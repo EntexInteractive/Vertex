@@ -184,8 +184,8 @@ namespace Vertex.Cli.Branches
         }
 
         /// <summary>
-        /// ", auto-merging into release-2.0" for the workspace's branch, or nothing when it has no target or the server
-        /// can't be asked (showing the branch name never needs the server).
+        /// ", auto-merging into release-2.0, upstream UE5/release" for the workspace's branch, or nothing when it has
+        /// neither or the server can't be asked (showing the branch name never needs the server).
         /// </summary>
         private static async Task<string> DescribeTargetAsync(NetworkSettings settings, VWorkspace workspace, CancellationToken cancellationToken)
         {
@@ -199,7 +199,18 @@ namespace Vertex.Cli.Branches
                 if (!all.IsSuccessStatusCode) return "";
                 Guid? target = all.Data!.FirstOrDefault(b => b.Id == branchId)?.MergeTo;
                 string? targetName = all.Data!.FirstOrDefault(b => b.Id == target)?.Name;
-                return targetName is null ? "" : $", auto-merging into [purple]{Markup.Escape(targetName)}[/]";
+                string described = targetName is null ? "" : $", auto-merging into [purple]{Markup.Escape(targetName)}[/]";
+
+                ServerResult<IReadOnlyList<VUpstream>> upstreams = await branches.GetUpstreamsAsync(projectId, branchId, false, quick.Token);
+                if (upstreams.IsSuccessStatusCode && upstreams.Data!.Count > 0)
+                {
+                    VUpstream upstream = upstreams.Data[0];
+                    string at = upstream.TakenRevision is long taken ? $" #{taken}" : "";
+                    string behind = upstream.Behind > 0 ? $", {upstream.Behind:N0} behind" : "";
+                    described += $", files from [purple]{Markup.Escape(upstream.Name)}{at}[/]{behind}";
+                }
+
+                return described;
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {

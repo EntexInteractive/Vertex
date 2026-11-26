@@ -200,14 +200,19 @@ message GetRevisionChangesResponse {
 // base, S on the source and T on the target: S == B (only the target changed it) is skipped, T == B takes S, and
 // anything else is a conflict, which refuses the whole merge unless `resolve` picks a side. Content is never merged
 // inside a file.
+//
+// The source may also be in another project when one branch is the other's upstream (vx merge upstream, vx merge --into
+// upstream). Then the base is the upstream's state the downstream last took in, a merge into the upstream only sends the
+// paths it owns, and it is refused until the downstream has taken in the upstream's latest.
 message MergeRequest {
-  string project_id = 1;
+  string project_id = 1;        // The target's project.
   string source_branch_id = 2;
   string target_branch_id = 3;
   string message = 4;           // Empty for "Merge <source> into <target>".
   MergeResolution resolve = 5;
   string workspace_id = 6;      // The caller's workspace, if any, for the events.
   string host = 7;
+  string source_project_id = 8; // The source's project when it isn't project_id (an upstream or downstream branch).
 }
 
 enum MergeResolution {

@@ -126,6 +126,7 @@ namespace Vertex.Server.History
                 MergeStatus.UpToDate => "up_to_date",
                 MergeStatus.Conflicts => "conflicts",
                 MergeStatus.Locked => "locked",
+                MergeStatus.Behind => "behind",
                 _ => "unrelated"
             }));
 
